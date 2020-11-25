@@ -15,6 +15,8 @@ import PrelNames
 import Linker
 import Bag
 
+import Data.Maybe
+
 import Control.Monad.IO.Class
 
 
@@ -29,14 +31,16 @@ holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowTypeAppOfHoleFits
             , Opt_ShowTypeOfHoleFits ]
 
-initGhcCtxt :: Ghc ()
-initGhcCtxt = do
-   sflags <- getSessionDynFlags
-   let flags = (foldl gopt_unset sflags holeFlags) {
+config :: DynFlags -> DynFlags
+config sflags =
+        (foldl gopt_unset sflags holeFlags) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
                refLevelHoleFits = Just 2 }
 
+initGhcCtxt :: Ghc ()
+initGhcCtxt = do
+   flags <- config <$> getSessionDynFlags
      --`dopt_set` Opt_D_dump_json
    -- First we have to add "base" to scope
    toLink <- setSessionDynFlags (flags {packageFlags = (packageFlags flags) ++ packages})
@@ -51,27 +55,42 @@ output p = do
     flags <- getSessionDynFlags
     mapM_ (liftIO . print . showSDoc flags . ppr) p
 
-inspectException :: SourceError -> Ghc (Maybe [([String], [String])])
+type ValsAndRefs = ([String], [String])
+
+inspectException :: SourceError -> Ghc (Either [ValsAndRefs] HValue)
 inspectException err = do
     flags <- getSessionDynFlags
     printException err
     let supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
-        isValid ('V':'a':'l':'i':'d':_) = True
+        isValid ('V':'a':'l':'i':'d':_:xs) =
+            case xs of
+                'h':'o':'l':'e':_ -> True
+                'r':'e':'f':'i':'n':'e':'m':'e':'n':'t':_ -> True
+                _ -> False
         isValid _ = False
-        valids :: [[String]]
-        valids = map (filter isValid . map (showSDoc flags)) supp
+        toMb [] = Nothing
+        toMb [x] = Just x
+        toMb o = error (show o)
+        valids :: [Maybe String]
+        valids = map (toMb . filter isValid . map (showSDoc flags)) supp
         spl v = (map (dropWhile (== ' ')) vals, map (dropWhile (== ' ')) rfs)
           where (vals,r:rfs) = break isValid (tail v)
-        valsAndRefs = map (map spl . map lines) valids
+        valsAndRefs = map spl $ map lines $ catMaybes valids
     liftIO $ print $ valids
     mapM_ (liftIO . print) valsAndRefs
+    return $ Left $ valsAndRefs
     --(map (map (showSDocOneLine flags) . filter (isValid . showSDoc flags)) supp)
 
-try :: String -> IO ()
-try str = runGhc libDir $ do
+evalOrHoleFits :: String -> Ghc (Either [ValsAndRefs] HValue)
+evalOrHoleFits str = do
    initGhcCtxt
    -- Then we can actually run the program!
-   handleSourceError inspectException (compileExpr str >>= (return []))
+   handleSourceError inspectException (compileExpr str >>= (return . Right))
+
+try :: String -> IO ()
+try str = do
+   r <- runGhc libDir $ evalOrHoleFits str
+   print r
 
 
 
