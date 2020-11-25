@@ -51,7 +51,7 @@ output p = do
     flags <- getSessionDynFlags
     mapM_ (liftIO . print . showSDoc flags . ppr) p
 
-inspectException :: SourceError -> Ghc ()
+inspectException :: SourceError -> Ghc (Maybe [([String], [String])])
 inspectException err = do
     flags <- getSessionDynFlags
     printException err
@@ -71,7 +71,7 @@ try :: String -> IO ()
 try str = runGhc libDir $ do
    initGhcCtxt
    -- Then we can actually run the program!
-   handleSourceError inspectException (compileExpr str >>= (liftIO . print))
+   handleSourceError inspectException (compileExpr str >>= (return []))
 
 
 
