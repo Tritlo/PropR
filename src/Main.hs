@@ -13,6 +13,7 @@ import DynFlags
 import HscTypes
 import PrelNames
 import Linker
+import Bag
 
 import Control.Monad.IO.Class
 
@@ -21,11 +22,22 @@ importStmts = ["import Prelude"]
 packages = [ExposePackage "base" (PackageArg "base") (ModRenaming True [])]
 -- Found from running `ghc --lib-dir`
 libDir = Just "/nix/store/ijx5zivd823kp4qzb773fmg7a2qcf7ix-ghc-8.10.1/lib/ghc-8.10.1"
+holeFlags = [ Opt_ShowHoleConstraints
+            , Opt_ShowMatchesOfHoleFits
+            , Opt_ShowProvOfHoleFits
+            , Opt_ShowTypeAppVarsOfHoleFits
+            , Opt_ShowTypeAppOfHoleFits
+            , Opt_ShowTypeOfHoleFits ]
 
 initGhcCtxt :: Ghc ()
 initGhcCtxt = do
    sflags <- getSessionDynFlags
-   let flags =  sflags --`dopt_set` Opt_D_dump_json
+   let flags = (foldl gopt_unset sflags holeFlags) {
+               maxValidHoleFits = Nothing,
+               maxRefHoleFits = Nothing,
+               refLevelHoleFits = Just 2 }
+
+     --`dopt_set` Opt_D_dump_json
    -- First we have to add "base" to scope
    toLink <- setSessionDynFlags (flags {packageFlags = (packageFlags flags) ++ packages})
    -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
@@ -34,27 +46,37 @@ initGhcCtxt = do
    imports <- mapM ( fmap IIDecl . parseImportDecl) importStmts
    getContext >>= setContext . (imports ++)
 
-output :: Outputable p => p -> Ghc ()
+output :: Outputable p => [p] -> Ghc ()
 output p = do
     flags <- getSessionDynFlags
-    (liftIO . print . showSDoc flags . ppr) p
+    mapM_ (liftIO . print . showSDoc flags . ppr) p
 
 inspectException :: SourceError -> Ghc ()
 inspectException err = do
     flags <- getSessionDynFlags
-    output $ pprErrMsgBagWithLoc $ srcErrorMessages err
     printException err
+    let supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
+        isValid ('V':'a':'l':'i':'d':_) = True
+        isValid _ = False
+        valids :: [[String]]
+        valids = map (filter isValid . map (showSDoc flags)) supp
+        spl v = (map (dropWhile (== ' ')) vals, map (dropWhile (== ' ')) rfs)
+          where (vals,r:rfs) = break isValid (tail v)
+        valsAndRefs = map (map spl . map lines) valids
+    liftIO $ print $ valids
+    mapM_ (liftIO . print) valsAndRefs
+    --(map (map (showSDocOneLine flags) . filter (isValid . showSDoc flags)) supp)
 
 try :: String -> IO ()
 try str = runGhc libDir $ do
    initGhcCtxt
    -- Then we can actually run the program!
-   handleSourceError inspectException (dynCompileExpr str >>= (liftIO . print))
+   handleSourceError inspectException (compileExpr str >>= (liftIO . print))
 
 
 
 main :: IO ()
 main = do
-    try "_ :: Bool"
+    try "let thisIsAnExtremelyLongNameOfAFunctionThatIAmHopingWillBreakAndOhMyGodIHaveToMakeItEvenLongerICannotBelieveThisIsItEvenPossible False = True in (_ (_ :: Bool)) :: Bool"
     try "True"
     --putStrLn "ghc-synth!"
