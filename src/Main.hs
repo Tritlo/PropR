@@ -19,11 +19,11 @@ import Data.Maybe
 
 import Control.Monad.IO.Class
 
+import System.Process
+
 
 importStmts = ["import Prelude"]
 packages = [ExposePackage "base" (PackageArg "base") (ModRenaming True [])]
--- Found from running `ghc --lib-dir`
-libDir = Just "/nix/store/ijx5zivd823kp4qzb773fmg7a2qcf7ix-ghc-8.10.1/lib/ghc-8.10.1"
 holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowMatchesOfHoleFits
             , Opt_ShowProvOfHoleFits
@@ -87,8 +87,15 @@ evalOrHoleFits str = do
    -- Then we can actually run the program!
    handleSourceError inspectException (compileExpr str >>= (return . Right))
 
+getLibDir :: IO (Maybe String)
+getLibDir = do ld <- readCreateProcess (shell "ghc --print-libdir") ""
+               return $ case lines ld of
+                          [ld] -> Just ld
+                          _ -> Nothing
+
 try :: String -> IO ()
 try str = do
+   libDir <- getLibDir
    r <- runGhc libDir $ evalOrHoleFits str
    print r
 
