@@ -30,6 +30,10 @@ import Text.ParserCombinators.ReadP
 import Control.Monad (filterM)
 
 import Control.Concurrent
+import Data.IORef
+import System.IO.Unsafe
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 
 
 config :: Int -> DynFlags -> DynFlags
@@ -150,7 +154,7 @@ holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowTypeAppOfHoleFits
             , Opt_ShowTypeOfHoleFits ]
 
-synthesizeSatisfying :: [String] -> String -> [String] -> IO [String]
+synthesizeSatisfying :: IORef (Map SynthInput [String]) -> [String] -> String -> [String] -> IO [String]
 synthesizeSatisfying = synthesizeSatisfyingWLevel 0
 
 parM :: [IO a] -> IO [a]
@@ -160,17 +164,32 @@ parM actions = do mvs <- mapM start actions
                           forkIO (action >>= putMVar mv)
                           return mv
 
-synthesizeSatisfyingWLevel :: Int -> [String] -> String -> [String] -> IO [String]
-synthesizeSatisfyingWLevel lvl context ty props = do
-    Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
-    case r of
-      ((vals,refs):_) -> do
-          let rHoles = map readHole refs
-          rHVs <- parM $ map recur rHoles
-          fits <- parM $ map (\v -> (>>=) (isFit v) (\r -> return (v,r))) (vals ++ (concat rHVs))
-          return $ map fst $ filter snd fits
-        --   filterM isFit (vals ++ rHoleVals)
-      _ -> return []
+-- MEMOIZE
+type SynthInput = (Int, [String], String, [String])
+
+-- synthMemo :: IORef (Map SynthInput [String])
+-- synthMemo = unsafePerformIO (newIORef Map.empty)
+
+synthesizeSatisfyingWLevel :: Int -> IORef (Map SynthInput [String]) -> [String] -> String -> [String] -> IO [String]
+synthesizeSatisfyingWLevel lvl ioref context ty props = do
+    let inp = (lvl, context, ty, props)
+    sM <- readIORef ioref
+    case sM Map.!? inp of
+        Just res -> do putStrLn $ "Found " ++ (show inp) ++ "!"
+                       return res
+        Nothing -> do
+            putStrLn $ "Synthesizing " ++ (show inp)
+            Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
+            case r of
+              ((vals,refs):_) -> do
+                  let rHoles = map readHole refs
+                  rHVs <- mapM recur rHoles
+                  fits <- mapM (\v -> (>>=) (isFit v) (\r -> return (v,r))) (vals ++ (concat rHVs))
+                  let res = map fst $ filter snd fits
+                  atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
+                  return res
+              _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
+                      return []
 
   where isFit v = try (buildCheckExprAtTy props context ty v) >>= runCheck
         contextLet l = unlines ["let"
@@ -181,12 +200,12 @@ synthesizeSatisfyingWLevel lvl context ty props = do
         recur (e, [hole]) = do
           -- Weird, but we'll use the same structure for multiple holes later.
           -- No props for the hole.
-          (holeFs:_) <- mapM ((flip (synthesizeSatisfying context)) []) [hole]
+          (holeFs:_) <- mapM ((flip (synthesizeSatisfying ioref context)) []) [hole]
           let cands = (map ((e ++ " ") ++) holeFs)
         --   print cands
           return cands
         recur (e, holes@[h1,h2]) = do
-          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfying context)) []) holes
+          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfying ioref context)) []) holes
 
           let combs = (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
               cands = map ((e ++ " ") ++) combs
@@ -239,7 +258,8 @@ main = do
     putStrLn "IN CONTEXT:"
     mapM_ (putStrLn . ("  " ++)) context
     putStrLn "SYNTHESIZING..."
-    r <- synthesizeSatisfyingWLevel 2 context ty props
+    memo <- newIORef (Map.empty)
+    r <- synthesizeSatisfyingWLevel 2 memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
