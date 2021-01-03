@@ -160,7 +160,7 @@ main = do
     -- print r2
     -- r3 <- runCheck r2
     -- print r3
-    let props = ["propIsAssoc f xs = f xs == f (reverse xs)"]
+    let props = ["propIsSymmetric f xs = f xs == f (reverse xs)"]
                  --"propAlwaysPos f xs = f xs >= 0"]
         ty = "[Int] -> Int"
     putStrLn "TARGET TYPE:"
@@ -168,7 +168,7 @@ main = do
     putStrLn "MUST SATISFY:"
     mapM_ (putStrLn . ("  " ++)) props
     putStrLn "SYNTHESIZING..."
-    r <- synthesizeSatisfying "[Int] -> Int" props
+    r <- synthesizeSatisfying ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
