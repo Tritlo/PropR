@@ -32,7 +32,6 @@ import Control.Monad (filterM)
 
 import Control.Concurrent
 import Data.IORef
-import System.IO.Unsafe
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Language.Haskell.TH (runIO, runQ, Lit(..), Exp (..))
@@ -160,12 +159,15 @@ synthesizeSatisfying :: Memo -> [String] -> String -> [String] -> IO [String]
 synthesizeSatisfying = synthesizeSatisfyingWLevel 0 1
 
 parM :: [IO a] -> IO [a]
-parM actions = do mvs <- mapM start actions
-                  mapM readMVar mvs
-  where start action = do mv <- newEmptyMVar
-                          forkIO (action >>= putMVar mv)
-                          return mv
-
+-- parM actions = do mvs <- mapM start actions
+--                   mapM readMVar mvs
+--   where start action = do mv <- newEmptyMVar
+--                           forkIO (action >>= putMVar mv)
+--                           return mv
+-- Safer
+--modIORef = atomicModifyIORef'
+parM = sequence
+modIORef = modifyIORef
 -- MEMOIZE
 type SynthInput = (Int, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput (MVar [String]))
@@ -182,7 +184,7 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
         Nothing -> do
             putStrLn $ "Synthesizing " ++ (show inp)
             nvar <- newEmptyMVar
-            atomicModifyIORef' ioref (\m -> (Map.insert inp nvar m, ()))
+            modIORef ioref (\m -> Map.insert inp nvar m)
             Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
             case r of
               ((vals,refs):_) -> do
