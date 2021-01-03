@@ -2,19 +2,14 @@ Synthesis using GHC
 ===================
 
 Works, but is pretty slow at the moment, even when doing the synthesis and
-testing in parallel, but it works!
+testing in parallel, but it works! Requires QuickCheck to be installed globally,
+otherwise the internal synthesizer cannot run the tests (we should fix this 
+by some NIX magic).
 
 Current output:
-
 ```
-[nix-shell:~/ghc-synth]$ time cabal run
-Build profile: -w ghc-8.10.2 -O1
-In order, the following will be built (use -v for more details):
- - ghc-synth-0.0.1 (exe:ghc-synth) (file src/Main.hs changed)
-Preprocessing executable 'ghc-synth' for ghc-synth-0.0.1..
-Building executable 'ghc-synth' for ghc-synth-0.0.1..
-[1 of 1] Compiling Main             ( src/Main.hs, /home/tritlo/ghc-synth/dist-newstyle/build/x86_64-linux/ghc-8.10.2/ghc-synth-0.0.1/x/ghc-synth/build/ghc-synth/ghc-synth-tmp/Main.o )
-Linking /home/tritlo/ghc-synth/dist-newstyle/build/x86_64-linux/ghc-8.10.2/ghc-synth-0.0.1/x/ghc-synth/build/ghc-synth/ghc-synth ...
+[nix-shell:~/ghc-synth]$ time cabal run +RTS -N4
+Up to date
 TARGET TYPE:
   [Int] -> Int
 MUST SATISFY:
@@ -23,6 +18,25 @@ IN CONTEXT:
   zero = 0 :: Int
   one = 1 :: Int
 SYNTHESIZING...
+Synthesizing (2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"])
+Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])
+Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 FOUND MATCHES:
 length
 product
@@ -141,7 +155,8 @@ asTypeOf sum minimum
 asTypeOf sum product
 asTypeOf sum sum
 
-real	0m45.694s
-user	1m23.086s
-sys	    0m24.245s
+real	0m38.105s
+user	1m7.705s
+sys 	0m19.140s
 ```
+
