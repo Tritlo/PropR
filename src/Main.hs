@@ -268,7 +268,7 @@ main = do
     memo <- newIORef (Map.empty)
     -- 2 is the number of additional holes at the top level,
     -- 3 is the depth.
-    r <- synthesizeSatisfyingWLevel 2 3 memo context ty props
+    r <- synthesizeSatisfyingWLevel 2 2 memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
