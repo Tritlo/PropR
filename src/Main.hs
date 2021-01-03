@@ -1,3 +1,4 @@
+{-# LANGUAGE TemplateHaskell #-}
 module Main where
 
 import Parser
@@ -34,6 +35,7 @@ import Data.IORef
 import System.IO.Unsafe
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Language.Haskell.TH (runIO, runQ, Lit(..), Exp (..))
 
 
 config :: Int -> DynFlags -> DynFlags
@@ -94,11 +96,11 @@ evalOrHoleFits lvl str = do
    -- Then we can actually run the program!
    handleSourceError inspectException (dynCompileExpr str >>= (return . Right))
 
-getLibDir :: IO (Maybe String)
-getLibDir = do ld <- readCreateProcess (shell "ghc --print-libdir") ""
-               return $ case lines ld of
-                          [ld] -> Just ld
-                          _ -> Nothing
+-- We do this at compile-time to avoid later mess.
+libDir :: Maybe String
+libDir = Just $(runIO $
+                 (LitE . StringL . head . lines) <$>
+                 readCreateProcess (shell "ghc --print-libdir") "")
 
 try :: String -> IO (Either [ValsAndRefs] Dynamic)
 try = tryWLevel 1
@@ -108,7 +110,7 @@ tryAtType = tryAtTypeWLvl 1
 
 tryWLevel :: Int -> String -> IO (Either [ValsAndRefs] Dynamic)
 tryWLevel lvl str = do
-   libDir <- getLibDir
+   -- libDir <- getLibDir
    r <- runGhc libDir $ evalOrHoleFits lvl str
 --    print r
    return r
@@ -155,7 +157,7 @@ holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowTypeOfHoleFits ]
 
 synthesizeSatisfying :: Memo -> [String] -> String -> [String] -> IO [String]
-synthesizeSatisfying = synthesizeSatisfyingWLevel 0
+synthesizeSatisfying = synthesizeSatisfyingWLevel 0 1
 
 parM :: [IO a] -> IO [a]
 parM actions = do mvs <- mapM start actions
@@ -165,13 +167,14 @@ parM actions = do mvs <- mapM start actions
                           return mv
 
 -- MEMOIZE
-type SynthInput = (Int, [String], String, [String])
+type SynthInput = (Int, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput (MVar [String]))
 
 
-synthesizeSatisfyingWLevel :: Int -> Memo -> [String] -> String -> [String] -> IO [String]
-synthesizeSatisfyingWLevel lvl ioref context ty props = do
-    let inp = (lvl, context, ty, props)
+synthesizeSatisfyingWLevel :: Int -> Int -> Memo -> [String] -> String -> [String] -> IO [String]
+synthesizeSatisfyingWLevel _       0     _       _  _     _ = return []
+synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
+    let inp = (lvl, depth, context, ty, props)
     sM <- readIORef ioref
     case sM Map.!? inp of
         Just res -> do putStrLn $ "Found " ++ (show inp) ++ "!"
@@ -185,7 +188,8 @@ synthesizeSatisfyingWLevel lvl ioref context ty props = do
               ((vals,refs):_) -> do
                   let rHoles = map readHole refs
                   rHVs <- parM $ map recur rHoles
-                  fits <- parM $ map (\v -> (>>=) (isFit v) (\r -> return (v,r))) (vals ++ (concat rHVs))
+                  let cands = (vals ++ (map wrap $ concat rHVs))
+                  fits <- parM $ map (\v -> (>>=) (isFit v) (\r -> return (v,r))) cands
                   let res = map fst $ filter snd fits
                   putMVar nvar res
                   return res
@@ -193,6 +197,7 @@ synthesizeSatisfyingWLevel lvl ioref context ty props = do
                       return []
 
   where isFit v = try (buildCheckExprAtTy props context ty v) >>= runCheck
+        wrap p = "(" ++ p ++ ")"
         contextLet l = unlines ["let"
                                , unlines $ map ("    " ++)  context
                                , "in " ++ l]
@@ -201,12 +206,11 @@ synthesizeSatisfyingWLevel lvl ioref context ty props = do
         recur (e, [hole]) = do
           -- Weird, but we'll use the same structure for multiple holes later.
           -- No props for the hole.
-          (holeFs:_) <- mapM ((flip (synthesizeSatisfying ioref context)) []) [hole]
+          [holeFs] <- mapM ((flip (synthesizeSatisfyingWLevel 1 (depth-1) ioref context)) []) [hole]
           let cands = (map ((e ++ " ") ++) holeFs)
-        --   print cands
           return cands
         recur (e, holes@[h1,h2]) = do
-          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfying ioref context)) []) holes
+          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfyingWLevel 1 (depth-1) ioref context)) []) holes
 
           let combs = (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
               cands = map ((e ++ " ") ++) combs
@@ -260,12 +264,14 @@ main = do
     mapM_ (putStrLn . ("  " ++)) context
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
-    r <- synthesizeSatisfyingWLevel 2 memo context ty props
+    -- 2 is the number of additional holes at the top level,
+    -- 3 is the depth.
+    r <- synthesizeSatisfyingWLevel 2 3 memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
                    putStrLn xs
-        xs -> do putStrLn "FOUND MATCHES:"
+        xs -> do putStrLn $ "FOUND " ++ (show  $ length xs) ++" MATCHES:"
                  mapM_ putStrLn xs
 
     --putStrLn "ghc-synth!"

@@ -19,5 +19,6 @@ executable ghc-synth
                  ghc >= 8 && < 9,
                  process >= 1.6 && < 1.7,
                  QuickCheck >= 2.14 && < 2.15,
-                 containers >= 0.6
+                 containers >= 0.6,
+                 template-haskell >= 2.16
 
