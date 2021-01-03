@@ -154,7 +154,7 @@ holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowTypeAppOfHoleFits
             , Opt_ShowTypeOfHoleFits ]
 
-synthesizeSatisfying :: IORef (Map SynthInput [String]) -> [String] -> String -> [String] -> IO [String]
+synthesizeSatisfying :: Memo -> [String] -> String -> [String] -> IO [String]
 synthesizeSatisfying = synthesizeSatisfyingWLevel 0
 
 parM :: [IO a] -> IO [a]
@@ -166,29 +166,30 @@ parM actions = do mvs <- mapM start actions
 
 -- MEMOIZE
 type SynthInput = (Int, [String], String, [String])
+type Memo = IORef (Map SynthInput (MVar [String]))
 
--- synthMemo :: IORef (Map SynthInput [String])
--- synthMemo = unsafePerformIO (newIORef Map.empty)
 
-synthesizeSatisfyingWLevel :: Int -> IORef (Map SynthInput [String]) -> [String] -> String -> [String] -> IO [String]
+synthesizeSatisfyingWLevel :: Int -> Memo -> [String] -> String -> [String] -> IO [String]
 synthesizeSatisfyingWLevel lvl ioref context ty props = do
     let inp = (lvl, context, ty, props)
     sM <- readIORef ioref
     case sM Map.!? inp of
         Just res -> do putStrLn $ "Found " ++ (show inp) ++ "!"
-                       return res
+                       readMVar res
         Nothing -> do
             putStrLn $ "Synthesizing " ++ (show inp)
+            nvar <- newEmptyMVar
+            atomicModifyIORef' ioref (\m -> (Map.insert inp nvar m, ()))
             Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
             case r of
               ((vals,refs):_) -> do
                   let rHoles = map readHole refs
-                  rHVs <- mapM recur rHoles
-                  fits <- mapM (\v -> (>>=) (isFit v) (\r -> return (v,r))) (vals ++ (concat rHVs))
+                  rHVs <- parM $ map recur rHoles
+                  fits <- parM $ map (\v -> (>>=) (isFit v) (\r -> return (v,r))) (vals ++ (concat rHVs))
                   let res = map fst $ filter snd fits
-                  atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
+                  putMVar nvar res
                   return res
-              _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
+              _ -> do putMVar nvar []
                       return []
 
   where isFit v = try (buildCheckExprAtTy props context ty v) >>= runCheck
