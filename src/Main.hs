@@ -2,7 +2,7 @@ module Main where
 
 import Parser
 import Lexer
-import Outputable
+import Outputable hiding (char)
 import StringBuffer
 import FastString
 import SrcLoc
@@ -25,18 +25,20 @@ import Data.Dynamic
 import Data.List
 import Test.QuickCheck
 
+import Text.ParserCombinators.ReadP
+
 import Control.Monad (filterM)
 
-config :: DynFlags -> DynFlags
-config sflags =
+config :: Int -> DynFlags -> DynFlags
+config lvl sflags =
         (foldl gopt_unset sflags holeFlags) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
-               refLevelHoleFits = Just 2 }
+               refLevelHoleFits = Just lvl }
 
-initGhcCtxt :: Ghc ()
-initGhcCtxt = do
-   flags <- config <$> getSessionDynFlags
+initGhcCtxt :: Int -> Ghc ()
+initGhcCtxt lvl = do
+   flags <- (config lvl) <$> getSessionDynFlags
      --`dopt_set` Opt_D_dump_json
    -- First we have to add "base" to scope
    toLink <- setSessionDynFlags (flags {packageFlags = (packageFlags flags) ++ packages})
@@ -70,16 +72,18 @@ inspectException err = do
         valids :: [Maybe String]
         valids = map (toMb . filter isValid . map (showSDoc flags)) supp
         spl v = (map (dropWhile (== ' ')) vals, map (dropWhile (== ' ')) rfs)
-          where (vals,r:rfs) = break isValid (tail v)
+          where (vals,rfs) = case break isValid (tail v) of
+                                (v,r:rfs) -> (v,rfs)
+                                (v, []) -> (v, [])
         valsAndRefs = map spl $ map lines $ catMaybes valids
     --liftIO $ print $ valids
     --mapM_ (liftIO . print) valsAndRefs
     return $ Left $ valsAndRefs
     --(map (map (showSDocOneLine flags) . filter (isValid . showSDoc flags)) supp)
 
-evalOrHoleFits :: String -> Ghc (Either [ValsAndRefs] Dynamic)
-evalOrHoleFits str = do
-   initGhcCtxt
+evalOrHoleFits :: Int -> String -> Ghc (Either [ValsAndRefs] Dynamic)
+evalOrHoleFits lvl str = do
+   initGhcCtxt lvl
    -- Then we can actually run the program!
    handleSourceError inspectException (dynCompileExpr str >>= (return . Right))
 
@@ -92,12 +96,22 @@ getLibDir = do ld <- readCreateProcess (shell "ghc --print-libdir") ""
 try :: String -> IO (Either [ValsAndRefs] Dynamic)
 try str = do
    libDir <- getLibDir
-   r <- runGhc libDir $ evalOrHoleFits str
+   r <- runGhc libDir $ evalOrHoleFits 1 str
 --    print r
    return r
 
 tryAtType :: String -> String -> IO (Either [ValsAndRefs] Dynamic)
 tryAtType str ty = try ("((" ++ str ++ ") :: " ++ ty ++ ")")
+
+tryWLevel :: Int -> String -> IO (Either [ValsAndRefs] Dynamic)
+tryWLevel lvl str = do
+   libDir <- getLibDir
+   r <- runGhc libDir $ evalOrHoleFits lvl str
+   return r
+
+tryAtTypeWLvl :: Int -> String -> String -> IO (Either [ValsAndRefs] Dynamic)
+tryAtTypeWLvl lvl str ty = tryWLevel lvl ("((" ++ str ++ ") :: " ++ ty ++ ")")
+
 
 
 tyToTry = "[Int] -> Int"
@@ -133,16 +147,47 @@ importStmts = ["import Prelude", "import Test.QuickCheck"]
 packages = map toPkg ["base", "process", "QuickCheck"]
 
 holeFlags = [ Opt_ShowHoleConstraints
-            , Opt_ShowMatchesOfHoleFits
             , Opt_ShowProvOfHoleFits
             , Opt_ShowTypeAppVarsOfHoleFits
             , Opt_ShowTypeAppOfHoleFits
             , Opt_ShowTypeOfHoleFits ]
 
-synthesizeSatisfying :: String -> [String] -> IO [String]
-synthesizeSatisfying ty props = do
-    Left ((vals,refs):_) <- tryAtType "_" ty
-    filterM (\v -> try (buildCheckExprAtTy props ty v) >>= runCheck) vals
+synthesizeSatisfying :: Int -> String -> [String] -> IO [String]
+synthesizeSatisfying lvl ty props = do
+    Left r <- tryAtTypeWLvl lvl "_" ty
+    case r of
+      ((vals,refs):_) -> do
+          let rHoles = map readHole refs
+          rHoleVals <- concat <$> mapM recur rHoles
+          filterM isFit (vals ++ rHoleVals)
+      _ -> return []
+
+  where isFit v = try (buildCheckExprAtTy props ty v) >>= runCheck
+        recur :: (String, [String]) -> IO [String]
+        recur (e, []) = return [e]
+        recur (e, [hole]) = do
+          -- Weird, but we'll use the same structure for multiple holes later.
+          -- No props for the hole.
+          (holeFs:_) <- mapM ((flip (synthesizeSatisfying 0)) []) [hole]
+          return (map ((e ++ " ") ++) holeFs)
+        recur _ = error "Multiple holes not implemented!"
+
+
+-- This is probably slow, we should parse it properly.
+readHole :: String -> (String, [String])
+readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
+                [(r,_)] -> r
+                o -> error ("No parse" ++ show o)
+  where po = char '('
+        pc = char ')'
+        any = satisfy $ const True
+        hole = string "_ :: " >> many any
+        parseHole = readP_to_S $ do e1 <- manyTill any (char ' ')
+                                    hs <- sepBy (between po pc hole) (char ' ')
+                                    return (e1, hs)
+
+
+
 
 main :: IO ()
 main = do
@@ -168,7 +213,7 @@ main = do
     putStrLn "MUST SATISFY:"
     mapM_ (putStrLn . ("  " ++)) props
     putStrLn "SYNTHESIZING..."
-    r <- synthesizeSatisfying ty props
+    r <- synthesizeSatisfying 1 ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
