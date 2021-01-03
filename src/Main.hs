@@ -155,15 +155,25 @@ main = do
     -- print res2
     -- res <- tryAtType exprToTry tyToTry
     -- print res
-    let props = ["propIsAssoc f xs = f xs == f (reverse xs)",
-                 "propAlwaysPos f xs = f xs >= 0"]
 
     -- r2 <- try (buildCheckExprAtTy props "[Int] -> Int" "product")
     -- print r2
     -- r3 <- runCheck r2
     -- print r3
-    putStrLn "Synthesizing..."
+    let props = ["propIsAssoc f xs = f xs == f (reverse xs)"]
+                 --"propAlwaysPos f xs = f xs >= 0"]
+        ty = "[Int] -> Int"
+    putStrLn "TARGET TYPE:"
+    putStrLn $ "  "  ++ ty
+    putStrLn "MUST SATISFY:"
+    mapM_ (putStrLn . ("  " ++)) props
+    putStrLn "SYNTHESIZING..."
     r <- synthesizeSatisfying "[Int] -> Int" props
-    print r
+    case r of
+        [] -> putStrLn "NO MATCH FOUND!"
+        [xs] -> do putStrLn "FOUND MATCH:"
+                   putStrLn xs
+        xs -> do putStrLn "FOUND MATCHES:"
+                 mapM_ putStrLn xs
 
     --putStrLn "ghc-synth!"
