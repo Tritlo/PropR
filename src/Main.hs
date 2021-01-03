@@ -29,6 +29,9 @@ import Text.ParserCombinators.ReadP
 
 import Control.Monad (filterM)
 
+import Control.Concurrent
+
+
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
         (foldl gopt_unset sflags holeFlags) {
@@ -94,33 +97,28 @@ getLibDir = do ld <- readCreateProcess (shell "ghc --print-libdir") ""
                           _ -> Nothing
 
 try :: String -> IO (Either [ValsAndRefs] Dynamic)
-try str = do
-   libDir <- getLibDir
-   r <- runGhc libDir $ evalOrHoleFits 1 str
---    print r
-   return r
+try = tryWLevel 1
 
 tryAtType :: String -> String -> IO (Either [ValsAndRefs] Dynamic)
-tryAtType str ty = try ("((" ++ str ++ ") :: " ++ ty ++ ")")
+tryAtType = tryAtTypeWLvl 1
 
 tryWLevel :: Int -> String -> IO (Either [ValsAndRefs] Dynamic)
 tryWLevel lvl str = do
    libDir <- getLibDir
    r <- runGhc libDir $ evalOrHoleFits lvl str
+--    print r
    return r
 
 tryAtTypeWLvl :: Int -> String -> String -> IO (Either [ValsAndRefs] Dynamic)
 tryAtTypeWLvl lvl str ty = tryWLevel lvl ("((" ++ str ++ ") :: " ++ ty ++ ")")
 
 
-
-tyToTry = "[Int] -> Int"
-
 qcArgs = "(stdArgs { chatty = False, maxShrinks = 0})"
-buildCheckExprAtTy :: [String] -> String -> String -> String
-buildCheckExprAtTy props ty expr =
+buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
+buildCheckExprAtTy props context ty expr =
      unlines [ "let "
              , unlines (map ("    " ++) props)
+             , unlines (map ("    " ++) context)
              , "    exprToCheck__ = (" ++ expr ++ " :: " ++ ty ++ ")"
              , "    propsToCheck__ = [" ++ (intercalate "," $ map propCheckExpr propNames) ++ "]"
              , "in ((sequence propsToCheck__) :: IO [Result])"]
@@ -141,7 +139,7 @@ runCheck (Right dval) =
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package "++ str) (PackageArg str) (ModRenaming True [])
 
-importStmts = ["import Prelude", "import Test.QuickCheck"]
+importStmts = ["import Prelude", "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..))"]
 -- All the packages here need to be *globally* available. We should fix this
 -- by wrapping it in e.g. a nix-shell or something.
 packages = map toPkg ["base", "process", "QuickCheck"]
@@ -152,31 +150,56 @@ holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowTypeAppOfHoleFits
             , Opt_ShowTypeOfHoleFits ]
 
-synthesizeSatisfying :: Int -> String -> [String] -> IO [String]
-synthesizeSatisfying lvl ty props = do
-    Left r <- tryAtTypeWLvl lvl "_" ty
+synthesizeSatisfying :: [String] -> String -> [String] -> IO [String]
+synthesizeSatisfying = synthesizeSatisfyingWLevel 0
+
+parM :: [IO a] -> IO [a]
+parM actions = do mvs <- mapM start actions
+                  mapM readMVar mvs
+  where start action = do mv <- newEmptyMVar
+                          forkIO (action >>= putMVar mv)
+                          return mv
+
+synthesizeSatisfyingWLevel :: Int -> [String] -> String -> [String] -> IO [String]
+synthesizeSatisfyingWLevel lvl context ty props = do
+    Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
     case r of
       ((vals,refs):_) -> do
           let rHoles = map readHole refs
-          rHoleVals <- concat <$> mapM recur rHoles
-          filterM isFit (vals ++ rHoleVals)
+          rHVs <- parM $ map recur rHoles
+          fits <- parM $ map (\v -> (>>=) (isFit v) (\r -> return (v,r))) (vals ++ (concat rHVs))
+          return $ map fst $ filter snd fits
+        --   filterM isFit (vals ++ rHoleVals)
       _ -> return []
 
-  where isFit v = try (buildCheckExprAtTy props ty v) >>= runCheck
+  where isFit v = try (buildCheckExprAtTy props context ty v) >>= runCheck
+        contextLet l = unlines ["let"
+                               , unlines $ map ("    " ++)  context
+                               , "in " ++ l]
         recur :: (String, [String]) -> IO [String]
         recur (e, []) = return [e]
         recur (e, [hole]) = do
           -- Weird, but we'll use the same structure for multiple holes later.
           -- No props for the hole.
-          (holeFs:_) <- mapM ((flip (synthesizeSatisfying 0)) []) [hole]
-          return (map ((e ++ " ") ++) holeFs)
+          (holeFs:_) <- mapM ((flip (synthesizeSatisfying context)) []) [hole]
+          let cands = (map ((e ++ " ") ++) holeFs)
+        --   print cands
+          return cands
+        recur (e, holes@[h1,h2]) = do
+          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfying context)) []) holes
+
+          let combs = (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
+              cands = map ((e ++ " ") ++) combs
+          return cands
         recur _ = error "Multiple holes not implemented!"
 
 
 -- This is probably slow, we should parse it properly.
 readHole :: String -> (String, [String])
 readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
-                [(r,_)] -> r
+                -- here we should probably parse in a better way, i.e. pick
+                -- the one with the most holes or something.
+                (r,_):_ -> r
                 o -> error ("No parse" ++ show o)
   where po = char '('
         pc = char ')'
@@ -205,15 +228,18 @@ main = do
     -- print r2
     -- r3 <- runCheck r2
     -- print r3
-    let props = ["propIsSymmetric f xs = f xs == f (reverse xs)"]
-                 --"propAlwaysPos f xs = f xs >= 0"]
+    let props = [ "propIsSymmetric f xs = f xs == f (reverse xs)"
+                ] --, "propAlwaysPos f xs = f xs >= 0"]
         ty = "[Int] -> Int"
+        context = ["zero = 0 :: Int", "one = 1 :: Int"]
     putStrLn "TARGET TYPE:"
     putStrLn $ "  "  ++ ty
     putStrLn "MUST SATISFY:"
     mapM_ (putStrLn . ("  " ++)) props
+    putStrLn "IN CONTEXT:"
+    mapM_ (putStrLn . ("  " ++)) context
     putStrLn "SYNTHESIZING..."
-    r <- synthesizeSatisfying 1 ty props
+    r <- synthesizeSatisfyingWLevel 2 context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
