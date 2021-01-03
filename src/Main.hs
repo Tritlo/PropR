@@ -25,6 +25,8 @@ import Data.Dynamic
 import Data.List
 import Test.QuickCheck
 
+import Control.Monad (filterM)
+
 config :: DynFlags -> DynFlags
 config sflags =
         (foldl gopt_unset sflags holeFlags) {
@@ -54,7 +56,7 @@ type ValsAndRefs = ([String], [String])
 inspectException :: SourceError -> Ghc (Either [ValsAndRefs] Dynamic)
 inspectException err = do
     flags <- getSessionDynFlags
-    printException err
+    -- printException err
     let supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
         isValid ('V':'a':'l':'i':'d':_:xs) =
             case xs of
@@ -91,7 +93,7 @@ try :: String -> IO (Either [ValsAndRefs] Dynamic)
 try str = do
    libDir <- getLibDir
    r <- runGhc libDir $ evalOrHoleFits str
-   print r
+--    print r
    return r
 
 tryAtType :: String -> String -> IO (Either [ValsAndRefs] Dynamic)
@@ -99,17 +101,18 @@ tryAtType str ty = try ("((" ++ str ++ ") :: " ++ ty ++ ")")
 
 
 tyToTry = "[Int] -> Int"
-props = ["propIsSum f xs = f xs == sum xs"]
-propNames = map (head . words) props
-propCheckExpr pname = "quickCheckResult (" ++ pname ++ " exprToCheck__)"
-propToLet p = "    " ++ p
 
-buildCheckExprAtTy expr ty =
+qcArgs = "(stdArgs { chatty = False, maxShrinks = 0})"
+buildCheckExprAtTy :: [String] -> String -> String -> String
+buildCheckExprAtTy props ty expr =
      unlines [ "let "
              , unlines (map ("    " ++) props)
              , "    exprToCheck__ = (" ++ expr ++ " :: " ++ ty ++ ")"
              , "    propsToCheck__ = [" ++ (intercalate "," $ map propCheckExpr propNames) ++ "]"
              , "in ((sequence propsToCheck__) :: IO [Result])"]
+   where propNames = map (head . words) props
+         propCheckExpr pname = "quickCheckWithResult "++qcArgs++" (" ++ pname ++ " exprToCheck__)"
+         propToLet p = "    " ++ p
 
 
 runCheck :: Either [ValsAndRefs] Dynamic -> IO Bool
@@ -118,7 +121,7 @@ runCheck (Right dval) =
      case fromDynamic dval of
          Nothing -> return False
          Just res -> do r <- (res :: IO [Result])
-                        print r
+                        -- print r
                         return $ all isSuccess r
 
 toPkg :: String -> PackageFlag
@@ -136,6 +139,11 @@ holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowTypeAppOfHoleFits
             , Opt_ShowTypeOfHoleFits ]
 
+synthesizeSatisfying :: String -> [String] -> IO [String]
+synthesizeSatisfying ty props = do
+    Left ((vals,refs):_) <- tryAtType "_" ty
+    filterM (\v -> try (buildCheckExprAtTy props ty v) >>= runCheck) vals
+
 main :: IO ()
 main = do
     -- try "let thisIsAnExtremelyLongNameOfAFunctionThatIAmHopingWillBreakAndOhMyGodIHaveToMakeItEvenLongerICannotBelieveThisIsItEvenPossible False = True in (_ (_ :: Bool)) :: Bool"
@@ -147,9 +155,15 @@ main = do
     -- print res2
     -- res <- tryAtType exprToTry tyToTry
     -- print res
-    r2 <- try (buildCheckExprAtTy "product" "[Int] -> Int")
-    print r2
-    r3 <- runCheck r2
-    print r3
+    let props = ["propIsAssoc f xs = f xs == f (reverse xs)",
+                 "propAlwaysPos f xs = f xs >= 0"]
+
+    -- r2 <- try (buildCheckExprAtTy props "[Int] -> Int" "product")
+    -- print r2
+    -- r3 <- runCheck r2
+    -- print r3
+    putStrLn "Synthesizing..."
+    r <- synthesizeSatisfying "[Int] -> Int" props
+    print r
 
     --putStrLn "ghc-synth!"
