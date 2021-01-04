@@ -73,7 +73,6 @@ type ValsAndRefs = ([String], [String])
 inspectException :: SourceError -> Ghc (Either [ValsAndRefs] Dynamic)
 inspectException err = do
     flags <- getSessionDynFlags
-    printException err
     let supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
         isValid ('V':'a':'l':'i':'d':_:xs) =
             case xs of
@@ -125,19 +124,24 @@ buildCheckExprAtTy props context ty expr =
              , unlines (map ("    " ++) context)
              , "    exprToCheck__ = (" ++ expr ++ " :: " ++ ty ++ ")"
              , "    propsToCheck__ = [" ++ (intercalate "," $ map propCheckExpr propNames) ++ "]"
-             , "in ((sequence propsToCheck__) :: IO [Result])"]
+             , "in ((sequence propsToCheck__) :: IO [Bool])"]
    where propNames = map (head . words) props
-         propCheckExpr pname = "quickCheckWithResult "++qcArgs++" (" ++pname ++ " exprToCheck__)"
+         propCheckExpr pname = "isSuccess <$> quickCheckWithResult "++qcArgs++" (" ++pname ++ " exprToCheck__)"
          propToLet p = "    " ++ p
 
 -- The time we allow for a check to finish. Measured in microseconds.
 timeoutVal :: Int
-timeoutVal = 100000
+timeoutVal = 1000000
 runCheck :: Either [ValsAndRefs] Dynamic -> IO Bool
 runCheck (Left l) = return False
 runCheck (Right dval) =
-     case fromDynamic @(IO [Result]) dval of
-         Nothing -> return False
+     -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
+     -- can get more information, but then there can be a mismatch of *which*
+     -- result type it is... ugh. So we do it this way, since the Bool will
+     -- be the same.
+     case fromDynamic @(IO [Bool]) dval of
+         Nothing -> do putStrLn "wrong type!!"
+                       return False
          Just res -> do pid <- forkProcess (proc res)
                         res <- timeout timeoutVal (getProcessStatus True False pid)
                         case res of
@@ -146,7 +150,7 @@ runCheck (Right dval) =
                                         return False
                           _ -> return False
   where proc action = do res <- action
-                         exitImmediately $ if (all isSuccess res)
+                         exitImmediately $ if and res
                                            then ExitSuccess
                                            else (ExitFailure 1)
 
@@ -154,7 +158,7 @@ toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package "++ str) (PackageArg str) (ModRenaming True [])
 
 importStmts = [ "import Prelude"
-              , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..))"
+              , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess)"
               ]
 -- All the packages here need to be *globally* available. We should fix this
 -- by wrapping it in e.g. a nix-shell or something.
@@ -212,10 +216,8 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                        mapM
                        (\(i,v) ->
                            putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
-                            (>>=) (isFit v) (\r ->
-                                putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
-                                >> return (v,r)))
-                                $ zip [1..] (cands)
+                            (>>=) (isFit v) (\r -> return (v,r)))
+                                $ zip [1..] cands
                      putStrLn $ (show inp) ++ " fits done!"
                      let res = map fst $ filter snd fits
                      return res
