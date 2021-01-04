@@ -29,6 +29,7 @@ import Test.QuickCheck
 import Text.ParserCombinators.ReadP
 
 import Control.Monad (filterM)
+import System.Timeout
 
 import Control.Concurrent
 import Data.IORef
@@ -117,7 +118,7 @@ tryWLevel lvl str = do
 tryAtTypeWLvl :: Int -> String -> String -> IO (Either [ValsAndRefs] Dynamic)
 tryAtTypeWLvl lvl str ty = tryWLevel lvl ("((" ++ str ++ ") :: " ++ ty ++ ")")
 
-
+timeoutVal = 100000
 qcArgs = "(stdArgs { chatty = False, maxShrinks = 0})"
 buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
 buildCheckExprAtTy props context ty expr =
@@ -128,7 +129,7 @@ buildCheckExprAtTy props context ty expr =
              , "    propsToCheck__ = [" ++ (intercalate "," $ map propCheckExpr propNames) ++ "]"
              , "in ((sequence propsToCheck__) :: IO [Result])"]
    where propNames = map (head . words) props
-         propCheckExpr pname = "quickCheckWithResult "++qcArgs++" (" ++ pname ++ " exprToCheck__)"
+         propCheckExpr pname = "quickCheckWithResult "++qcArgs++" (" ++pname ++ " exprToCheck__)"
          propToLet p = "    " ++ p
 
 
@@ -159,18 +160,18 @@ synthesizeSatisfying :: Memo -> [String] -> String -> [String] -> IO [String]
 synthesizeSatisfying = synthesizeSatisfyingWLevel 0 1
 
 parM :: [IO a] -> IO [a]
--- parM actions = do mvs <- mapM start actions
---                   mapM readMVar mvs
---   where start action = do mv <- newEmptyMVar
---                           forkIO (action >>= putMVar mv)
---                           return mv
+parM actions = do mvs <- mapM start actions
+                  mapM readMVar mvs
+  where start action = do mv <- newEmptyMVar
+                          forkIO (action >>= putMVar mv)
+                          return mv
 -- Safer
---modIORef = atomicModifyIORef'
-parM = sequence
-modIORef = modifyIORef
+modIORef = atomicModifyIORef'
+-- parM = sequence
+-- modIORef = modifyIORef
 -- MEMOIZE
 type SynthInput = (Int, Int, [String], String, [String])
-type Memo = IORef (Map SynthInput (MVar [String]))
+type Memo = IORef (Map SynthInput [String])
 
 
 synthesizeSatisfyingWLevel :: Int -> Int -> Memo -> [String] -> String -> [String] -> IO [String]
@@ -180,40 +181,72 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
     sM <- readIORef ioref
     case sM Map.!? inp of
         Just res -> do putStrLn $ "Found " ++ (show inp) ++ "!"
-                       readMVar res
+                       return res
         Nothing -> do
             putStrLn $ "Synthesizing " ++ (show inp)
-            nvar <- newEmptyMVar
-            modIORef ioref (\m -> Map.insert inp nvar m)
+            --nvar <- newEmptyMVar
+            --modIORef ioref (\m -> (Map.insert inp nvar m, ()))
             Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
             case r of
               ((vals,refs):_) -> do
                   let rHoles = map readHole refs
-                  rHVs <- parM $ map recur rHoles
+                  rHVs <- sequence $ map recur rHoles
                   let cands = (vals ++ (map wrap $ concat rHVs))
-                  fits <- parM $ map (\v -> (>>=) (isFit v) (\r -> return (v,r))) cands
-                  let res = map fst $ filter snd fits
-                  putMVar nvar res
+                  res <-
+                   if null props
+                   then return cands
+                   else do
+                     putStrLn $ "Calculating FITS for" ++ show inp
+                     let lv = length cands
+                     fits <- --sequence $
+                       mapM
+                       (\(i,v) ->
+                           putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
+                            (>>=) (isFit v) (\r ->
+                                putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
+                                >> return (v,r)))
+                                $ zip [1..] ("last (repeat head)":
+                                cands)
+                     putStrLn $ (show inp) ++ " fits done!"
+                     let res = map fst $ filter snd fits
+                     return res
+                  modIORef ioref (\m -> (Map.insert inp res m, ()))
+                  --putMVar nvar res
                   return res
-              _ -> do putMVar nvar []
+              _ -> do --putMVar nvar []
+                      modIORef ioref (\m -> (Map.insert inp [] m, ()))
                       return []
 
-  where isFit v = try (buildCheckExprAtTy props context ty v) >>= runCheck
+  where isFit v = do putStrLn v
+                     --- doesn't time out???
+                     c <- timeout timeoutVal $ try bcat
+                     res <- case c of
+                                Just c -> timeout timeoutVal (runCheck c)
+                                Nothing -> return Nothing
+                     case res of
+                        Just r -> return r
+                        Nothing -> return False
+            where bcat = buildCheckExprAtTy props context ty v
         wrap p = "(" ++ p ++ ")"
         contextLet l = unlines ["let"
                                , unlines $ map ("    " ++)  context
                                , "in " ++ l]
+        m = if depth <= 2 then 0 else 1
         recur :: (String, [String]) -> IO [String]
         recur (e, []) = return [e]
         recur (e, [hole]) = do
           -- Weird, but we'll use the same structure for multiple holes later.
           -- No props for the hole.
-          [holeFs] <- mapM ((flip (synthesizeSatisfyingWLevel 1 (depth-1) ioref context)) []) [hole]
+          putStrLn $ "Synthesizing for " ++ hole
+          [holeFs] <- mapM ((flip (synthesizeSatisfyingWLevel m (depth-1) ioref context)) []) [hole]
+          putStrLn $  hole ++ " Done!"
           let cands = (map ((e ++ " ") ++) holeFs)
           return cands
         recur (e, holes@[h1,h2]) = do
-          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfyingWLevel 1 (depth-1) ioref context)) []) holes
+          putStrLn $ "Synthesizing for " ++ (show holes)
+          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfyingWLevel m (depth-1) ioref context)) []) holes
 
+          putStrLn $ show holes ++ " Done!"
           let combs = (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
               cands = map ((e ++ " ") ++) combs
           return cands

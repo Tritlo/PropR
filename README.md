@@ -3,8 +3,12 @@ Synthesis using GHC
 
 Works, but is pretty slow at the moment, even when doing the synthesis and
 testing in parallel, but it works! Requires QuickCheck to be installed globally,
-otherwise the internal synthesizer cannot run the tests (we should fix this 
+otherwise the internal synthesizer cannot run the tests (we should fix this
 by some NIX magic).
+
+The synthesis part itself is quite fast... it's the filtering of the search
+space that's slow, wince we are essentially compiling every expression and
+booting the whole GHC each time.
 
 Current output:
 ```
