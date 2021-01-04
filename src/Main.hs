@@ -188,6 +188,17 @@ type SynthInput = (Int, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput [String])
 
 
+parMap ::Int -> [IO a] -> IO [a]
+parMap n xs | length xs < n = sequence xs
+parMap n xs = do mvs <- mapM start cur
+                 res <- mapM readMVar mvs
+                 (res ++) <$> (parMap n rest)
+  where (cur,rest) = splitAt n xs
+        todo = zip cur $ repeat newEmptyMVar
+        start act = do mv <- newEmptyMVar
+                       forkIO (act >>= putMVar mv)
+                       return mv
+
 synthesizeSatisfyingWLevel :: Int -> Int -> Memo -> [String] -> String -> [String] -> IO [String]
 synthesizeSatisfyingWLevel _       0     _       _  _     _ = return []
 synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
@@ -213,7 +224,8 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                      putStrLn $ "Calculating FITS for" ++ show inp
                      let lv = length cands
                      fits <- --sequence $
-                       mapM
+                       parMap 4 $
+                       map
                        (\(i,v) ->
                            putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
                             (>>=) (isFit v) (\r -> return (v,r)))
