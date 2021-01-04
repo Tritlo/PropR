@@ -1,4 +1,4 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeApplications #-}
 module Main where
 
 import Parser
@@ -37,10 +37,16 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Language.Haskell.TH (runIO, runQ, Lit(..), Exp (..))
 
+import GHC.Paths (libdir)
+
+import System.Posix.Process
+import System.Posix.Signals
+import System.Exit
+
 
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
-        (foldl gopt_unset sflags holeFlags) {
+        (foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
                refLevelHoleFits = Just lvl }
@@ -67,7 +73,7 @@ type ValsAndRefs = ([String], [String])
 inspectException :: SourceError -> Ghc (Either [ValsAndRefs] Dynamic)
 inspectException err = do
     flags <- getSessionDynFlags
-    -- printException err
+    printException err
     let supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
         isValid ('V':'a':'l':'i':'d':_:xs) =
             case xs of
@@ -96,11 +102,6 @@ evalOrHoleFits lvl str = do
    -- Then we can actually run the program!
    handleSourceError inspectException (dynCompileExpr str >>= (return . Right))
 
--- We do this at compile-time to avoid later mess.
-libDir :: Maybe String
-libDir = Just $(runIO $
-                 (LitE . StringL . head . lines) <$>
-                 readCreateProcess (shell "ghc --print-libdir") "")
 
 try :: String -> IO (Either [ValsAndRefs] Dynamic)
 try = tryWLevel 1
@@ -110,15 +111,12 @@ tryAtType = tryAtTypeWLvl 1
 
 tryWLevel :: Int -> String -> IO (Either [ValsAndRefs] Dynamic)
 tryWLevel lvl str = do
-   -- libDir <- getLibDir
-   r <- runGhc libDir $ evalOrHoleFits lvl str
---    print r
+   r <- runGhc (Just libdir) $ evalOrHoleFits lvl str
    return r
 
 tryAtTypeWLvl :: Int -> String -> String -> IO (Either [ValsAndRefs] Dynamic)
 tryAtTypeWLvl lvl str ty = tryWLevel lvl ("((" ++ str ++ ") :: " ++ ty ++ ")")
 
-timeoutVal = 100000
 qcArgs = "(stdArgs { chatty = False, maxShrinks = 0})"
 buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
 buildCheckExprAtTy props context ty expr =
@@ -132,23 +130,35 @@ buildCheckExprAtTy props context ty expr =
          propCheckExpr pname = "quickCheckWithResult "++qcArgs++" (" ++pname ++ " exprToCheck__)"
          propToLet p = "    " ++ p
 
-
+-- The time we allow for a check to finish. Measured in microseconds.
+timeoutVal :: Int
+timeoutVal = 100000
 runCheck :: Either [ValsAndRefs] Dynamic -> IO Bool
-runCheck (Left _) = return False
+runCheck (Left l) = return False
 runCheck (Right dval) =
-     case fromDynamic dval of
+     case fromDynamic @(IO [Result]) dval of
          Nothing -> return False
-         Just res -> do r <- (res :: IO [Result])
-                        -- print r
-                        return $ all isSuccess r
+         Just res -> do pid <- forkProcess (proc res)
+                        res <- timeout timeoutVal (getProcessStatus True False pid)
+                        case res of
+                          Just (Just (Exited ExitSuccess)) -> return True
+                          Nothing -> do signalProcess killProcess pid
+                                        return False
+                          _ -> return False
+  where proc action = do res <- action
+                         exitImmediately $ if (all isSuccess res)
+                                           then ExitSuccess
+                                           else (ExitFailure 1)
 
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package "++ str) (PackageArg str) (ModRenaming True [])
 
-importStmts = ["import Prelude", "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..))"]
+importStmts = [ "import Prelude"
+              , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..))"
+              ]
 -- All the packages here need to be *globally* available. We should fix this
 -- by wrapping it in e.g. a nix-shell or something.
-packages = map toPkg ["base", "process", "QuickCheck"]
+packages = map toPkg ["base", "process", "QuickCheck" ]
 
 holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowProvOfHoleFits
@@ -205,8 +215,7 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                             (>>=) (isFit v) (\r ->
                                 putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
                                 >> return (v,r)))
-                                $ zip [1..] ("last (repeat head)":
-                                cands)
+                                $ zip [1..] (cands)
                      putStrLn $ (show inp) ++ " fits done!"
                      let res = map fst $ filter snd fits
                      return res
@@ -217,15 +226,7 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                       modIORef ioref (\m -> (Map.insert inp [] m, ()))
                       return []
 
-  where isFit v = do putStrLn v
-                     --- doesn't time out???
-                     c <- timeout timeoutVal $ try bcat
-                     res <- case c of
-                                Just c -> timeout timeoutVal (runCheck c)
-                                Nothing -> return Nothing
-                     case res of
-                        Just r -> return r
-                        Nothing -> return False
+  where isFit v = try bcat >>= runCheck
             where bcat = buildCheckExprAtTy props context ty v
         wrap p = "(" ++ p ++ ")"
         contextLet l = unlines ["let"
