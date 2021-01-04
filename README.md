@@ -10,7 +10,20 @@ The synthesis part itself is quite fast... it's the filtering of the search
 space that's slow, wince we are essentially compiling every expression and
 booting the whole GHC each time.
 
-Current output:
+When synthesizing for `(2,3,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"])` the runtime was
+
+```
+real	61m5.095s
+user	44m22.003s
+sys	16m28.323s
+```
+
+Finding `5844` matches, including `(foldl (+) zero)` and
+weirder ones (which are indeed symmetric, the only property we asked for) like
+`(foldr (curry product) (id zero))`
+
+
+Current output for 2 2:
 ```
 [nix-shell:~/ghc-synth]$ time cabal run +RTS -N4
 Up to date

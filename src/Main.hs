@@ -173,16 +173,7 @@ holeFlags = [ Opt_ShowHoleConstraints
 synthesizeSatisfying :: Memo -> [String] -> String -> [String] -> IO [String]
 synthesizeSatisfying = synthesizeSatisfyingWLevel 0 1
 
-parM :: [IO a] -> IO [a]
-parM actions = do mvs <- mapM start actions
-                  mapM readMVar mvs
-  where start action = do mv <- newEmptyMVar
-                          forkIO (action >>= putMVar mv)
-                          return mv
 -- Safer
-modIORef = atomicModifyIORef'
--- parM = sequence
--- modIORef = modifyIORef
 -- MEMOIZE
 type SynthInput = (Int, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput [String])
@@ -210,7 +201,6 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
         Nothing -> do
             putStrLn $ "Synthesizing " ++ (show inp)
             --nvar <- newEmptyMVar
-            --modIORef ioref (\m -> (Map.insert inp nvar m, ()))
             Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
             case r of
               ((vals,refs):_) -> do
@@ -223,8 +213,8 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                    else do
                      putStrLn $ "Calculating FITS for" ++ show inp
                      let lv = length cands
-                     fits <- --sequence $
-                       parMap 4 $
+                     fits <- sequence $
+                       -- parMap 4 $
                        map
                        (\(i,v) ->
                            putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
@@ -233,11 +223,9 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                      putStrLn $ (show inp) ++ " fits done!"
                      let res = map fst $ filter snd fits
                      return res
-                  modIORef ioref (\m -> (Map.insert inp res m, ()))
-                  --putMVar nvar res
+                  atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
                   return res
-              _ -> do --putMVar nvar []
-                      modIORef ioref (\m -> (Map.insert inp [] m, ()))
+              _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
                       return []
 
   where isFit v = try bcat >>= runCheck
@@ -315,8 +303,8 @@ main = do
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
     -- 2 is the number of additional holes at the top level,
-    -- 3 is the depth.
-    r <- synthesizeSatisfyingWLevel 2 2 memo context ty props
+    -- 3 is the depth. Takes 60ish minutes on my system, but works!
+    r <- synthesizeSatisfyingWLevel 2 3 memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
