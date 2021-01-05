@@ -29,21 +29,19 @@ sub-expressions one level deep etc.
 
 Results
 -------
-When synthesizing for `(2,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"])` the runtime was
+When synthesizing for `(2,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"])` the runtime (without debug) was
 
 ```
-real	61m5.095s
-user	44m22.003s
-sys	16m28.323s
+real	4m34.566s
+user	0m50.918s
+sys	    3m37.273s
 ```
 
-Finding `5844` matches, including `(foldl (+) zero)` and
+Finding `5843` matches, including `(foldl (+) zero)` and
 weirder ones (which are indeed symmetric, the only property we asked for) like
-`(foldr (curry product) (id zero))`.
+`(foldr (curry product) zero)`.
 
-The full output can be seen in `out-2holes-depth3.txt`, but note that there the
-depth is one higher than it should be (fixed now for consistency)
-
+The full output (with debug) be seen in `out-2holes-depth2.txt`.
 
 
 More interesting for 2 holes and depth 1 (i.e. we recursively add holes once)

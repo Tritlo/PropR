@@ -1,244 +1,258 @@
-Up to date
+Build profile: -w ghc-8.10.2 -O1
+In order, the following will be built (use -v for more details):
+ - ghc-synth-0.0.1 (exe:ghc-synth) (file src/Main.hs changed)
+Preprocessing executable 'ghc-synth' for ghc-synth-0.0.1..
+Building executable 'ghc-synth' for ghc-synth-0.0.1..
+[1 of 1] Compiling Main             ( src/Main.hs, /home/tritlo/ghc-synth/dist-newstyle/build/x86_64-linux/ghc-8.10.2/ghc-synth-0.0.1/x/ghc-synth/build/ghc-synth/ghc-synth-tmp/Main.o )
+Linking /home/tritlo/ghc-synth/dist-newstyle/build/x86_64-linux/ghc-8.10.2/ghc-synth-0.0.1/x/ghc-synth/build/ghc-synth/ghc-synth ...
+SCOPE:
+  import Prelude
+  import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))
 TARGET TYPE:
   [Int] -> Int
 MUST SATISFY:
-  propIsSymmetric f xs = f xs == f (reverse xs)
+  prop_IsSymmetric f xs = f xs == f (reverse xs)
 IN CONTEXT:
   zero = 0 :: Int
   one = 1 :: Int
+PARAMETERS:
+  MAX HOLES: 2
+  MAX DEPTH: 2
 SYNTHESIZING...
-Synthesizing (2,3,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"])
+GENERATING CANDIDATES...Synthesizing (2,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["prop_IsSymmetric f xs = f xs == f (reverse xs)"])
 Synthesizing for Int -> Int -> Int
-Synthesizing (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])
+Synthesizing (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])
 Synthesizing for (Int, Int) -> Int
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"(Int, Int) -> Int",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"(Int, Int) -> Int",[])
 (Int, Int) -> Int Done!
 Synthesizing for Int -> Int -> Int
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])
 Int -> Int -> Int Done!
 Synthesizing for [Int -> Int]
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int -> Int]",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int -> Int]",[])
 [Int -> Int] Done!
 Synthesizing for Int -> Int
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int",[])
 Int -> Int Done!
 Synthesizing for Int -> Int -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
 Int -> Int -> Int Done!
 Synthesizing for Int -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int",[])!
 Int -> Int Done!
 Synthesizing for Int -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int",[])!
 Int -> Int Done!
 Synthesizing for Int -> Int -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
 Int -> Int -> Int Done!
 Synthesizing for Int -> Int -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
 Int -> Int -> Int Done!
 Synthesizing for [Int -> Int -> Int]
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int -> Int -> Int]",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int -> Int -> Int]",[])
 [Int -> Int -> Int] Done!
 Synthesizing for [Int -> Int -> Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int -> Int -> Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int -> Int -> Int]",[])!
 [Int -> Int -> Int] Done!
 Int -> Int -> Int Done!
 Synthesizing for Int -> Int -> Int
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
 Int -> Int -> Int Done!
 Synthesizing for ["Int -> Int -> Int","Int"]
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
-Synthesizing (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Synthesizing (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])
 Synthesizing for Args
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])
 Args Done!
 Synthesizing for Args
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])!
 Args Done!
 Synthesizing for Args
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])!
 Args Done!
 Synthesizing for Args
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Args",[])!
 Args Done!
 Synthesizing for Result
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])
 Result Done!
 Synthesizing for Result
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
 Result Done!
 Synthesizing for Result
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
 Result Done!
 Synthesizing for Result
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
 Result Done!
 Synthesizing for Result
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
 Result Done!
 Synthesizing for Result
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Result",[])!
 Result Done!
 Synthesizing for Double
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])
 Double Done!
 Synthesizing for Double
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
 Double Done!
 Synthesizing for Integer
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Integer",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Integer",[])
 Integer Done!
 Synthesizing for Int
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])
 Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for [Int]
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int]",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int]",[])
 [Int] Done!
 Synthesizing for [Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int]",[])!
 [Int] Done!
 Synthesizing for [Char]
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Char]",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Char]",[])
 [Char] Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for Integer
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Integer",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Integer",[])!
 Integer Done!
 Synthesizing for Double
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
 Double Done!
 Synthesizing for Double
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
 Double Done!
 Synthesizing for Double
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
 Double Done!
 Synthesizing for Double
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Double",[])!
 Double Done!
 ["Int -> Int -> Int","Int"] Done!
 Synthesizing for ["Int -> Int -> Int","Int"]
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 ["Int -> Int -> Int","Int"] Done!
 Synthesizing for Int
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for [Int] -> Int
-Synthesizing (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])
+Synthesizing (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])
 Synthesizing for Int -> Int -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
 Int -> Int -> Int Done!
 Synthesizing for Int -> Int -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
 Int -> Int -> Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for [Int] -> Int
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])
 [Int] -> Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for [Int] -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 [Int] -> Int Done!
 Synthesizing for [Int] -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 [Int] -> Int Done!
 Synthesizing for [[Int] -> Int]
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])
 [[Int] -> Int] Done!
 Synthesizing for [[Int] -> Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
 [[Int] -> Int] Done!
 [Int] -> Int Done!
 Synthesizing for Int
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for Int
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 Int Done!
 Synthesizing for [Int] -> Int
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 [Int] -> Int Done!
 Synthesizing for [Int] -> Int
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 [Int] -> Int Done!
 Synthesizing for [[Int] -> Int]
-Synthesizing (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])
+Synthesizing (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])
 Synthesizing for [[Int] -> Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
 [[Int] -> Int] Done!
 Synthesizing for [[Int] -> Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
 [[Int] -> Int] Done!
 Synthesizing for [Int] -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 [Int] -> Int Done!
 Synthesizing for [[Int] -> Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
 [[Int] -> Int] Done!
 Synthesizing for [[Int] -> Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
 [[Int] -> Int] Done!
 Synthesizing for [Int] -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 [Int] -> Int Done!
 Synthesizing for [Char]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Char]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Char]",[])!
 [Char] Done!
 Synthesizing for [Int] -> Int
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 [Int] -> Int Done!
 Synthesizing for [[[Int] -> Int]]
-Synthesizing (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[[Int] -> Int]]",[])
+Synthesizing (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[[Int] -> Int]]",[])
 [[[Int] -> Int]] Done!
 Synthesizing for [[Int] -> Int]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
 [[Int] -> Int] Done!
 Synthesizing for [[[Int] -> Int]]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[[Int] -> Int]]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[[Int] -> Int]]",[])!
 [[[Int] -> Int]] Done!
 Synthesizing for [[[Int] -> Int]]
-Found (0,1,["zero = 0 :: Int","one = 1 :: Int"],"[[[Int] -> Int]]",[])!
+Found (0,0,["zero = 0 :: Int","one = 1 :: Int"],"[[[Int] -> Int]]",[])!
 [[[Int] -> Int]] Done!
 [[Int] -> Int] Done!
 Synthesizing for [[Int] -> Int]
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
 [[Int] -> Int] Done!
 Synthesizing for ["[Int] -> Int","[Int] -> Int"]
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
 ["[Int] -> Int","[Int] -> Int"] Done!
 Synthesizing for ["[[Int] -> Int]","Int"]
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
-Found (1,2,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
+Found (1,1,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
 ["[[Int] -> Int]","Int"] Done!
-Calculating FITS for(2,3,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"])
-1/18541: head
+DONE!
+GENERATED 18541 CANDIDATES!
+COMPILING CANDIDATE CHECKS...DONE!
+CHECKING 18541 CANDIDATES...1/18541: head
 2/18541: last
 3/18541: length
 4/18541: maximum
@@ -18779,8 +18793,9 @@ Calculating FITS for(2,3,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["p
 18539/18541: ((!!) (last mempty) (signum one))
 18540/18541: ((!!) (last mempty) (signum maxBound))
 18541/18541: ((!!) (last mempty) (signum minBound))
-(2,3,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"]) fits done!
-FOUND 5844 MATCHES:
+DONE!
+(2,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["prop_IsSymmetric f xs = f xs == f (reverse xs)"]) fits done!
+FOUND 5843 MATCHES:
 length
 product
 sum
@@ -18881,7 +18896,6 @@ sum
 (foldl gcd (negate zero))
 (foldl gcd (negate one))
 (foldl gcd (negate maxBound))
-(foldl gcd (negate minBound))
 (foldl gcd (id zero))
 (foldl gcd (id one))
 (foldl gcd (id maxBound))
@@ -19192,6 +19206,7 @@ sum
 (foldl (flip gcd) (id zero))
 (foldl (flip gcd) (id one))
 (foldl (flip gcd) (id maxBound))
+(foldl (flip gcd) (id minBound))
 (foldl (flip gcd) (pred zero))
 (foldl (flip gcd) (pred one))
 (foldl (flip gcd) (pred maxBound))
@@ -22034,7 +22049,6 @@ sum
 (foldr (($!) gcd) (negate zero))
 (foldr (($!) gcd) (negate one))
 (foldr (($!) gcd) (negate maxBound))
-(foldr (($!) gcd) (negate minBound))
 (foldr (($!) gcd) (id zero))
 (foldr (($!) gcd) (id one))
 (foldr (($!) gcd) (id maxBound))
@@ -24626,9 +24640,7 @@ sum
 ((!!) (pure sum) (abs zero))
 ((!!) (pure sum) (signum zero))
 
-[nix-shell:~/ghc-synth]$ time cabal run >> out
-
-real	61m5.095s
-user	44m22.003s
-sys	16m28.323s
+real	16m28.505s
+user	3m2.550s
+sys	    14m46.432s
 

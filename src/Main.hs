@@ -221,7 +221,8 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                      -- This ends the "GENERATING CANDIDATES..."
                      putStrLn "DONE!"
                      let lv = length cands
-                     putStr "COMPILING CHECKS..." >> hFlush stdout
+                     putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
+                     putStr "COMPILING CANDIDATE CHECKS..." >> hFlush stdout
                      checks <- zip cands <$> (compileChecks $ map bcat cands)
                      putStrLn "DONE!"
                      let to_check =  checks
@@ -286,12 +287,6 @@ readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
                                     return (e1, hs)
 
 
-importStmts = [ "import Prelude hiding (id, ($), ($!), asTypeOf)"
-              , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))"
-              ]
--- All the packages here need to be *globally* available. We should fix this
--- by wrapping it in e.g. a nix-shell or something.
-packages = map toPkg ["base", "process", "QuickCheck" ]
 
 hasDebug :: IO Bool
 hasDebug = ("-fdebug" `elem`) <$> getArgs
@@ -315,6 +310,13 @@ getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
               when (synth_depth < 0) (error "DEPTH CANNOT BE NEGATIVE!")
               return $ SFlgs {..}
 
+-- All the packages here need to be *globally* available. We should fix this
+-- by wrapping it in e.g. a nix-shell or something.
+packages = map toPkg ["base", "process", "QuickCheck" ]
+
+importStmts = [ "import Prelude hiding (id, ($), ($!), asTypeOf)"
+              , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))"
+              ]
 
 main :: IO ()
 main = do
