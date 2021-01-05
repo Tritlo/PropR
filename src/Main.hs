@@ -62,6 +62,12 @@ runCheck (Right dval) =
         do pr_debug "wrong type!!"
            return False
       Just res ->
+        -- We need to forkProcess here, since we might be evaulating
+        -- non-yielding infinte expressions (like `last (repeat head)`), and
+        -- since they never yield, we can't do forkIO and then stop that thread.
+        -- If we could ensure *every library* was compiled with -fno-omit-yields
+        -- we could use lightweight threads, but that is a very big restriction,
+        -- especially if we want to later embed this into a plugin.
         do pid <- forkProcess (proc res)
            res <- timeout timeoutVal (getProcessStatus True False pid)
            case res of
@@ -73,11 +79,7 @@ runCheck (Right dval) =
           do res <- action
              exitImmediately $ if and res then ExitSuccess else (ExitFailure 1)
 
-
--- MEMOIZE
-type SynthInput = (CompileConfig, Int, [String], String, [String])
-type Memo = IORef (Map SynthInput [String])
-
+-- UTIL
 parMap ::Int -> [IO a] -> IO [a]
 parMap n xs | length xs < n = sequence xs
 parMap n xs = do mvs <- mapM start cur
@@ -91,14 +93,15 @@ parMap n xs = do mvs <- mapM start cur
 
 pr_debug :: String -> IO ()
 pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
-                  if dbg then putStrLn str
-                         else return ()
+                  when dbg $ putStrLn str
 
 putStr' :: String -> IO ()
 putStr' str = putStr str >> hFlush stdout
 
-synthesizeSatisfying :: CompileConfig
-                     -> Int -> Memo -> [String]
+type SynthInput = (CompileConfig, Int, [String], String, [String])
+type Memo = IORef (Map SynthInput [String])
+
+synthesizeSatisfying :: CompileConfig -> Int -> Memo -> [String]
                      -> [String] -> String -> IO [String]
 synthesizeSatisfying _    depth     _       _  _     _ | depth < 0 = return []
 synthesizeSatisfying cc depth ioref context props ty = do
@@ -158,9 +161,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
       where combinations :: [[String]] -> [[String]]
             combinations [] = [[]]
             -- List monad magic
-            combinations (c:cs) =  do x <- c
-                                      xs <- combinations cs
-                                      return (x:xs)
+            combinations (c:cs) = do x <- c
+                                     xs <- combinations cs
+                                     return (x:xs)
 
 
 
