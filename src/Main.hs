@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeApplications, RecordWildCards #-}
+{-# LANGUAGE TypeApplications, RecordWildCards, TupleSections #-}
 module Main where
 
 
@@ -114,22 +114,19 @@ synthesizeSatisfying cc depth ioref context props ty = do
           let rHoles = map readHole refs
           rHVs <- sequence $ map recur rHoles
           let cands = (vals ++ (map wrap $ concat rHVs))
-          res <- if null props then return cands
-           else do
+              lv = length cands
+          res <- if null props then return cands else do
              -- This ends the "GENERATING CANDIDATES..." message.
              putStrLn "DONE!"
-             let lv = length cands
              putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
              putStr' "COMPILING CANDIDATE CHECKS..."
-             checks <- zip cands <$> (compileChecks cc $ map bcat cands)
+             to_check <- zip cands <$> (compileChecks cc $ map bcat cands)
              putStrLn "DONE!"
-             let to_check =  checks
              putStr' ("CHECKING " ++ (show lv) ++ " CANDIDATES...")
              fits <- mapM
                (\(i,(v,c)) ->
                   do pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
-                     r <- runCheck c
-                     return (v,r)) $ zip [1..] to_check
+                     (v,) <$> runCheck c) $ zip [1..] to_check
              putStrLn $ "DONE!"
              pr_debug $ (show inp) ++ " fits done!"
              let res = map fst $ filter snd fits
