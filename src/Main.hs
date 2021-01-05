@@ -138,29 +138,28 @@ synthesizeSatisfying cc depth ioref context ty props = do
   where isFit v = compile (cc {hole_lvl=0}) (bcat v) >>= runCheck
         bcat = buildCheckExprAtTy props context ty
         wrap p = "(" ++ p ++ ")"
-        contextLet l = unlines ["let"
-                               , unlines $ map ("    " ++)  context
-                               , "in " ++ l]
+        contextLet l =
+          unlines ["let"
+                  , unlines $ map ("    " ++)  context
+                  , "in " ++ l]
         cc' = if depth <= 1 then (cc {hole_lvl=0}) else (cc {hole_lvl=1})
         recur :: (String, [String]) -> IO [String]
         recur (e, []) = return [e]
-        recur (e, [hole]) = do
+        recur (_, holes) | length holes > 2
+           = error "More than 2 holes is not supported!"
+        recur (e, holes) = do
           -- Weird, but we'll use the same structure for multiple holes later.
           -- No props for the hole.
-          pr_debug $ "Synthesizing for " ++ hole
-          [holeFs] <- mapM ((flip (synthesizeSatisfying cc' (depth-1) ioref context)) []) [hole]
-          pr_debug $  hole ++ " Done!"
-          let cands = (map ((e ++ " ") ++) holeFs)
-          return cands
-        recur (e, holes@[h1,h2]) = do
-          pr_debug $ "Synthesizing for " ++ (show holes)
-          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfying cc' (depth-1) ioref context)) []) holes
-
-          pr_debug $ show holes ++ " Done!"
-          let combs = (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
-              cands = map ((e ++ " ") ++) combs
-          return cands
-        recur _ = error "More than 2 holes is not supported!"
+          pr_debug $ "Synthesizing for " ++ show holes
+          holeFs <-
+            mapM ((flip (synthesizeSatisfying cc' (depth-1) ioref context)) []) holes
+          pr_debug $ (show holes) ++ " Done!"
+          return $
+            case holeFs of
+              [holeFs] -> (map ((e ++ " ") ++) holeFs)
+              [h1fs,h2fs] ->
+                 map ((e ++ " ") ++) $ (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
+              _ -> error "Too many results returned!!"
 
 
 -- This is probably slow, we should parse it properly.
