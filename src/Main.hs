@@ -94,9 +94,9 @@ putStr' str = putStr str >> hFlush stdout
 
 synthesizeSatisfying :: CompileConfig
                      -> Int -> Memo -> [String]
-                     -> String -> [String] -> IO [String]
+                     -> [String] -> String -> IO [String]
 synthesizeSatisfying _    depth     _       _  _     _ | depth < 0 = return []
-synthesizeSatisfying cc depth ioref context ty props = do
+synthesizeSatisfying cc depth ioref context props ty = do
   let inp = (cc, depth, context, ty, props)
   sM <- readIORef ioref
   case sM Map.!? inp of
@@ -135,31 +135,29 @@ synthesizeSatisfying cc depth ioref context ty props = do
         _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
                 return []
 
-  where isFit v = compile (cc {hole_lvl=0}) (bcat v) >>= runCheck
-        bcat = buildCheckExprAtTy props context ty
-        wrap p = "(" ++ p ++ ")"
-        contextLet l =
-          unlines ["let"
-                  , unlines $ map ("    " ++)  context
-                  , "in " ++ l]
-        cc' = if depth <= 1 then (cc {hole_lvl=0}) else (cc {hole_lvl=1})
-        recur :: (String, [String]) -> IO [String]
-        recur (e, []) = return [e]
-        recur (_, holes) | length holes > 2
-           = error "More than 2 holes is not supported!"
-        recur (e, holes) = do
-          -- Weird, but we'll use the same structure for multiple holes later.
-          -- No props for the hole.
-          pr_debug $ "Synthesizing for " ++ show holes
-          holeFs <-
-            mapM ((flip (synthesizeSatisfying cc' (depth-1) ioref context)) []) holes
-          pr_debug $ (show holes) ++ " Done!"
-          return $
-            case holeFs of
-              [holeFs] -> (map ((e ++ " ") ++) holeFs)
-              [h1fs,h2fs] ->
-                 map ((e ++ " ") ++) $ (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
-              _ -> error "Too many results returned!!"
+  where
+    isFit v = compile (cc {hole_lvl=0}) (bcat v) >>= runCheck
+    bcat = buildCheckExprAtTy props context ty
+    wrap p = "(" ++ p ++ ")"
+    contextLet l =
+      unlines ["let"
+              , unlines $ map ("    " ++)  context
+              , "in " ++ l]
+    cc' = if depth <= 1 then (cc {hole_lvl=0}) else (cc {hole_lvl=1})
+    recur :: (String, [String]) -> IO [String]
+    recur (e, []) = return [e]
+    recur (e, holes) = do
+      pr_debug $ "Synthesizing for " ++ show holes
+      holeFs <- mapM (synthesizeSatisfying cc' (depth-1) ioref context []) holes
+      pr_debug $ (show holes) ++ " Done!"
+      return $ map ((e ++ " ") ++) $ map unwords $ combinations holeFs
+      where combinations :: [[String]] -> [[String]]
+            combinations [] = [[]]
+            -- List monad magic
+            combinations (c:cs) =  do x <- c
+                                      xs <- combinations cs
+                                      return (x:xs)
+
 
 
 -- This is probably slow, we should parse it properly.
@@ -240,7 +238,7 @@ main = do
     -- 2 is the number of additional holes at the top level,
     -- 3 is the depth. Takes 60ish minutes on my system, but works!
     putStr' "GENERATING CANDIDATES..."
-    r <- synthesizeSatisfying cc synth_depth memo context ty props
+    r <- synthesizeSatisfying cc synth_depth memo context props ty
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
