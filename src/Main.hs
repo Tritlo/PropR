@@ -79,14 +79,9 @@ runCheck (Right dval) =
                                            else (ExitFailure 1)
 
 
-synthesizeSatisfying :: CompileConfig -> Memo -> [String] -> String -> [String] -> IO [String]
-synthesizeSatisfying cc = synthesizeSatisfyingWLevel cc 1
-
--- Safer
 -- MEMOIZE
 type SynthInput = (CompileConfig, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput [String])
-
 
 parMap ::Int -> [IO a] -> IO [a]
 parMap n xs | length xs < n = sequence xs
@@ -105,11 +100,11 @@ pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
                          else return ()
 
 
-synthesizeSatisfyingWLevel :: CompileConfig
-                           -> Int -> Memo -> [String]
-                           -> String -> [String] -> IO [String]
-synthesizeSatisfyingWLevel _    depth     _       _  _     _ | depth < 0 = return []
-synthesizeSatisfyingWLevel cc depth ioref context ty props = do
+synthesizeSatisfying :: CompileConfig
+                     -> Int -> Memo -> [String]
+                     -> String -> [String] -> IO [String]
+synthesizeSatisfying _    depth     _       _  _     _ | depth < 0 = return []
+synthesizeSatisfying cc depth ioref context ty props = do
     let inp = (cc, depth, context, ty, props)
     sM <- readIORef ioref
     case sM Map.!? inp of
@@ -165,13 +160,13 @@ synthesizeSatisfyingWLevel cc depth ioref context ty props = do
           -- Weird, but we'll use the same structure for multiple holes later.
           -- No props for the hole.
           pr_debug $ "Synthesizing for " ++ hole
-          [holeFs] <- mapM ((flip (synthesizeSatisfyingWLevel cc' (depth-1) ioref context)) []) [hole]
+          [holeFs] <- mapM ((flip (synthesizeSatisfying cc' (depth-1) ioref context)) []) [hole]
           pr_debug $  hole ++ " Done!"
           let cands = (map ((e ++ " ") ++) holeFs)
           return cands
         recur (e, holes@[h1,h2]) = do
           pr_debug $ "Synthesizing for " ++ (show holes)
-          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfyingWLevel cc' (depth-1) ioref context)) []) holes
+          [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfying cc' (depth-1) ioref context)) []) holes
 
           pr_debug $ show holes ++ " Done!"
           let combs = (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
@@ -258,7 +253,7 @@ main = do
     -- 2 is the number of additional holes at the top level,
     -- 3 is the depth. Takes 60ish minutes on my system, but works!
     putStr "GENERATING CANDIDATES..." >> hFlush stdout
-    r <- synthesizeSatisfyingWLevel cc synth_depth memo context ty props
+    r <- synthesizeSatisfying cc synth_depth memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
