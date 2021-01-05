@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeApplications, RecordWildCards #-}
 module Main where
 
 import Parser
@@ -42,6 +42,7 @@ import GHC.Paths (libdir)
 import System.Posix.Process
 import System.Posix.Signals
 import System.Exit
+import System.Environment
 
 
 config :: Int -> DynFlags -> DynFlags
@@ -141,7 +142,7 @@ runCheck (Right dval) =
      -- result type it is... ugh. So we do it this way, since the Bool will
      -- be the same.
      case fromDynamic @(IO [Bool]) dval of
-         Nothing -> do putStrLn "wrong type!!"
+         Nothing -> do pr_debug "wrong type!!"
                        return False
          Just res -> do pid <- forkProcess (proc res)
                         res <- timeout timeoutVal (getProcessStatus True False pid)
@@ -185,16 +186,22 @@ parMap n xs = do mvs <- mapM start cur
                        forkIO (act >>= putMVar mv)
                        return mv
 
+pr_debug :: String -> IO ()
+pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
+                  if dbg then putStrLn str
+                         else return ()
+
+
 synthesizeSatisfyingWLevel :: Int -> Int -> Memo -> [String] -> String -> [String] -> IO [String]
-synthesizeSatisfyingWLevel _       0     _       _  _     _ = return []
+synthesizeSatisfyingWLevel _    depth     _       _  _     _ | depth < 0 = return []
 synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
     let inp = (lvl, depth, context, ty, props)
     sM <- readIORef ioref
     case sM Map.!? inp of
-        Just res -> do putStrLn $ "Found " ++ (show inp) ++ "!"
+        Just res -> do pr_debug $ "Found " ++ (show inp) ++ "!"
                        return res
         Nothing -> do
-            putStrLn $ "Synthesizing " ++ (show inp)
+            pr_debug $ "Synthesizing " ++ (show inp)
             --nvar <- newEmptyMVar
             Left r <- tryAtTypeWLvl lvl (contextLet "_") ty
             case r of
@@ -206,16 +213,17 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                    if null props
                    then return cands
                    else do
-                     putStrLn $ "Calculating FITS for" ++ show inp
                      let lv = length cands
+                     putStrLn $ "CHECKING " ++ (show lv) ++ " CANDIDATES..."
+                     pr_debug $ "Calculating FITS for" ++ show inp
                      fits <- sequence $
                        -- parMap 4 $
                        map
                        (\(i,v) ->
-                           putStrLn ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
+                           pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
                             (>>=) (isFit v) (\r -> return (v,r)))
                                 $ zip [1..] cands
-                     putStrLn $ (show inp) ++ " fits done!"
+                     pr_debug $ (show inp) ++ " fits done!"
                      let res = map fst $ filter snd fits
                      return res
                   atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
@@ -229,26 +237,26 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
         contextLet l = unlines ["let"
                                , unlines $ map ("    " ++)  context
                                , "in " ++ l]
-        m = if depth <= 2 then 0 else 1
+        m = if depth <= 1 then 0 else 1
         recur :: (String, [String]) -> IO [String]
         recur (e, []) = return [e]
         recur (e, [hole]) = do
           -- Weird, but we'll use the same structure for multiple holes later.
           -- No props for the hole.
-          putStrLn $ "Synthesizing for " ++ hole
+          pr_debug $ "Synthesizing for " ++ hole
           [holeFs] <- mapM ((flip (synthesizeSatisfyingWLevel m (depth-1) ioref context)) []) [hole]
-          putStrLn $  hole ++ " Done!"
+          pr_debug $  hole ++ " Done!"
           let cands = (map ((e ++ " ") ++) holeFs)
           return cands
         recur (e, holes@[h1,h2]) = do
-          putStrLn $ "Synthesizing for " ++ (show holes)
+          pr_debug $ "Synthesizing for " ++ (show holes)
           [h1fs,h2fs] <- mapM ((flip (synthesizeSatisfyingWLevel m (depth-1) ioref context)) []) holes
 
-          putStrLn $ show holes ++ " Done!"
+          pr_debug $ show holes ++ " Done!"
           let combs = (\a b -> a ++ " " ++ b) <$> h1fs <*> h2fs
               cands = map ((e ++ " ") ++) combs
           return cands
-        recur _ = error "Multiple holes not implemented!"
+        recur _ = error "More than 2 holes is not supported!"
 
 
 -- This is probably slow, we should parse it properly.
@@ -257,7 +265,8 @@ readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
                 -- here we should probably parse in a better way, i.e. pick
                 -- the one with the most holes or something.
                 (r,_):_ -> r
-                o -> error ("No parse" ++ show o)
+                o -> error ("No parse: \n"
+                           ++ str ++ "\nGot: " ++ (show $ parseHole str))
   where po = char '('
         pc = char ')'
         any = satisfy $ const True
@@ -274,26 +283,54 @@ importStmts = [ "import Prelude hiding (id, ($), ($!), asTypeOf)"
 -- by wrapping it in e.g. a nix-shell or something.
 packages = map toPkg ["base", "process", "QuickCheck" ]
 
+hasDebug :: IO Bool
+hasDebug = ("-fdebug" `elem`) <$> getArgs
+
+data SynthFlags = SFlgs { synth_holes :: Int
+                        , synth_depth :: Int
+                        , synth_debug :: Bool}
+
+
+getFlags :: IO SynthFlags
+getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
+              let synth_holes = case args Map.!? "-fholes" of
+                                    Just r | not (null r) -> read (tail r)
+                                    Nothing -> 2
+                  synth_depth = case args Map.!? "-fdepth" of
+                                    Just r | not (null r) -> read (tail r)
+                                    Nothing -> 1
+                  synth_debug = "-fdebug" `Map.member` args
+              when (synth_holes > 2) (error "MORE THAN 2 HOLES NOT SUPPORTED!")
+              when (synth_holes < 0) (error "NUMBER OF HOLES CANNOT BE NEGATIVE!")
+              when (synth_depth < 0) (error "DEPTH CANNOT BE NEGATIVE!")
+              return $ SFlgs {..}
+
 
 main :: IO ()
 main = do
+    SFlgs {..} <- getFlags
     let props = [ "prop_IsSymmetric f xs = f xs == f (reverse xs)"
                 , "prop_Bin f = f [] == 0 || f [] == 1"
                 , "prop_not_const f = not ((f []) == f [1,2,3])"
                 ]
         ty = "[Int] -> Int"
         context = ["zero = 0 :: Int", "one = 1 :: Int"]
+    putStrLn "SCOPE:"
+    mapM_ (putStrLn . ("  " ++)) importStmts
     putStrLn "TARGET TYPE:"
     putStrLn $ "  "  ++ ty
     putStrLn "MUST SATISFY:"
     mapM_ (putStrLn . ("  " ++)) props
     putStrLn "IN CONTEXT:"
     mapM_ (putStrLn . ("  " ++)) context
+    putStrLn "PARAMETERS:"
+    putStrLn $ "  MAX HOLES: "  ++ (show synth_holes)
+    putStrLn $ "  MAX DEPTH: "  ++ (show synth_depth)
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
     -- 2 is the number of additional holes at the top level,
     -- 3 is the depth. Takes 60ish minutes on my system, but works!
-    r <- synthesizeSatisfyingWLevel 2 2 memo context ty props
+    r <- synthesizeSatisfyingWLevel synth_holes synth_depth memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
