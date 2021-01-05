@@ -158,12 +158,6 @@ runCheck (Right dval) =
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package "++ str) (PackageArg str) (ModRenaming True [])
 
-importStmts = [ "import Prelude"
-              , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess)"
-              ]
--- All the packages here need to be *globally* available. We should fix this
--- by wrapping it in e.g. a nix-shell or something.
-packages = map toPkg ["base", "process", "QuickCheck" ]
 
 holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowProvOfHoleFits
@@ -273,13 +267,19 @@ readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
                                     return (e1, hs)
 
 
+importStmts = [ "import Prelude hiding (id, ($), ($!), asTypeOf)"
+              , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))"
+              ]
+-- All the packages here need to be *globally* available. We should fix this
+-- by wrapping it in e.g. a nix-shell or something.
+packages = map toPkg ["base", "process", "QuickCheck" ]
 
 
 main :: IO ()
 main = do
     let props = [ "prop_IsSymmetric f xs = f xs == f (reverse xs)"
                 , "prop_Bin f = f [] == 0 || f [] == 1"
-                , "prop_NotConst f x = not ((f x) `elem` x)"
+                , "prop_not_const f = not ((f []) == f [1,2,3])"
                 ]
         ty = "[Int] -> Int"
         context = ["zero = 0 :: Int", "one = 1 :: Int"]

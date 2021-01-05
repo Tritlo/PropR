@@ -23,157 +23,32 @@ weirder ones (which are indeed symmetric, the only property we asked for) like
 `(foldr (curry product) (id zero))`
 
 
-Current output for 2 2:
+More interesting for 2 2:
+
 ```
-[nix-shell:~/ghc-synth]$ time cabal run +RTS -N4
-Up to date
-TARGET TYPE:
-  [Int] -> Int
-MUST SATISFY:
-  propIsSymmetric f xs = f xs == f (reverse xs)
-IN CONTEXT:
-  zero = 0 :: Int
-  one = 1 :: Int
-SYNTHESIZING...
-Synthesizing (2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["propIsSymmetric f xs = f xs == f (reverse xs)"])
-Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int -> Int -> Int",[])!
-Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])
-Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
-Synthesizing (0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[[Int] -> Int]",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
-Found (0,["zero = 0 :: Int","one = 1 :: Int"],"Int",[])!
-FOUND MATCHES:
+(2,2,["zero = 0 :: Int","one = 1 :: Int"],"[Int] -> Int",["prop_IsSymmetric f xs = f xs == f (reverse xs)","prop_Bin f = f [] == 0 || f [] == 1","prop_not_const f = not ((f []) == f [1,2,3])"]) fits done!
+FOUND 19 MATCHES:
 length
 product
 sum
-foldl (-) zero
-foldl (-) one
-foldl (-) maxBound
-foldl (-) minBound
-foldl asTypeOf zero
-foldl asTypeOf one
-foldl asTypeOf maxBound
-foldl asTypeOf minBound
-foldl const zero
-foldl const one
-foldl const maxBound
-foldl const minBound
-foldl gcd zero
-foldl gcd one
-foldl gcd maxBound
-foldl gcd minBound
-foldl lcm zero
-foldl (*) zero
-foldl (*) one
-foldl (*) maxBound
-foldl (*) minBound
-foldl (+) zero
-foldl (+) one
-foldl (+) maxBound
-foldl (+) minBound
-foldl max zero
-foldl max one
-foldl max maxBound
-foldl max minBound
-foldl min zero
-foldl min one
-foldl min maxBound
-foldl min minBound
-foldl return zero
-foldl return one
-foldl return maxBound
-foldl return minBound
-foldl pure zero
-foldl pure one
-foldl pure maxBound
-foldl pure minBound
-foldr subtract zero
-foldr subtract one
-foldr subtract maxBound
-foldr subtract minBound
-foldr gcd zero
-foldr gcd one
-foldr gcd maxBound
-foldr gcd minBound
-foldr lcm zero
-foldr lcm minBound
-foldr (*) zero
-foldr (*) one
-foldr (*) maxBound
-foldr (*) minBound
-foldr (+) zero
-foldr (+) one
-foldr (+) maxBound
-foldr (+) minBound
-foldr max zero
-foldr max one
-foldr max maxBound
-foldr max minBound
-foldr min zero
-foldr min one
-foldr min maxBound
-foldr min minBound
-foldr seq zero
-foldr seq one
-foldr seq maxBound
-foldr seq minBound
-const zero
-const one
-const maxBound
-const minBound
-($) length
-($) product
-($) sum
-return zero
-return one
-return maxBound
-return minBound
-pure zero
-pure one
-pure maxBound
-pure minBound
-($!) length
-($!) product
-($!) sum
-id length
-id product
-id sum
-asTypeOf length head
-asTypeOf length last
-asTypeOf length length
-asTypeOf length maximum
-asTypeOf length minimum
-asTypeOf length product
-asTypeOf length sum
-asTypeOf product head
-asTypeOf product last
-asTypeOf product length
-asTypeOf product maximum
-asTypeOf product minimum
-asTypeOf product product
-asTypeOf product sum
-asTypeOf sum head
-asTypeOf sum last
-asTypeOf sum length
-asTypeOf sum maximum
-asTypeOf sum minimum
-asTypeOf sum product
-asTypeOf sum sum
+(foldl (-) zero)
+(foldl (-) one)
+(foldl gcd zero)
+(foldl (*) one)
+(foldl (+) zero)
+(foldl (+) one)
+(foldl max zero)
+(foldl max one)
+(foldr subtract zero)
+(foldr subtract one)
+(foldr gcd zero)
+(foldr (*) one)
+(foldr (+) zero)
+(foldr (+) one)
+(foldr max zero)
+(foldr max one)
 
-real	0m38.105s
-user	1m7.705s
-sys 	0m19.140s
+real	0m42.684s
+user	0m32.147s
+sys	0m10.634s
 ```
-
