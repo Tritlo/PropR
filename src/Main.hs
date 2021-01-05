@@ -28,7 +28,7 @@ import Test.QuickCheck
 
 import Text.ParserCombinators.ReadP
 
-import Control.Monad (filterM)
+import Control.Monad (filterM, when)
 import System.Timeout
 
 import Control.Concurrent
@@ -90,6 +90,7 @@ inspectException err = do
                                 (v,r:rfs) -> (v,rfs)
                                 (v, []) -> (v, [])
         valsAndRefs = map spl $ map lines $ catMaybes valids
+    when (null valsAndRefs) (printException err)
     --liftIO $ print $ valids
     --mapM_ (liftIO . print) valsAndRefs
     return $ Left $ valsAndRefs
@@ -276,22 +277,10 @@ readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
 
 main :: IO ()
 main = do
-    -- try "let thisIsAnExtremelyLongNameOfAFunctionThatIAmHopingWillBreakAndOhMyGodIHaveToMakeItEvenLongerICannotBelieveThisIsItEvenPossible False = True in (_ (_ :: Bool)) :: Bool"
-    -- res <- try "True" -- base case. Returns Right <<Bool>>
-    --res <- try "succ" -- does not work, we need a concrete type if we want
-                        -- a dynamic  i.e. something Typeable. Returns Left []
-    -- res <- try "succ :: Bool -> Bool" -- returns Right <<Bool -> Bool>>
-    -- res2 <- tryAtType "succ" "Bool -> Bool" -- returns Right <<Bool -> Bool>>
-    -- print res2
-    -- res <- tryAtType exprToTry tyToTry
-    -- print res
-
-    -- r2 <- try (buildCheckExprAtTy props "[Int] -> Int" "product")
-    -- print r2
-    -- r3 <- runCheck r2
-    -- print r3
-    let props = [ "propIsSymmetric f xs = f xs == f (reverse xs)"
-                ] --, "propAlwaysPos f xs = f xs >= 0"]
+    let props = [ "prop_IsSymmetric f xs = f xs == f (reverse xs)"
+                , "prop_Bin f = f [] == 0 || f [] == 1"
+                , "prop_NotConst f x = not ((f x) `elem` x)"
+                ]
         ty = "[Int] -> Int"
         context = ["zero = 0 :: Int", "one = 1 :: Int"]
     putStrLn "TARGET TYPE:"
@@ -304,7 +293,7 @@ main = do
     memo <- newIORef (Map.empty)
     -- 2 is the number of additional holes at the top level,
     -- 3 is the depth. Takes 60ish minutes on my system, but works!
-    r <- synthesizeSatisfyingWLevel 2 3 memo context ty props
+    r <- synthesizeSatisfyingWLevel 2 2 memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
