@@ -44,7 +44,6 @@ import System.Posix.Signals
 import System.Exit
 import System.Environment
 
-
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
         (foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
@@ -103,6 +102,11 @@ evalOrHoleFits lvl str = do
    -- Then we can actually run the program!
    handleSourceError inspectException (dynCompileExpr str >>= (return . Right))
 
+compileChecks :: [String] -> IO [Either [ValsAndRefs] Dynamic]
+compileChecks exprs = runGhc (Just libdir) $ do
+    initGhcCtxt 0
+    mapM (handleSourceError (\e -> printException e >> return (Left []))
+          . fmap Right . dynCompileExpr ) exprs
 
 try :: String -> IO (Either [ValsAndRefs] Dynamic)
 try = tryWLevel 1
@@ -215,14 +219,16 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                    else do
                      let lv = length cands
                      putStrLn $ "CHECKING " ++ (show lv) ++ " CANDIDATES..."
-                     pr_debug $ "Calculating FITS for" ++ show inp
+                     putStrLn $ "COMPILING..."
+                     checks <- zip cands <$> (compileChecks $ map bcat cands)
+                     let to_check =  checks
+                     putStrLn $ "CHECKING..."
                      fits <- sequence $
-                       -- parMap 4 $
                        map
-                       (\(i,v) ->
+                       (\(i,(v,c)) ->
                            pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
-                            (>>=) (isFit v) (\r -> return (v,r)))
-                                $ zip [1..] cands
+                            (>>=) (runCheck c) (\r -> return (v,r)))
+                                $ zip [1..] to_check
                      pr_debug $ (show inp) ++ " fits done!"
                      let res = map fst $ filter snd fits
                      return res
@@ -231,8 +237,8 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
               _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
                       return []
 
-  where isFit v = try bcat >>= runCheck
-            where bcat = buildCheckExprAtTy props context ty v
+  where isFit v = try (bcat v) >>= runCheck
+        bcat = buildCheckExprAtTy props context ty
         wrap p = "(" ++ p ++ ")"
         contextLet l = unlines ["let"
                                , unlines $ map ("    " ++)  context
