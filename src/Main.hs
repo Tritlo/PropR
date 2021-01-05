@@ -31,14 +31,17 @@ import Synth.Eval
 qcArgs = "(stdArgs { chatty = False, maxShrinks = 0})"
 buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
 buildCheckExprAtTy props context ty expr =
-     unlines [ "let "
-             , unlines (map ("    " ++) props)
-             , unlines (map ("    " ++) context)
-             , "    exprToCheck__ = (" ++ expr ++ " :: " ++ ty ++ ")"
-             , "    propsToCheck__ = [" ++ (intercalate "," $ map propCheckExpr propNames) ++ "]"
-             , "in ((sequence propsToCheck__) :: IO [Bool])"]
+     unlines [
+        "let "
+       , unlines (map ("    " ++) props)
+       , unlines (map ("    " ++) context)
+       , "    exprToCheck__ = (" ++ expr ++ " :: " ++ ty ++ ")"
+       , "    propsToCheck__ = [" ++ (intercalate "," $
+                                      map propCheckExpr propNames) ++ "]"
+       , "in ((sequence propsToCheck__) :: IO [Bool])"]
    where propNames = map (head . words) props
-         propCheckExpr pname = "isSuccess <$> quickCheckWithResult "++qcArgs++" (" ++pname ++ " exprToCheck__)"
+         propCheckExpr pname = "isSuccess <$> quickCheckWithResult "
+                               ++qcArgs++" (" ++pname ++ " exprToCheck__)"
          propToLet p = "    " ++ p
 
 -- The time we allow for a check to finish. Measured in microseconds.
@@ -48,25 +51,26 @@ timeoutVal = 1000000
 runCheck :: Either [ValsAndRefs] Dynamic -> IO Bool
 runCheck (Left l) = return False
 runCheck (Right dval) =
-     -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
-     -- can get more information, but then there can be a mismatch of *which*
-     -- `Result` type it is... even when it's the same QuickCheck but compiled
-     -- with different flags. Ugh. So we do it this way, since *hopefully*
-     -- Bool will be the same (unless *base* was compiled differently, *UGGH*).
-     case fromDynamic @(IO [Bool]) dval of
-         Nothing -> do pr_debug "wrong type!!"
-                       return False
-         Just res -> do pid <- forkProcess (proc res)
-                        res <- timeout timeoutVal (getProcessStatus True False pid)
-                        case res of
-                          Just (Just (Exited ExitSuccess)) -> return True
-                          Nothing -> do signalProcess killProcess pid
-                                        return False
-                          _ -> return False
-  where proc action = do res <- action
-                         exitImmediately $ if and res
-                                           then ExitSuccess
-                                           else (ExitFailure 1)
+  -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
+  -- can get more information, but then there can be a mismatch of *which*
+  -- `Result` type it is... even when it's the same QuickCheck but compiled
+  -- with different flags. Ugh. So we do it this way, since *hopefully*
+  -- Bool will be the same (unless *base* was compiled differently, *UGGH*).
+  case fromDynamic @(IO [Bool]) dval of
+      Nothing ->
+        do pr_debug "wrong type!!"
+           return False
+      Just res ->
+        do pid <- forkProcess (proc res)
+           res <- timeout timeoutVal (getProcessStatus True False pid)
+           case res of
+             Just (Just (Exited ExitSuccess)) -> return True
+             Nothing -> do signalProcess killProcess pid
+                           return False
+             _ -> return False
+  where proc action =
+          do res <- action
+             exitImmediately $ if and res then ExitSuccess else (ExitFailure 1)
 
 
 -- MEMOIZE
@@ -150,6 +154,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
       pr_debug $ "Synthesizing for " ++ show holes
       holeFs <- mapM (synthesizeSatisfying cc' (depth-1) ioref context []) holes
       pr_debug $ (show holes) ++ " Done!"
+      -- We synthesize for each of the holes, and then produce ALL COMBINATIONS
       return $ map ((e ++ " ") ++) $ map unwords $ combinations holeFs
       where combinations :: [[String]] -> [[String]]
             combinations [] = [[]]
@@ -204,9 +209,10 @@ getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
 -- by wrapping it in e.g. a nix-shell or something.
 pkgs = ["base", "process", "QuickCheck" ]
 
-imports = [ "import Prelude hiding (id, ($), ($!), asTypeOf)"
-          , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))"
-          ]
+imports = [
+    "import Prelude hiding (id, ($), ($!), asTypeOf)"
+  , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))"
+  ]
 
 compConf :: CompileConfig
 compConf = CompConf { importStmts = imports
