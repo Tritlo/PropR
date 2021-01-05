@@ -21,6 +21,7 @@ import Data.Maybe
 import Control.Monad.IO.Class
 
 import System.Process
+import System.IO
 
 import Data.Dynamic
 import Data.List
@@ -217,18 +218,21 @@ synthesizeSatisfyingWLevel lvl depth ioref context ty props = do
                    if null props
                    then return cands
                    else do
+                     -- This ends the "GENERATING CANDIDATES..."
+                     putStrLn "DONE!"
                      let lv = length cands
-                     putStrLn $ "CHECKING " ++ (show lv) ++ " CANDIDATES..."
-                     putStrLn $ "COMPILING..."
+                     putStr "COMPILING CHECKS..." >> hFlush stdout
                      checks <- zip cands <$> (compileChecks $ map bcat cands)
+                     putStrLn "DONE!"
                      let to_check =  checks
-                     putStrLn $ "CHECKING..."
+                     putStr ("CHECKING " ++ (show lv) ++ " CANDIDATES...") >> hFlush stdout
                      fits <- sequence $
                        map
                        (\(i,(v,c)) ->
                            pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
                             (>>=) (runCheck c) (\r -> return (v,r)))
                                 $ zip [1..] to_check
+                     putStrLn $ "DONE!"
                      pr_debug $ (show inp) ++ " fits done!"
                      let res = map fst $ filter snd fits
                      return res
@@ -336,6 +340,7 @@ main = do
     memo <- newIORef (Map.empty)
     -- 2 is the number of additional holes at the top level,
     -- 3 is the depth. Takes 60ish minutes on my system, but works!
+    putStr "GENERATING CANDIDATES..." >> hFlush stdout
     r <- synthesizeSatisfyingWLevel synth_holes synth_depth memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"

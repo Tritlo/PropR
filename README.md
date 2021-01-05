@@ -49,7 +49,7 @@ depth is one higher than it should be (fixed now for consistency)
 More interesting for 2 holes and depth 1 (i.e. we recursively add holes once)
 
 ```
-[nix-shell:~/ghc-synth]$ time cabal run ghc-synth -- -fholes=2 -fdepth=1
+[nix-shell:~/ghc-synth]$ time cabal run
 Up to date
 SCOPE:
   import Prelude hiding (id, ($), ($!), asTypeOf)
@@ -67,7 +67,9 @@ PARAMETERS:
   MAX HOLES: 2
   MAX DEPTH: 1
 SYNTHESIZING...
-CHECKING 201 CANDIDATES...
+GENERATING CANDIDATES...DONE!
+COMPILING CHECKS...DONE!
+CHECKING 201 CANDIDATES...DONE!
 FOUND 19 MATCHES:
 length
 product
@@ -89,8 +91,8 @@ sum
 (foldr max zero)
 (foldr max one)
 
-real	0m39.725s
-user	0m29.947s
-sys		0m9.876s
+real    0m5.444s
+user    0m2.309s
+sys     0m3.652s
 ```
 
