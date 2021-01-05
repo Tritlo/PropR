@@ -4,9 +4,8 @@ module Synth.Eval where
 -- GHC API
 import GHC
 import DynFlags
-import ErrUtils
--- import SrcLoc
-import HscTypes
+import ErrUtils ( errMsgDoc, errDocSupplementary, errDocImportant )
+import HscTypes ( SourceError, srcErrorMessages )
 
 import Outputable hiding (char)
 
@@ -19,9 +18,6 @@ import Control.Monad.IO.Class
 
 import Data.Dynamic
 import Data.Maybe
-
-
-
 
 -- Configuration and GHC setup
 

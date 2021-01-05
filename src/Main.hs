@@ -1,16 +1,8 @@
 {-# LANGUAGE TypeApplications, RecordWildCards #-}
 module Main where
 
--- import Parser
--- import Lexer
-import StringBuffer
-import FastString
-
--- import PrelNames
--- import Linker
 
 import Data.Maybe
-
 
 import System.Process
 import System.IO
@@ -28,8 +20,6 @@ import Control.Concurrent
 import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Language.Haskell.TH (runIO, runQ, Lit(..), Exp (..))
-
 
 import System.Posix.Process
 import System.Posix.Signals
@@ -99,53 +89,51 @@ pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
                   if dbg then putStrLn str
                          else return ()
 
+putStr' :: String -> IO ()
+putStr' str = putStr str >> hFlush stdout
 
 synthesizeSatisfying :: CompileConfig
                      -> Int -> Memo -> [String]
                      -> String -> [String] -> IO [String]
 synthesizeSatisfying _    depth     _       _  _     _ | depth < 0 = return []
 synthesizeSatisfying cc depth ioref context ty props = do
-    let inp = (cc, depth, context, ty, props)
-    sM <- readIORef ioref
-    case sM Map.!? inp of
-        Just res -> do pr_debug $ "Found " ++ (show inp) ++ "!"
-                       return res
-        Nothing -> do
-            pr_debug $ "Synthesizing " ++ (show inp)
-            --nvar <- newEmptyMVar
-            Left r <- compileAtType cc (contextLet "_") ty
-            case r of
-              ((vals,refs):_) -> do
-                  let rHoles = map readHole refs
-                  rHVs <- sequence $ map recur rHoles
-                  let cands = (vals ++ (map wrap $ concat rHVs))
-                  res <-
-                   if null props
-                   then return cands
-                   else do
-                     -- This ends the "GENERATING CANDIDATES..." message.
-                     putStrLn "DONE!"
-                     let lv = length cands
-                     putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
-                     putStr "COMPILING CANDIDATE CHECKS..." >> hFlush stdout
-                     checks <- zip cands <$> (compileChecks cc $ map bcat cands)
-                     putStrLn "DONE!"
-                     let to_check =  checks
-                     putStr ("CHECKING " ++ (show lv) ++ " CANDIDATES...") >> hFlush stdout
-                     fits <- sequence $
-                       map
-                       (\(i,(v,c)) ->
-                           pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v) >>
-                            (>>=) (runCheck c) (\r -> return (v,r)))
-                                $ zip [1..] to_check
-                     putStrLn $ "DONE!"
-                     pr_debug $ (show inp) ++ " fits done!"
-                     let res = map fst $ filter snd fits
-                     return res
-                  atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
-                  return res
-              _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
-                      return []
+  let inp = (cc, depth, context, ty, props)
+  sM <- readIORef ioref
+  case sM Map.!? inp of
+    Just res -> pr_debug ("Found " ++ (show inp) ++ "!") >> return res
+    Nothing -> do
+      pr_debug $ "Synthesizing " ++ (show inp)
+      --nvar <- newEmptyMVar
+      Left r <- compileAtType cc (contextLet "_") ty
+      case r of
+        ((vals,refs):_) -> do
+          let rHoles = map readHole refs
+          rHVs <- sequence $ map recur rHoles
+          let cands = (vals ++ (map wrap $ concat rHVs))
+          res <- if null props then return cands
+           else do
+             -- This ends the "GENERATING CANDIDATES..." message.
+             putStrLn "DONE!"
+             let lv = length cands
+             putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
+             putStr' "COMPILING CANDIDATE CHECKS..."
+             checks <- zip cands <$> (compileChecks cc $ map bcat cands)
+             putStrLn "DONE!"
+             let to_check =  checks
+             putStr' ("CHECKING " ++ (show lv) ++ " CANDIDATES...")
+             fits <- mapM
+               (\(i,(v,c)) ->
+                  do pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
+                     r <- runCheck c
+                     return (v,r)) $ zip [1..] to_check
+             putStrLn $ "DONE!"
+             pr_debug $ (show inp) ++ " fits done!"
+             let res = map fst $ filter snd fits
+             return res
+          atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
+          return res
+        _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
+                return []
 
   where isFit v = compile (cc {hole_lvl=0}) (bcat v) >>= runCheck
         bcat = buildCheckExprAtTy props context ty
@@ -252,7 +240,7 @@ main = do
     memo <- newIORef (Map.empty)
     -- 2 is the number of additional holes at the top level,
     -- 3 is the depth. Takes 60ish minutes on my system, but works!
-    putStr "GENERATING CANDIDATES..." >> hFlush stdout
+    putStr' "GENERATING CANDIDATES..."
     r <- synthesizeSatisfying cc synth_depth memo context ty props
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
