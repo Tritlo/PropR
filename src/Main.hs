@@ -74,7 +74,12 @@ type ValsAndRefs = ([String], [String])
 inspectException :: SourceError -> Ghc (Either [ValsAndRefs] Dynamic)
 inspectException err = do
     flags <- getSessionDynFlags
-    let supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
+
+    let isHole = allBag holeImp $ (errDocImportant . errMsgDoc) <$> (srcErrorMessages err)
+           where holeImp = all isHoleMsg . map (showSDoc flags)
+                 isHoleMsg m = take (length holeMsg) m == holeMsg
+                   where holeMsg = "Found hole:"
+        supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
         isValid ('V':'a':'l':'i':'d':_:xs) =
             case xs of
                 'h':'o':'l':'e':_ -> True
@@ -91,7 +96,7 @@ inspectException err = do
                                 (v,r:rfs) -> (v,rfs)
                                 (v, []) -> (v, [])
         valsAndRefs = map spl $ map lines $ catMaybes valids
-    when (null valsAndRefs) (printException err)
+    when (null valsAndRefs && (not isHole)) (printException err)
     --liftIO $ print $ valids
     --mapM_ (liftIO . print) valsAndRefs
     return $ Left $ valsAndRefs
