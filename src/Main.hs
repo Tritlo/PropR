@@ -29,6 +29,7 @@ import System.Environment
 import Synth.Eval
 
 qcArgs = "(stdArgs { chatty = False, maxShrinks = 0})"
+qcImport = "import Test.QuickCheck"
 buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
 buildCheckExprAtTy props context ty expr =
      unlines [
@@ -120,7 +121,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
              putStrLn "DONE!"
              putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
              putStr' "COMPILING CANDIDATE CHECKS..."
-             to_check <- zip cands <$> (compileChecks cc $ map bcat cands)
+             let  imps' = qcImport:importStmts cc
+                  cc' = (cc {hole_lvl=0, importStmts=imps'})
+             to_check <- zip cands <$> (compileChecks cc' $ map bcat cands)
              putStrLn "DONE!"
              putStr' ("CHECKING " ++ (show lv) ++ " CANDIDATES...")
              fits <- mapM
@@ -137,7 +140,6 @@ synthesizeSatisfying cc depth ioref context props ty = do
                 return []
 
   where
-    isFit v = compile (cc {hole_lvl=0}) (bcat v) >>= runCheck
     bcat = buildCheckExprAtTy props context ty
     wrap p = "(" ++ p ++ ")"
     contextLet l =
@@ -208,7 +210,6 @@ pkgs = ["base", "process", "QuickCheck" ]
 
 imports = [
     "import Prelude hiding (id, ($), ($!), asTypeOf)"
-  , "import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))"
   ]
 
 compConf :: CompileConfig
