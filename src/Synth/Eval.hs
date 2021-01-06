@@ -14,7 +14,9 @@ import Bag
 import GHC.Paths (libdir)
 
 import Control.Monad (when)
-import Control.Monad.IO.Class
+import Control.Monad.IO.Class ( liftIO )
+
+import System.Environment ( getArgs )
 
 import Data.Dynamic
 import Data.Maybe
@@ -40,7 +42,9 @@ config lvl sflags =
 output :: Outputable p => [p] -> Ghc ()
 output p = do
     flags <- getSessionDynFlags
-    mapM_ (liftIO . print . showSDoc flags . ppr) p
+    dbg <- liftIO $ ("-fdebug" `elem`) <$> getArgs
+    when dbg $
+       mapM_ (liftIO . print . showSDoc flags . ppr) p
 
 ----
 
@@ -70,32 +74,45 @@ initGhcCtxt CompConf{..} = do
 type ValsAndRefs = ([String], [String])
 type CompileRes = Either [ValsAndRefs] Dynamic
 
+dropPrefix :: String -> String -> String
+dropPrefix (p:ps) (s:ss) | p == s = dropPrefix ps ss
+dropPrefix _ s = s
+
+startsWith :: String -> String -> Bool
+startsWith [] _ = True
+startsWith (p:ps) (s:ss) | p == s = startsWith ps ss
+startsWith _ _ = False
 
 -- Extract
 getHoleFitsFromError :: SourceError -> Ghc CompileRes
 getHoleFitsFromError err = do
     flags <- getSessionDynFlags
-    -- printException err
+    dbg <- liftIO $ ("-fdebug" `elem`) <$> getArgs
+    when dbg $ printException err
     let isHole = allBag holeImp $ (errDocImportant . errMsgDoc) <$> (srcErrorMessages err)
            where holeImp = all isHoleMsg . map (showSDoc flags)
                  isHoleMsg m = take (length holeMsg) m == holeMsg
                    where holeMsg = "Found hole:"
         supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
-        isValid ('V':'a':'l':'i':'d':_:xs) =
-            case xs of
-                'h':'o':'l':'e':_ -> True
-                'r':'e':'f':'i':'n':'e':'m':'e':'n':'t':_ -> True
-                _ -> False
-        isValid _ = False
+        isValid s =
+             (startsWith "Valid hole" s) || (startsWith "Valid refinement" s)
         toMb [] = Nothing
         toMb [x] = Just x
         toMb o = error (show o)
         valids :: [Maybe String]
         valids = map (toMb . filter isValid . map (showSDoc flags)) supp
-        spl v = (clean vals, clean rfs)
-          where (vals,rfs) = case break isValid (tail v) of
-                                (v,r:rfs) -> (v,rfs)
-                                (v, []) -> (v, [])
+        spl v = (vals', rfs')
+          where ((va,vals),(ra,rfs)) =
+                    case break (startsWith "Valid refinement") v of
+                         (v:vs, r:rfs) -> ((v,vs),(r,rfs))
+                         (v:vs, []) -> ((v,vs), ([],[]))
+                         ([], r:rfs) -> (([],[]),(r,rfs))
+                -- We need to do a bit of stuff in case the  hole fit itself
+                -- ends up on the same line as the message
+                v' = dropPrefix "Valid hole fits include " va
+                vals' = if null v' then clean vals else v':clean vals
+                r' = dropPrefix "Valid refinement hole fits include " ra
+                rfs' = if null r' then clean rfs else r':clean rfs
                 leading_spaces =
                      case (vals,rfs) of
                          (v:_,_) -> lsp v
@@ -104,7 +121,7 @@ getHoleFitsFromError err = do
                 lsp = length . takeWhile (== ' ')
                 -- We need to clean the fits so that fits that don't fit in one
                 -- line are parsed as one fit and not others
-                clean = map (unwords . map (dropWhile (== ' ')) . words)
+                clean = map (unwords .  words)
                       -- ^ remove extra spaces between holes
                       . map unwords . gr2
                       -- ^ group where the one that follows has an extra leading
