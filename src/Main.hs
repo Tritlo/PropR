@@ -133,7 +133,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
              case mono_ty of
                Nothing -> do
                  putStrLn $ "FAILED!"
-                 putStrLn $ "TYPE: " ++ ty ++ " COULD NOT BE MONOMORPHISED!"
+                 putStrLn $ "COULD NOT MONOMORPHISE " ++ ty
                  putStrLn $ "THIS MEANS QUICKCHECKS CANNOT BE DONE!"
                  return []
                Just mty -> do
@@ -237,7 +237,7 @@ getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
 pkgs = ["base", "process", "QuickCheck" ]
 
 imports = [
-    "import Prelude " --hiding (id, ($), ($!), asTypeOf)"
+    "import Prelude hiding (id, ($), ($!), asTypeOf)"
   ]
 
 compConf :: CompileConfig
@@ -250,9 +250,9 @@ main = do
     let cc = compConf {hole_lvl=synth_holes}
         props = [ "prop_is_symmetric f xs = f xs == f (reverse xs)"
                 , "prop_bin f = f [] == 0 || f [] == 1"
-                , "prop_not_const f = not ((f []) == f [1,2,3])"
+                , "prop_not_const f x = not ((f []) == f [x])"
                 ]
-        ty = "Num a => [a] -> Int"
+        ty = "[a] -> Int"
         context = ["zero = 0 :: Int", "one = 1 :: Int"]
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
