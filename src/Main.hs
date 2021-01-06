@@ -34,20 +34,22 @@ qcImport = "import Test.QuickCheck"
 buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
 buildCheckExprAtTy props context ty expr =
      unlines [
-        "let qc__ = "  ++ qcArgs
+         "let qc__ = "  ++ qcArgs
        , "    -- Context"
        , unlines (map ("    " ++) context)
        , "    -- Properties"
        , unlines (map ("    " ++) props)
-       , "    expr__ = (" ++ expr ++ " :: " ++ ty ++ ")"
-       , "    propsToCheck__ = [ " ++ (intercalate "\n                     , " $
-                                      map propCheckExpr propNames) ++ "]"
+       , "    expr__ :: " ++ ty
+       , "    expr__ = "++  expr
+       , "    propsToCheck__ = [ " ++
+                 (intercalate
+       "\n                     , " $ map propCheckExpr propNames) ++ "]"
        , "in ((sequence propsToCheck__) :: IO [Bool])"]
    where propNames = map (head . words) props
          -- We can't consolidate this into check__, since the type
          -- will be different!
          propCheckExpr pname = "isSuccess <$> quickCheckWithResult qc__ ("
-                            ++ pname ++ " expr__)"
+                            ++ pname ++ " expr__ )"
          propToLet p = "    " ++ p
 
 -- The time we allow for a check to finish. Measured in microseconds.
@@ -106,6 +108,8 @@ putStr' str = putStr str >> hFlush stdout
 type SynthInput = (CompileConfig, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput [String])
 
+
+
 synthesizeSatisfying :: CompileConfig -> Int -> Memo -> [String]
                      -> [String] -> String -> IO [String]
 synthesizeSatisfying _    depth     _       _  _     _ | depth < 0 = return []
@@ -116,7 +120,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
     Just res -> pr_debug ("Found " ++ (show inp) ++ "!") >> return res
     Nothing -> do
       pr_debug $ "Synthesizing " ++ (show inp)
-      --nvar <- newEmptyMVar
+      mono_ty <- monomorphiseType cc ty
       Left r <- compileAtType cc (contextLet "_") ty
       case r of
         ((vals,refs):_) -> do
@@ -126,29 +130,44 @@ synthesizeSatisfying cc depth ioref context props ty = do
               lv = length cands
           res <- if null props then return cands else do
              -- This ends the "GENERATING CANDIDATES..." message.
-             putStrLn "DONE!"
-             putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
-             putStr' "COMPILING CANDIDATE CHECKS..."
-             let  imps' = qcImport:importStmts cc
-                  cc' = (cc {hole_lvl=0, importStmts=imps'})
-             to_check <- zip cands <$> (compileChecks cc' $ map bcat cands)
-             putStrLn "DONE!"
-             putStr' ("CHECKING " ++ (show lv) ++ " CANDIDATES...")
-             fits <- mapM
-               (\(i,(v,c)) ->
-                  do pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
-                     (v,) <$> runCheck c) $ zip [1..] to_check
-             putStrLn $ "DONE!"
-             pr_debug $ (show inp) ++ " fits done!"
-             let res = map fst $ filter snd fits
-             return res
+             case mono_ty of
+               Nothing -> do
+                 putStrLn $ "FAILED!"
+                 putStrLn $ "TYPE: " ++ ty ++ " COULD NOT BE MONOMORPHISED!"
+                 putStrLn $ "THIS MEANS QUICKCHECKS CANNOT BE DONE!"
+                 return []
+               Just mty -> do
+                 putStrLn "DONE!"
+                 putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
+                 putStr' "COMPILING CANDIDATE CHECKS..."
+                 let imps' = qcImport:importStmts cc
+                     cc' = (cc {hole_lvl=0, importStmts=imps'})
+                     to_check_exprs = map (bcat mty) cands
+                 -- Doesn't work, since the types are too polymorphic, and if
+                 -- the target type cannot be monomorphised, the fits will
+                 -- be too general for QuickCheck
+                 -- to_check_exprs <-
+                 --    case mono_ty of
+                 --        Just typ -> return $ map (bcat typ) cands
+                 --        Nothing -> genCandTys cc' bcat cands
+                 to_check <- zip cands <$> compileChecks cc' to_check_exprs
+                 putStrLn "DONE!"
+                 putStr' ("CHECKING " ++ (show lv) ++ " CANDIDATES...")
+                 fits <- mapM
+                   (\(i,(v,c)) ->
+                      do pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
+                         (v,) <$> runCheck c) $ zip [1..] to_check
+                 putStrLn $ "DONE!"
+                 pr_debug $ (show inp) ++ " fits done!"
+                 let res = map fst $ filter snd fits
+                 return res
           atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
           return res
         _ -> do atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
                 return []
 
   where
-    bcat = buildCheckExprAtTy props context ty
+    bcat = buildCheckExprAtTy props context
     wrap p = "(" ++ p ++ ")"
     contextLet l =
       unlines ["let"
@@ -218,7 +237,7 @@ getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
 pkgs = ["base", "process", "QuickCheck" ]
 
 imports = [
-    "import Prelude hiding (id, ($), ($!), asTypeOf)"
+    "import Prelude " --hiding (id, ($), ($!), asTypeOf)"
   ]
 
 compConf :: CompileConfig
@@ -233,7 +252,7 @@ main = do
                 , "prop_bin f = f [] == 0 || f [] == 1"
                 , "prop_not_const f = not ((f []) == f [1,2,3])"
                 ]
-        ty = "[()] -> Int"
+        ty = "Num a => [a] -> Int"
         context = ["zero = 0 :: Int", "one = 1 :: Int"]
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports

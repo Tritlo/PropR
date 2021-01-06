@@ -18,6 +18,7 @@ library synth
   exposed-modules: Synth.Eval
   build-depends: base >= 4 && < 5,
                  ghc >= 8 && < 9,
+                 ghc-boot >= 8 && < 9,
                  ghc-paths >= 0.1 && < 0.2
 
 executable ghc-synth

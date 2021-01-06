@@ -22,6 +22,9 @@ import Data.Dynamic
 import Data.Maybe
 import Data.List
 
+import TysWiredIn (unitTy)
+import GhcPlugins (substTyWith)
+
 -- Configuration and GHC setup
 
 holeFlags = [ Opt_ShowHoleConstraints
@@ -32,10 +35,10 @@ holeFlags = [ Opt_ShowHoleConstraints
 
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
-        (foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
+        ((foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
-               refLevelHoleFits = Just lvl }
+               refLevelHoleFits = Just lvl })
 
 -- UTIL
 
@@ -142,6 +145,19 @@ getHoleFitsFromError err = do
     when (null valsAndRefs && (not isHole)) (printException err)
     return $ Left $ valsAndRefs
 
+monomorphiseType :: CompileConfig -> String -> IO (Maybe String)
+monomorphiseType cc ty = do
+   runGhc (Just libdir) $
+       do initGhcCtxt cc
+          flags <- getSessionDynFlags
+          let pp = showSDoc flags . ppr
+          handleSourceError (const $ return Nothing) $
+            ((Just . pp . mono) <$> (exprType TM_Default ("undefined :: " ++ ty)))
+
+  where mono ty = substTyWith tvs (replicate (length tvs) unitTy) base_ty
+          where (tvs, base_ty) = splitForAllTys ty
+        -- ^ We take a leaf from QuickCheck's book and default all ambiguous
+        -- foralls to the simplest one, unit.
 
 evalOrHoleFits :: CompileConfig -> String -> Ghc CompileRes
 evalOrHoleFits cc str = do
@@ -161,12 +177,15 @@ compileChecks cc exprs = runGhc (Just libdir) $ do
              error "UNEXPECTED EXCEPTION")
           $ fmap Right $ dynCompileExpr exp ) exprs
 
+genCandTys :: CompileConfig -> (String -> String -> String) -> [String] -> IO [String]
+genCandTys cc bcat cands = runGhc (Just libdir) $ do
+    initGhcCtxt (cc {hole_lvl = 0})
+    flags <- getSessionDynFlags
+    catMaybes <$>
+        mapM (\c -> handleSourceError (const $ return Nothing) $
+                Just . flip bcat c . showSDoc flags . ppr
+                    <$> exprType TM_Default c) cands
 
--- try :: CompileConfig -> String -> IO CompileRes
--- try = tryWLevel
-
--- tryAtType :: Compile-String -> String -> IO CompileRes
--- tryAtType = tryAtTypeWLvl 1
 
 compile :: CompileConfig -> String -> IO CompileRes
 compile cc str = do
