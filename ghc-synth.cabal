@@ -26,12 +26,8 @@ executable ghc-synth
   main-is: src/Main.hs
   ghc-options: -threaded -O2
   build-depends: base >= 4 && < 5,
-                 ghc >= 8 && < 9,
                  process >= 1.6 && < 1.7,
-                 QuickCheck >= 2.14 && < 2.15,
                  containers >= 0.6 && < 0.7,
-                 template-haskell >= 2.16 && < 2.17,
-                 ghc-paths >= 0.1 && < 0.2,
                  unix >= 2.7.2 && < 2.8,
                  synth
 

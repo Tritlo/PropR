@@ -143,7 +143,7 @@ getHoleFitsFromError err = do
 
         valsAndRefs = map spl $ map lines $ catMaybes valids
     when (null valsAndRefs && (not isHole)) (printException err)
-    return $ Left $ valsAndRefs
+    return $ Left valsAndRefs
 
 monomorphiseType :: CompileConfig -> String -> IO (Maybe String)
 monomorphiseType cc ty = do
@@ -151,7 +151,7 @@ monomorphiseType cc ty = do
        do initGhcCtxt cc
           flags <- getSessionDynFlags
           let pp = showSDoc flags . ppr
-          handleSourceError (const $ return Nothing) $
+          handleSourceError (const $ return Nothing)
             ((Just . pp . mono) <$> (exprType TM_Default ("undefined :: " ++ ty)))
 
   where mono ty = substTyWith tvs (replicate (length tvs) unitTy) base_ty

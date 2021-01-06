@@ -10,7 +10,6 @@ import System.IO
 import Data.Dynamic
 import Data.List
 import Data.Maybe
-import Test.QuickCheck
 
 import Text.ParserCombinators.ReadP
 
@@ -86,18 +85,6 @@ runCheck (Right dval) =
           do res <- action
              exitImmediately $ if and res then ExitSuccess else (ExitFailure 1)
 
--- UTIL
-parMap ::Int -> [IO a] -> IO [a]
-parMap n xs | length xs < n = sequence xs
-parMap n xs = do mvs <- mapM start cur
-                 res <- mapM readMVar mvs
-                 (res ++) <$> (parMap n rest)
-  where (cur,rest) = splitAt n xs
-        todo = zip cur $ repeat newEmptyMVar
-        start act = do mv <- newEmptyMVar
-                       forkIO (act >>= putMVar mv)
-                       return mv
-
 pr_debug :: String -> IO ()
 pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
                   when dbg $ putStrLn str
@@ -107,8 +94,6 @@ putStr' str = putStr str >> hFlush stdout
 
 type SynthInput = (CompileConfig, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput [String])
-
-
 
 synthesizeSatisfying :: CompileConfig -> Int -> Memo -> [String]
                      -> [String] -> String -> IO [String]
@@ -132,9 +117,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
              -- This ends the "GENERATING CANDIDATES..." message.
              case mono_ty of
                Nothing -> do
-                 putStrLn $ "FAILED!"
+                 putStrLn "FAILED!"
                  putStrLn $ "COULD NOT MONOMORPHISE " ++ ty
-                 putStrLn $ "THIS MEANS QUICKCHECKS CANNOT BE DONE!"
+                 putStrLn "THIS MEANS QUICKCHECKS CANNOT BE DONE!"
                  return []
                Just mty -> do
                  putStrLn "DONE!"
@@ -157,7 +142,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                    (\(i,(v,c)) ->
                       do pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
                          (v,) <$> runCheck c) $ zip [1..] to_check
-                 putStrLn $ "DONE!"
+                 putStrLn "DONE!"
                  pr_debug $ (show inp) ++ " fits done!"
                  let res = map fst $ filter snd fits
                  return res
