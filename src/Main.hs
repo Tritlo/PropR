@@ -9,6 +9,7 @@ import System.IO
 
 import Data.Dynamic
 import Data.List
+import Data.Maybe
 import Test.QuickCheck
 
 import Text.ParserCombinators.ReadP
@@ -157,7 +158,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
       holeFs <- mapM (synthesizeSatisfying cc' (depth-1) ioref context []) holes
       pr_debug $ (show holes) ++ " Done!"
       -- We synthesize for each of the holes, and then produce ALL COMBINATIONS
-      return $ map ((e ++ " ") ++) $ map unwords $ combinations holeFs
+      return $
+       if any null holeFs then []
+       else map ((e ++ " ") ++) $ map unwords $ combinations holeFs
       where combinations :: [[String]] -> [[String]]
             combinations [] = [[]]
             -- List monad magic
@@ -180,7 +183,7 @@ readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
         any = satisfy $ const True
         hole = string "_ :: " >> many any
         parseHole = readP_to_S $ do e1 <- manyTill any (char ' ')
-                                    hs <- sepBy (between po pc hole) (char ' ')
+                                    hs <- sepBy (between po pc hole) (many1 $ char ' ')
                                     return (e1, hs)
 
 
@@ -202,7 +205,6 @@ getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
                                     Just r | not (null r) -> read (tail r)
                                     Nothing -> 1
                   synth_debug = "-fdebug" `Map.member` args
-              when (synth_holes > 2) (error "MORE THAN 2 HOLES NOT SUPPORTED!")
               when (synth_holes < 0) (error "NUMBER OF HOLES CANNOT BE NEGATIVE!")
               when (synth_depth < 0) (error "DEPTH CANNOT BE NEGATIVE!")
               return $ SFlgs {..}
