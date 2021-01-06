@@ -3,6 +3,7 @@ Synthesis using GHC
 
 Works, but is pretty slow at the moment, even when doing the synthesis and
 testing in parallel, but it works! Requires QuickCheck to be installed globally,
+(or in someway such that it is picked up by the GHC API, from the libdir I guess)
 otherwise the internal synthesizer cannot run the tests (we should fix this
 by some NIX magic).
 
@@ -46,18 +47,18 @@ The full output (with debug) be seen in `out-2holes-depth2.txt`.
 
 More interesting for 2 holes and depth 1 (i.e. we recursively add holes once)
 
+
 ```
 [nix-shell:~/ghc-synth]$ time cabal run
 Up to date
 SCOPE:
   import Prelude hiding (id, ($), ($!), asTypeOf)
-  import Test.QuickCheck (quickCheckWithResult, Result(..), stdArgs, Args(..), isSuccess, (==>))
 TARGET TYPE:
-  [Int] -> Int
+  [a] -> Int
 MUST SATISFY:
-  prop_IsSymmetric f xs = f xs == f (reverse xs)
-  prop_Bin f = f [] == 0 || f [] == 1
-  prop_not_const f = not ((f []) == f [1,2,3])
+  prop_is_symmetric f xs = f xs == f (reverse xs)
+  prop_bin f = f [] == 0 || f [] == 1
+  prop_not_const f x = not ((f []) == f [x])
 IN CONTEXT:
   zero = 0 :: Int
   one = 1 :: Int
@@ -66,31 +67,15 @@ PARAMETERS:
   MAX DEPTH: 1
 SYNTHESIZING...
 GENERATING CANDIDATES...DONE!
-COMPILING CHECKS...DONE!
-CHECKING 201 CANDIDATES...DONE!
-FOUND 19 MATCHES:
+GENERATED 41 CANDIDATES!
+COMPILING CANDIDATE CHECKS...DONE!
+CHECKING 41 CANDIDATES...DONE!
+FOUND MATCH:
 length
-product
-sum
-(foldl (-) zero)
-(foldl (-) one)
-(foldl gcd zero)
-(foldl (*) one)
-(foldl (+) zero)
-(foldl (+) one)
-(foldl max zero)
-(foldl max one)
-(foldr subtract zero)
-(foldr subtract one)
-(foldr gcd zero)
-(foldr (*) one)
-(foldr (+) zero)
-(foldr (+) one)
-(foldr max zero)
-(foldr max one)
 
-real    0m5.444s
-user    0m2.309s
-sys     0m3.652s
+real	0m2.966s
+user	0m1.768s
+sys		0m1.376s
+
 ```
 
