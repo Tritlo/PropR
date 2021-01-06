@@ -29,21 +29,25 @@ import System.Environment
 
 import Synth.Eval
 
-qcArgs = "(stdArgs { chatty = False, maxShrinks = 0})"
+qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 qcImport = "import Test.QuickCheck"
 buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
 buildCheckExprAtTy props context ty expr =
      unlines [
-        "let "
-       , unlines (map ("    " ++) props)
+        "let qc__ = "  ++ qcArgs
+       , "    -- Context"
        , unlines (map ("    " ++) context)
-       , "    exprToCheck__ = (" ++ expr ++ " :: " ++ ty ++ ")"
-       , "    propsToCheck__ = [" ++ (intercalate "," $
+       , "    -- Properties"
+       , unlines (map ("    " ++) props)
+       , "    expr__ = (" ++ expr ++ " :: " ++ ty ++ ")"
+       , "    propsToCheck__ = [ " ++ (intercalate "\n                     , " $
                                       map propCheckExpr propNames) ++ "]"
        , "in ((sequence propsToCheck__) :: IO [Bool])"]
    where propNames = map (head . words) props
-         propCheckExpr pname = "isSuccess <$> quickCheckWithResult "
-                               ++qcArgs++" (" ++pname ++ " exprToCheck__)"
+         -- We can't consolidate this into check__, since the type
+         -- will be different!
+         propCheckExpr pname = "isSuccess <$> quickCheckWithResult qc__ ("
+                            ++ pname ++ " expr__)"
          propToLet p = "    " ++ p
 
 -- The time we allow for a check to finish. Measured in microseconds.
@@ -225,11 +229,11 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-    let props = [ "prop_IsSymmetric f xs = f xs == f (reverse xs)"
-                , "prop_Bin f = f [] == 0 || f [] == 1"
+        props = [ "prop_is_symmetric f xs = f xs == f (reverse xs)"
+                , "prop_bin f = f [] == 0 || f [] == 1"
                 , "prop_not_const f = not ((f []) == f [1,2,3])"
                 ]
-        ty = "[Int] -> Int"
+        ty = "[()] -> Int"
         context = ["zero = 0 :: Int", "one = 1 :: Int"]
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
@@ -244,8 +248,6 @@ main = do
     putStrLn $ "  MAX DEPTH: "  ++ (show synth_depth)
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
-    -- 2 is the number of additional holes at the top level,
-    -- 3 is the depth. Takes 60ish minutes on my system, but works!
     putStr' "GENERATING CANDIDATES..."
     r <- synthesizeSatisfying cc synth_depth memo context props ty
     case r of
@@ -255,4 +257,3 @@ main = do
         xs -> do putStrLn $ "FOUND " ++ (show  $ length xs) ++" MATCHES:"
                  mapM_ putStrLn xs
 
-    --putStrLn "ghc-synth!"

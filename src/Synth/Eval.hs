@@ -152,8 +152,14 @@ evalOrHoleFits cc str = do
 compileChecks :: CompileConfig -> [String] -> IO [CompileRes]
 compileChecks cc exprs = runGhc (Just libdir) $ do
     initGhcCtxt (cc {hole_lvl = 0})
-    mapM (handleSourceError (\e -> printException e >> return (Left []))
-          . fmap Right . dynCompileExpr ) exprs
+    mapM (\exp ->
+         handleSourceError (\e ->
+          do liftIO $ do putStrLn "FAILED!"
+                         putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
+                         putStrLn exp
+             printException e
+             error "UNEXPECTED EXCEPTION")
+          $ fmap Right $ dynCompileExpr exp ) exprs
 
 
 -- try :: CompileConfig -> String -> IO CompileRes
