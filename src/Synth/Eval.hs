@@ -23,7 +23,9 @@ import Data.Maybe
 import Data.List
 
 import TysWiredIn (unitTy)
-import GhcPlugins (substTyWith)
+import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..))
+
+import Synth.Plugin
 
 -- Configuration and GHC setup
 
@@ -65,8 +67,12 @@ initGhcCtxt CompConf{..} = do
    flags <- (config hole_lvl) <$> getSessionDynFlags
      --`dopt_set` Opt_D_dump_json
    -- First we have to add "base" to scope
-   toLink <- setSessionDynFlags (flags {packageFlags = (packageFlags flags)
-                                                     ++ ( map toPkg packages)})
+   let flags' = flags { packageFlags = (packageFlags flags)
+                                    ++ (map toPkg packages)
+                      , staticPlugins = sPlug:(staticPlugins flags) }
+       sPlug = StaticPlugin $ PluginWithArgs { paArguments = []
+                                             , paPlugin = synthPlug}
+   toLink <- setSessionDynFlags flags'
    -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
    --(hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
    -- Then we import the prelude and add it to the context

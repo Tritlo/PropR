@@ -235,10 +235,12 @@ main = do
     let cc = compConf {hole_lvl=synth_holes}
         props = [ "prop_is_symmetric f xs = f xs == f (reverse xs)"
                 , "prop_bin f = f [] == 0 || f [] == 1"
-                , "prop_not_const f x = not ((f []) == f [x])"
+                --, "prop_not_const f x = not ((f []) == f [x])"
+                , "prop_not_const f = not (f [] == f [1,2,3])"
                 ]
-        ty = "[a] -> Int"
-        context = ["zero = 0 :: Int", "one = 1 :: Int"]
+        ty = "[Int] -> Int"
+        context = [ "zero = 0 :: Int"
+                  , "one = 1 :: Int"]
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
     putStrLn "TARGET TYPE:"
@@ -260,4 +262,13 @@ main = do
                    putStrLn xs
         xs -> do putStrLn $ "FOUND " ++ (show  $ length xs) ++" MATCHES:"
                  mapM_ putStrLn xs
+
+
+-- prop_is_symmetric f xs = f xs == f (reverse xs)
+-- prop_bin f = f [] == 0 || f [] == 1
+-- prop_not_const f = not (f [] == f [1,2,3])
+
+-- res = [ quickCheck (prop_is_symmetric _a)
+--       , quickCheck (prop_bin _a)
+--       , quickCheck (prop_not_const _a)]
 
