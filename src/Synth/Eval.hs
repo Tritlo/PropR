@@ -21,11 +21,15 @@ import System.Environment ( getArgs )
 import Data.Dynamic
 import Data.Maybe
 import Data.List
+import Data.Function (on)
 
 import TysWiredIn (unitTy)
 import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..))
 
 import Synth.Plugin
+import Data.IORef
+import TcHoleErrors (TypedHole (..), HoleFit(..))
+import Constraint (Ct(..), holeOcc)
 
 -- Configuration and GHC setup
 
@@ -62,25 +66,27 @@ data CompileConfig = CompConf { importStmts :: [String]
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package "++ str) (PackageArg str) (ModRenaming True [])
 
-initGhcCtxt :: CompileConfig -> Ghc ()
+initGhcCtxt :: CompileConfig -> Ghc (IORef [(TypedHole, [HoleFit])])
 initGhcCtxt CompConf{..} = do
    flags <- (config hole_lvl) <$> getSessionDynFlags
      --`dopt_set` Opt_D_dump_json
    -- First we have to add "base" to scope
+   plugRef <- liftIO $ newIORef []
    let flags' = flags { packageFlags = (packageFlags flags)
                                     ++ (map toPkg packages)
                       , staticPlugins = sPlug:(staticPlugins flags) }
        sPlug = StaticPlugin $ PluginWithArgs { paArguments = []
-                                             , paPlugin = synthPlug}
+                                             , paPlugin = synthPlug plugRef}
    toLink <- setSessionDynFlags flags'
    -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
    --(hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
    -- Then we import the prelude and add it to the context
    imports <- mapM ( fmap IIDecl . parseImportDecl) importStmts
    getContext >>= setContext . (imports ++)
+   return plugRef
 
 
-type ValsAndRefs = ([String], [String])
+type ValsAndRefs = ([HoleFit], [HoleFit])
 type CompileRes = Either [ValsAndRefs] Dynamic
 
 dropPrefix :: String -> String -> String
@@ -92,69 +98,33 @@ startsWith [] _ = True
 startsWith (p:ps) (s:ss) | p == s = startsWith ps ss
 startsWith _ _ = False
 
--- Extract
-getHoleFitsFromError :: SourceError -> Ghc CompileRes
-getHoleFitsFromError err = do
+-- By integrating with a hole fit plugin, we can extract the fits (with all
+-- the types and everything directly, instead of having to parse the error
+-- message)
+getHoleFitsFromError :: IORef ([(TypedHole, [HoleFit])])
+                     -> SourceError -> Ghc CompileRes
+getHoleFitsFromError plugRef err = do
     flags <- getSessionDynFlags
     dbg <- liftIO $ ("-fdebug" `elem`) <$> getArgs
     when dbg $ printException err
-    let isHole = allBag holeImp $ (errDocImportant . errMsgDoc) <$> (srcErrorMessages err)
-           where holeImp = all isHoleMsg . map (showSDoc flags)
-                 isHoleMsg m = take (length holeMsg) m == holeMsg
-                   where holeMsg = "Found hole:"
-        supp = bagToList $ (errDocSupplementary . errMsgDoc) <$> (srcErrorMessages err)
-        isValid s =
-             (startsWith "Valid hole" s) || (startsWith "Valid refinement" s)
-        toMb [] = Nothing
-        toMb [x] = Just x
-        toMb o = error (show o)
-        valids :: [Maybe String]
-        valids = map (toMb . filter isValid . map (showSDoc flags)) supp
-        spl v = (vals', rfs')
-          where ((va,vals),(ra,rfs)) =
-                    case break (startsWith "Valid refinement") v of
-                         (v:vs, r:rfs) -> ((v,vs),(r,rfs))
-                         (v:vs, []) -> ((v,vs), ([],[]))
-                         ([], r:rfs) -> (([],[]),(r,rfs))
-                -- We need to do a bit of stuff in case the  hole fit itself
-                -- ends up on the same line as the message
-                v' = dropPrefix "Valid hole fits include " va
-                vals' = if null v' then clean vals else v':clean vals
-                r' = dropPrefix "Valid refinement hole fits include " ra
-                rfs' = if null r' then clean rfs else r':clean rfs
-                leading_spaces =
-                     case (vals,rfs) of
-                         (v:_,_) -> lsp v
-                         (_,r:_) -> lsp r
-                         _ -> 0
-                lsp = length . takeWhile (== ' ')
-                -- We need to clean the fits so that fits that don't fit in one
-                -- line are parsed as one fit and not others
-                clean = map (unwords .  words)
-                      -- ^ remove extra spaces between holes
-                      . map unwords . gr2
-                      -- ^ group where the one that follows has an extra leading
-                      -- space, i.e. is a start of a hung one
-                      . map unwords . gr
-                      -- ^ group those that have even more leading spaces, i.e.
-                      -- are hung below (so they are part of the one above)
-                      . map (drop leading_spaces)
-                      -- ^ remove leading spaces from all
-                gr = groupBy c
-                  where c (' ':_) (' ':_) = True
-                        c _ _ = False
-                gr2 = groupBy c
-                  where c _ (' ':_) = True
-                        c _ _ = False
-
-        valsAndRefs = map spl $ map lines $ catMaybes valids
-    when (null valsAndRefs && (not isHole)) (printException err)
+    res <- liftIO $ readIORef plugRef
+    when (null res) (printException err)
+    let gs = groupBy (sameHole `on` fst) res
+        allFitsOfHole ((th, f):rest) = (th, concat $ f:(map snd rest))
+        valsAndRefs = map (partition part . snd) $ map allFitsOfHole gs
     return $ Left valsAndRefs
+  where part (RawHoleFit _) = True
+        part (HoleFit {..}) = hfRefLvl <= 0
+        sameHole :: TypedHole -> TypedHole -> Bool
+        sameHole (TyH {tyHCt = Just (CHoleCan {cc_hole = h1})})
+                 (TyH {tyHCt = Just (CHoleCan {cc_hole = h2})}) =
+                 (holeOcc h1) == (holeOcc h2)
+        sameHole _ _ = False
 
 monomorphiseType :: CompileConfig -> String -> IO (Maybe String)
 monomorphiseType cc ty = do
    runGhc (Just libdir) $
-       do initGhcCtxt cc
+       do _ <- initGhcCtxt cc
           flags <- getSessionDynFlags
           let pp = showSDoc flags . ppr
           handleSourceError (const $ return Nothing)
@@ -167,13 +137,14 @@ monomorphiseType cc ty = do
 
 evalOrHoleFits :: CompileConfig -> String -> Ghc CompileRes
 evalOrHoleFits cc str = do
-   initGhcCtxt cc
+   plugRef <- initGhcCtxt cc
    -- Then we can actually run the program!
-   handleSourceError getHoleFitsFromError (dynCompileExpr str >>= (return . Right))
+   handleSourceError (getHoleFitsFromError plugRef)
+                     (dynCompileExpr str >>= (return . Right))
 
 compileChecks :: CompileConfig -> [String] -> IO [CompileRes]
 compileChecks cc exprs = runGhc (Just libdir) $ do
-    initGhcCtxt (cc {hole_lvl = 0})
+    _ <- initGhcCtxt (cc {hole_lvl = 0})
     mapM (\exp ->
          handleSourceError (\e ->
           do liftIO $ do putStrLn "FAILED!"
@@ -200,3 +171,13 @@ compile cc str = do
 
 compileAtType :: CompileConfig -> String -> String -> IO CompileRes
 compileAtType cc str ty = compile cc ("((" ++ str ++ ") :: " ++ ty ++ ")")
+
+
+showHF :: HoleFit -> String
+showHF = showSDocUnsafe . pprPrefixOcc . hfId
+
+readHole :: HoleFit -> (String, [String])
+readHole (RawHoleFit sdc) = (showSDocUnsafe sdc, [])
+readHole hf@HoleFit{..} =
+    (showHF hf,
+     map (showSDocUnsafe . ppr) hfMatches)

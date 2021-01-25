@@ -92,8 +92,11 @@ pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
 putStr' :: String -> IO ()
 putStr' str = putStr str >> hFlush stdout
 
+
+
 type SynthInput = (CompileConfig, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput [String])
+
 
 synthesizeSatisfying :: CompileConfig -> Int -> Memo -> [String]
                      -> [String] -> String -> IO [String]
@@ -111,7 +114,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
         ((vals,refs):_) -> do
           let rHoles = map readHole refs
           rHVs <- sequence $ map recur rHoles
-          let cands = (vals ++ (map wrap $ concat rHVs))
+          let cands = ((map showHF vals) ++ (map wrap $ concat rHVs))
               lv = length cands
           res <- if null props then return cands else do
              -- This ends the "GENERATING CANDIDATES..." message.
@@ -175,25 +178,6 @@ synthesizeSatisfying cc depth ioref context props ty = do
             combinations (c:cs) = do x <- c
                                      xs <- combinations cs
                                      return (x:xs)
-
-
-
--- This is probably slow, we should parse it properly.
-readHole :: String -> (String, [String])
-readHole str = case filter (\(r,left) -> left == "") (parseHole str) of
-                -- here we should probably parse in a better way, i.e. pick
-                -- the one with the most holes or something.
-                (r,_):_ -> r
-                o -> error ("No parse: \n"
-                           ++ str ++ "\nGot: " ++ (show $ parseHole str))
-  where po = char '('
-        pc = char ')'
-        any = satisfy $ const True
-        hole = string "_ :: " >> many any
-        parseHole = readP_to_S $ do e1 <- manyTill any (char ' ')
-                                    hs <- sepBy (between po pc hole) (many1 $ char ' ')
-                                    return (e1, hs)
-
 
 
 hasDebug :: IO Bool
@@ -263,12 +247,4 @@ main = do
         xs -> do putStrLn $ "FOUND " ++ (show  $ length xs) ++" MATCHES:"
                  mapM_ putStrLn xs
 
-
--- prop_is_symmetric f xs = f xs == f (reverse xs)
--- prop_bin f = f [] == 0 || f [] == 1
--- prop_not_const f = not (f [] == f [1,2,3])
-
--- res = [ quickCheck (prop_is_symmetric _a)
---       , quickCheck (prop_bin _a)
---       , quickCheck (prop_not_const _a)]
 

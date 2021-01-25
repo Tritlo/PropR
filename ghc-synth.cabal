@@ -29,5 +29,6 @@ executable ghc-synth
                  process >= 1.6 && < 1.7,
                  containers >= 0.6 && < 0.7,
                  unix >= 2.7.2 && < 2.8,
+                 ghc >= 8 && < 9,
                  synth
 
