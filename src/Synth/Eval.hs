@@ -24,12 +24,15 @@ import Data.List
 import Data.Function (on)
 
 import TysWiredIn (unitTy)
-import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..))
+import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
+                  , occName, OccName(..), fsLit, mkOccNameFS, concatFS
+                  , HscEnv(hsc_IC), InteractiveContext(ic_default))
 
 import Synth.Plugin
 import Data.IORef
 import TcHoleErrors (TypedHole (..), HoleFit(..))
 import Constraint (Ct(..), holeOcc)
+import Data.Data
 
 -- Configuration and GHC setup
 
@@ -41,7 +44,7 @@ holeFlags = [ Opt_ShowHoleConstraints
 
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
-        ((foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
+        ((foldl gopt_unset sflags [Opt_OmitYields]) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
                refLevelHoleFits = Just lvl })
@@ -162,6 +165,52 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
         mapM (\c -> handleSourceError (const $ return Nothing) $
                 Just . flip bcat c . showSDoc flags . ppr
                     <$> exprType TM_Default c) cands
+
+
+getAST :: CompileConfig -> String -> IO [LHsExpr GhcPs]
+getAST cc str = do
+   r <- runGhc (Just libdir) $ exprAST cc str
+   return r
+
+exprAST :: CompileConfig -> String -> Ghc [LHsExpr GhcPs]
+exprAST cc str = do
+   plugRef <- initGhcCtxt cc
+   -- Then we can actually run the program!
+   ~(Just (L l r)) <- handleSourceError (\err -> printException err >>= return (return Nothing))
+                               (parseExpr str >>= (return . Just))
+   flags <- getSessionDynFlags
+
+   -- Make sure we don't do too much defaulting by setting `default ()`
+   -- Note: I think this only applies to the error we would be generating,
+   -- I think if we replace the UnboundVar with a suitable var of the right
+   -- it would work... it just makes the in-between output a bit confusing.
+   env <- getSession
+   setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
+
+   let shw = showSDoc flags $ ppr_expr r
+   liftIO $ putStrLn shw
+   let replaced = replaceWithHoles (L l r)
+   output replaced
+   res <- mapM (\c -> handleSourceError (\e -> printException e >> return False)
+                                        (compileParsedExpr c >> return True))
+               replaced
+   output res
+   return replaced
+
+replaceWithHoles :: LHsExpr GhcPs -> [LHsExpr GhcPs]
+replaceWithHoles (L loc (HsApp x l r)) = rl ++ rr
+  where rl = map (\e -> L loc (HsApp x e r)) $ replaceWithHoles l
+        rr = map (\e -> L loc (HsApp x l e)) $ replaceWithHoles r
+replaceWithHoles (L loc (HsVar x (L _ v))) =
+    [(L loc (HsUnboundVar x (TrueExprHole name)))]
+  where (ns,fs) = (occNameSpace (occName v), occNameFS (occName v))
+        name = mkOccNameFS ns (concatFS $ (fsLit "_"):[fs])
+
+replaceWithHoles (L loc (HsPar x l)) =
+    map (L loc . HsPar x) $ replaceWithHoles l
+replaceWithHoles (L loc (ExprWithTySig x l t)) =
+    map (L loc . flip (ExprWithTySig x) t) $ replaceWithHoles l
+replaceWithHoles e = []
 
 
 compile :: CompileConfig -> String -> IO CompileRes

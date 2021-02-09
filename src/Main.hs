@@ -219,12 +219,15 @@ main = do
     let cc = compConf {hole_lvl=synth_holes}
         props = [ "prop_is_symmetric f xs = f xs == f (reverse xs)"
                 , "prop_bin f = f [] == 0 || f [] == 1"
-                --, "prop_not_const f x = not ((f []) == f [x])"
                 , "prop_not_const f = not (f [] == f [1,2,3])"
-                ]
+                , "prop_is_sum f = f [1,2,3] == 6" ]
         ty = "[Int] -> Int"
+        prog = "(foldl (-) 0) :: [Int] -> Int"
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"]
+    res <- getAST cc prog
+    print $ length res
+    error "DONE"
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
     putStrLn "TARGET TYPE:"
