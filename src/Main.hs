@@ -229,7 +229,8 @@ compConf = CompConf { importStmts = imports
 
 repair :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
 repair cc props context ty wrong_prog =
-   do res <- getHoley cc wrong_prog
+   do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
+      res <- getHoley cc prog_at_ty
       -- We add the context by replacing a hole in a let.
       holeyContext <- runJustParseExpr cc $ contextLet context "_"
       let addContext = fromJust . fillHole holeyContext . unLoc
@@ -268,10 +269,10 @@ main = do
                 , "prop_not_const f = not (f [] == f [1,2,3])"
                 , "prop_is_sum f = f [1,2,3] == 6" ]
         ty = "[Int] -> Int"
-        wrong_prog = "(foldl (-) 0) :: [Int] -> Int"
+        wrong_prog = "foldl (-) 0"
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"
-                  , "add = (+)"]
+                  , "add = (+) :: Int -> Int -> Int"]
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
     putStrLn "TARGET TYPE:"
