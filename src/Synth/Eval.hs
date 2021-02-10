@@ -22,11 +22,13 @@ import Data.Dynamic
 import Data.Maybe
 import Data.List
 import Data.Function (on)
+import Data.Either
 
 import TysWiredIn (unitTy)
 import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
                   , occName, OccName(..), fsLit, mkOccNameFS, concatFS
-                  , HscEnv(hsc_IC), InteractiveContext(ic_default))
+                  , HscEnv(hsc_IC), InteractiveContext(ic_default)
+                  , mkVarUnqual, getRdrName)
 
 import Synth.Plugin
 import Data.IORef
@@ -44,7 +46,7 @@ holeFlags = [ Opt_ShowHoleConstraints
 
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
-        ((foldl gopt_unset sflags [Opt_OmitYields]) {
+        ((foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
                refLevelHoleFits = Just lvl })
@@ -105,7 +107,7 @@ startsWith _ _ = False
 -- the types and everything directly, instead of having to parse the error
 -- message)
 getHoleFitsFromError :: IORef ([(TypedHole, [HoleFit])])
-                     -> SourceError -> Ghc CompileRes
+                     -> SourceError -> Ghc (Either [ValsAndRefs] b)
 getHoleFitsFromError plugRef err = do
     flags <- getSessionDynFlags
     dbg <- liftIO $ ("-fdebug" `elem`) <$> getArgs
@@ -166,51 +168,85 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
                 Just . flip bcat c . showSDoc flags . ppr
                     <$> exprType TM_Default c) cands
 
+showUnsafe :: Outputable p => p -> String
+showUnsafe = showSDocUnsafe . ppr
 
-getAST :: CompileConfig -> String -> IO [LHsExpr GhcPs]
-getAST cc str = do
-   r <- runGhc (Just libdir) $ exprAST cc str
-   return r
 
-exprAST :: CompileConfig -> String -> Ghc [LHsExpr GhcPs]
-exprAST cc str = do
+getHoleFits :: CompileConfig -> LHsExpr GhcPs -> IO [[HoleFit]]
+getHoleFits cc expr = runGhc (Just libdir) $ do
    plugRef <- initGhcCtxt cc
    -- Then we can actually run the program!
-   ~(Just (L l r)) <- handleSourceError (\err -> printException err >>= return (return Nothing))
-                               (parseExpr str >>= (return . Just))
-   flags <- getSessionDynFlags
+   setNoDefaulting
+   res <- handleSourceError (getHoleFitsFromError plugRef)
+                            (compileParsedExpr expr >>= (return . Right))
+   return $ case res of
+              Left r -> map fst r
+              Right _ -> []
 
-   -- Make sure we don't do too much defaulting by setting `default ()`
-   -- Note: I think this only applies to the error we would be generating,
-   -- I think if we replace the UnboundVar with a suitable var of the right
-   -- it would work... it just makes the in-between output a bit confusing.
-   env <- getSession
-   setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
 
-   let shw = showSDoc flags $ ppr_expr r
-   liftIO $ putStrLn shw
-   let replaced = replaceWithHoles (L l r)
-   output replaced
-   res <- mapM (\c -> handleSourceError (\e -> printException e >> return False)
-                                        (compileParsedExpr c >> return True))
-               replaced
-   output res
-   return replaced
+setNoDefaulting :: Ghc ()
+setNoDefaulting =
+  -- Make sure we don't do too much defaulting by setting `default ()`
+  -- Note: I think this only applies to the error we would be generating,
+  -- I think if we replace the UnboundVar with a suitable var of the right
+  -- it would work... it just makes the in-between output a bit confusing.
+  do env <- getSession
+     setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
 
-replaceWithHoles :: LHsExpr GhcPs -> [LHsExpr GhcPs]
-replaceWithHoles (L loc (HsApp x l r)) = rl ++ rr
-  where rl = map (\e -> L loc (HsApp x e r)) $ replaceWithHoles l
-        rr = map (\e -> L loc (HsApp x l e)) $ replaceWithHoles r
-replaceWithHoles (L loc (HsVar x (L _ v))) =
+
+getHoley :: CompileConfig -> String -> IO [LHsExpr GhcPs]
+getHoley cc str = runGhc (Just libdir) $ exprHoley cc str
+
+
+exprHoley :: CompileConfig -> String -> Ghc [LHsExpr GhcPs]
+exprHoley cc str = do
+   plugRef <- initGhcCtxt cc
+   makeHoley <$> handleSourceError
+                    (\err -> printException err >> error "parse failed")
+                    (parseExpr str)
+
+-- All possible replacement of one variable with a hole
+makeHoley :: LHsExpr GhcPs -> [LHsExpr GhcPs]
+makeHoley (L loc (HsApp x l r)) = rl ++ rr
+  where rl = map (\e -> L loc (HsApp x e r)) $ makeHoley l
+        rr = map (\e -> L loc (HsApp x l e)) $ makeHoley r
+makeHoley (L loc (HsVar x (L _ v))) =
     [(L loc (HsUnboundVar x (TrueExprHole name)))]
   where (ns,fs) = (occNameSpace (occName v), occNameFS (occName v))
         name = mkOccNameFS ns (concatFS $ (fsLit "_"):[fs])
 
-replaceWithHoles (L loc (HsPar x l)) =
-    map (L loc . HsPar x) $ replaceWithHoles l
-replaceWithHoles (L loc (ExprWithTySig x l t)) =
-    map (L loc . flip (ExprWithTySig x) t) $ replaceWithHoles l
-replaceWithHoles e = []
+makeHoley (L loc (HsPar x l)) =
+    map (L loc . HsPar x) $ makeHoley l
+makeHoley (L loc (ExprWithTySig x l t)) =
+    map (L loc . flip (ExprWithTySig x) t) $ makeHoley l
+makeHoley e = []
+
+-- Fill the first hole in the expression.
+fillHole :: LHsExpr GhcPs -> HoleFit -> Maybe (LHsExpr GhcPs)
+fillHole (L loc (HsApp x l r)) fit
+    = case fillHole l fit of
+        Just res -> Just (L loc (HsApp x res r))
+        Nothing -> case fillHole r fit of
+                        Just res -> Just (L loc (HsApp x l res))
+                        Nothing -> Nothing
+fillHole (L loc (HsUnboundVar x _)) fit =
+    Just (L loc (HsVar x (L noSrcSpan (toName fit))))
+ where toName (RawHoleFit sd) = mkVarUnqual $ fsLit $ showSDocUnsafe sd
+       toName (HoleFit {hfId = hfId}) = getRdrName hfId
+fillHole (L loc (HsPar x l)) fit =
+    fmap (L loc . HsPar x) $ fillHole l fit
+fillHole (L loc (ExprWithTySig x l t)) fit =
+    fmap (L loc . flip (ExprWithTySig x) t) $ fillHole l fit
+fillHole e _ = Nothing
+
+fillHoles :: LHsExpr GhcPs -> [HoleFit] -> Maybe (LHsExpr GhcPs)
+fillHoles expr [] = Nothing
+fillHoles expr (f:fs) = (fillHole expr f) >>= flip fillHoles fs
+
+replacements :: LHsExpr GhcPs -> [[HoleFit]] -> [LHsExpr GhcPs]
+replacements e [] = [e]
+replacements e (first_hole_fit:rest) =
+    (mapMaybe (fillHole e) first_hole_fit) >>= (flip replacements rest)
 
 
 compile :: CompileConfig -> String -> IO CompileRes

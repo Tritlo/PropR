@@ -10,6 +10,7 @@ import System.IO
 import Data.Dynamic
 import Data.List
 import Data.Maybe
+import Data.Char (isSpace)
 
 import Text.ParserCombinators.ReadP
 
@@ -25,6 +26,9 @@ import System.Posix.Process
 import System.Posix.Signals
 import System.Exit
 import System.Environment
+
+import System.CPUTime
+import Text.Printf
 
 import Synth.Eval
 
@@ -92,6 +96,8 @@ pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
 putStr' :: String -> IO ()
 putStr' str = putStr str >> hFlush stdout
 
+trim :: String -> String
+trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 
 type SynthInput = (CompileConfig, Int, [String], String, [String])
@@ -209,10 +215,42 @@ imports = [
     "import Prelude hiding (id, ($), ($!), asTypeOf)"
   ]
 
+
+
 compConf :: CompileConfig
 compConf = CompConf { importStmts = imports
                     , packages = pkgs
                     , hole_lvl = 0}
+
+
+repair :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
+repair cc props context ty wrong_prog =
+   do res <- getHoley cc wrong_prog
+      fits <- mapM (\e -> (e,) <$> getHoleFits cc e) res
+      let repls = fits >>= (uncurry replacements)
+          to_check = map (trim . showUnsafe) repls
+          bcat = buildCheckExprAtTy props context ty
+          checks = map bcat to_check
+      pr_debug  "Fix candidates:"
+      mapM pr_debug to_check
+      let cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
+      compiled_checks <- zip repls <$> compileChecks cc' checks
+      res2 <- map fst <$> filterM (\(r,c) -> runCheck c) compiled_checks
+      return $ map showUnsafe res2
+
+showTime :: Integer -> String
+showTime time = if res > 1000
+                then (printf "%.2f" ((fromIntegral res * 1e-3) :: Double)) ++ "s"
+                else show res ++ "ms"
+  where res :: Integer
+        res = (floor $ (fromIntegral time) * 1e-9)
+
+time :: IO a -> IO (Integer, a)
+time act = do start <- getCPUTime
+              r <- act
+              done <- getCPUTime
+              return (done - start, r)
+
 main :: IO ()
 main = do
     SFlgs {..} <- getFlags
@@ -222,12 +260,9 @@ main = do
                 , "prop_not_const f = not (f [] == f [1,2,3])"
                 , "prop_is_sum f = f [1,2,3] == 6" ]
         ty = "[Int] -> Int"
-        prog = "(foldl (-) 0) :: [Int] -> Int"
+        wrong_prog = "(foldl (-) 0) :: [Int] -> Int"
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"]
-    res <- getAST cc prog
-    print $ length res
-    error "DONE"
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
     putStrLn "TARGET TYPE:"
@@ -239,10 +274,19 @@ main = do
     putStrLn "PARAMETERS:"
     putStrLn $ "  MAX HOLES: "  ++ (show synth_holes)
     putStrLn $ "  MAX DEPTH: "  ++ (show synth_depth)
+    putStr' "PORGAM TO REPAIR: "
+    putStrLn wrong_prog
+    putStr' "REPAIRING..."
+    (t, fixes) <- time $ repair cc props context ty wrong_prog
+    putStrLn $ "DONE! (" ++ showTime t ++ ")"
+    putStrLn "REPAIRS:"
+    mapM (putStrLn . (++) "  " . trim) fixes
+
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
     putStr' "GENERATING CANDIDATES..."
-    r <- synthesizeSatisfying cc synth_depth memo context props ty
+    (t, r) <- time $ synthesizeSatisfying cc synth_depth memo context props ty
+    putStrLn $ "DONE! (" ++ showTime t ++ ")"
     case r of
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
