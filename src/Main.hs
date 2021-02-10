@@ -32,6 +32,8 @@ import Text.Printf
 
 import Synth.Eval
 
+import GhcPlugins (unLoc)
+
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 qcImport = "import Test.QuickCheck"
 buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
@@ -54,6 +56,12 @@ buildCheckExprAtTy props context ty expr =
          propCheckExpr pname = "isSuccess <$> quickCheckWithResult qc__ ("
                             ++ pname ++ " expr__ )"
          propToLet p = "    " ++ p
+
+contextLet :: [String] -> String -> String
+contextLet context l =
+    unlines ["let"
+            , unlines $ map ("    " ++)  context
+            , "in " ++ l]
 
 -- The time we allow for a check to finish. Measured in microseconds.
 timeoutVal :: Int
@@ -115,7 +123,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
     Nothing -> do
       pr_debug $ "Synthesizing " ++ (show inp)
       mono_ty <- monomorphiseType cc ty
-      Left r <- compileAtType cc (contextLet "_") ty
+      Left r <- compileAtType cc (contextLet context "_") ty
       case r of
         ((vals,refs):_) -> do
           let rHoles = map readHole refs
@@ -163,10 +171,6 @@ synthesizeSatisfying cc depth ioref context props ty = do
   where
     bcat = buildCheckExprAtTy props context
     wrap p = "(" ++ p ++ ")"
-    contextLet l =
-      unlines ["let"
-              , unlines $ map ("    " ++)  context
-              , "in " ++ l]
     cc' = if depth <= 1 then (cc {hole_lvl=0}) else (cc {hole_lvl=1})
     recur :: (String, [String]) -> IO [String]
     recur (e, []) = return [e]
@@ -226,7 +230,11 @@ compConf = CompConf { importStmts = imports
 repair :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
 repair cc props context ty wrong_prog =
    do res <- getHoley cc wrong_prog
-      fits <- mapM (\e -> (e,) <$> getHoleFits cc e) res
+      -- We add the context by replacing a hole in a let.
+      holeyContext <- runJustParseExpr cc $ contextLet context "_"
+      let addContext = fromJust . fillHole holeyContext . unLoc
+
+      fits <- mapM (\e -> (e,) <$> (getHoleFits cc $ addContext e)) res
       let repls = fits >>= (uncurry replacements)
           to_check = map (trim . showUnsafe) repls
           bcat = buildCheckExprAtTy props context ty
@@ -262,7 +270,8 @@ main = do
         ty = "[Int] -> Int"
         wrong_prog = "(foldl (-) 0) :: [Int] -> Int"
         context = [ "zero = 0 :: Int"
-                  , "one = 1 :: Int"]
+                  , "one = 1 :: Int"
+                  , "add = (+)"]
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
     putStrLn "TARGET TYPE:"

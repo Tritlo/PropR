@@ -199,11 +199,17 @@ getHoley cc str = runGhc (Just libdir) $ exprHoley cc str
 
 
 exprHoley :: CompileConfig -> String -> Ghc [LHsExpr GhcPs]
-exprHoley cc str = do
+exprHoley cc str = makeHoley <$> justParseExpr cc str
+
+justParseExpr :: CompileConfig -> String -> Ghc (LHsExpr GhcPs)
+justParseExpr cc str = do
    plugRef <- initGhcCtxt cc
-   makeHoley <$> handleSourceError
-                    (\err -> printException err >> error "parse failed")
-                    (parseExpr str)
+   handleSourceError
+     (\err -> printException err >> error "parse failed")
+     (parseExpr str)
+
+runJustParseExpr :: CompileConfig -> String -> IO (LHsExpr GhcPs)
+runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
 
 -- All possible replacement of one variable with a hole
 makeHoley :: LHsExpr GhcPs -> [LHsExpr GhcPs]
@@ -221,32 +227,38 @@ makeHoley (L loc (ExprWithTySig x l t)) =
     map (L loc . flip (ExprWithTySig x) t) $ makeHoley l
 makeHoley e = []
 
+
+fillHoleWithFit :: LHsExpr GhcPs -> HoleFit -> Maybe (LHsExpr GhcPs)
+fillHoleWithFit expr fit = fillHole expr (HsVar noExtField (L noSrcSpan (toName fit)))
+ where toName (RawHoleFit sd) = mkVarUnqual $ fsLit $ showSDocUnsafe sd
+       toName (HoleFit {hfId = hfId}) = getRdrName hfId
+
+
 -- Fill the first hole in the expression.
-fillHole :: LHsExpr GhcPs -> HoleFit -> Maybe (LHsExpr GhcPs)
+fillHole :: LHsExpr GhcPs -> HsExpr GhcPs -> Maybe (LHsExpr GhcPs)
 fillHole (L loc (HsApp x l r)) fit
     = case fillHole l fit of
         Just res -> Just (L loc (HsApp x res r))
         Nothing -> case fillHole r fit of
                         Just res -> Just (L loc (HsApp x l res))
                         Nothing -> Nothing
-fillHole (L loc (HsUnboundVar x _)) fit =
-    Just (L loc (HsVar x (L noSrcSpan (toName fit))))
- where toName (RawHoleFit sd) = mkVarUnqual $ fsLit $ showSDocUnsafe sd
-       toName (HoleFit {hfId = hfId}) = getRdrName hfId
+fillHole (L loc (HsUnboundVar x _)) fit = Just (L loc fit)
 fillHole (L loc (HsPar x l)) fit =
     fmap (L loc . HsPar x) $ fillHole l fit
 fillHole (L loc (ExprWithTySig x l t)) fit =
     fmap (L loc . flip (ExprWithTySig x) t) $ fillHole l fit
+fillHole (L loc (HsLet x b e)) fit =
+    fmap (L loc . HsLet x b) $ fillHole e fit
 fillHole e _ = Nothing
 
-fillHoles :: LHsExpr GhcPs -> [HoleFit] -> Maybe (LHsExpr GhcPs)
+fillHoles :: LHsExpr GhcPs -> [HsExpr GhcPs] -> Maybe (LHsExpr GhcPs)
 fillHoles expr [] = Nothing
 fillHoles expr (f:fs) = (fillHole expr f) >>= flip fillHoles fs
 
 replacements :: LHsExpr GhcPs -> [[HoleFit]] -> [LHsExpr GhcPs]
 replacements e [] = [e]
 replacements e (first_hole_fit:rest) =
-    (mapMaybe (fillHole e) first_hole_fit) >>= (flip replacements rest)
+    (mapMaybe (fillHoleWithFit e) first_hole_fit) >>= (flip replacements rest)
 
 
 compile :: CompileConfig -> String -> IO CompileRes
