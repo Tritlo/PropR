@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE RecordWildCards, TypeApplications #-}
 module Synth.Eval where
 
 -- GHC API
@@ -15,8 +15,6 @@ import GHC.Paths (libdir)
 
 import Control.Monad (when)
 import Control.Monad.IO.Class ( liftIO )
-
-import System.Environment ( getArgs )
 
 import Data.Dynamic
 import Data.Maybe
@@ -35,6 +33,15 @@ import Data.IORef
 import TcHoleErrors (TypedHole (..), HoleFit(..))
 import Constraint (Ct(..), holeOcc)
 import Data.Data
+
+
+import System.Posix.Process
+import System.Posix.Signals
+import System.Exit
+import System.Environment
+import System.Timeout
+
+import Synth.Util
 
 -- Configuration and GHC setup
 
@@ -56,7 +63,7 @@ config lvl sflags =
 output :: Outputable p => [p] -> Ghc ()
 output p = do
     flags <- getSessionDynFlags
-    dbg <- liftIO $ ("-fdebug" `elem`) <$> getArgs
+    dbg <- liftIO hasDebug
     when dbg $
        mapM_ (liftIO . print . showSDoc flags . ppr) p
 
@@ -94,15 +101,6 @@ initGhcCtxt CompConf{..} = do
 type ValsAndRefs = ([HoleFit], [HoleFit])
 type CompileRes = Either [ValsAndRefs] Dynamic
 
-dropPrefix :: String -> String -> String
-dropPrefix (p:ps) (s:ss) | p == s = dropPrefix ps ss
-dropPrefix _ s = s
-
-startsWith :: String -> String -> Bool
-startsWith [] _ = True
-startsWith (p:ps) (s:ss) | p == s = startsWith ps ss
-startsWith _ _ = False
-
 -- By integrating with a hole fit plugin, we can extract the fits (with all
 -- the types and everything directly, instead of having to parse the error
 -- message)
@@ -110,7 +108,7 @@ getHoleFitsFromError :: IORef ([(TypedHole, [HoleFit])])
                      -> SourceError -> Ghc (Either [ValsAndRefs] b)
 getHoleFitsFromError plugRef err = do
     flags <- getSessionDynFlags
-    dbg <- liftIO $ ("-fdebug" `elem`) <$> getArgs
+    dbg <- liftIO hasDebug
     when dbg $ printException err
     res <- liftIO $ readIORef plugRef
     when (null res) (printException err)
@@ -171,95 +169,38 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
 showUnsafe :: Outputable p => p -> String
 showUnsafe = showSDocUnsafe . ppr
 
+timeoutVal :: Int
+timeoutVal = 1000000
 
-getHoleFits :: CompileConfig -> LHsExpr GhcPs -> IO [[HoleFit]]
-getHoleFits cc expr = runGhc (Just libdir) $ do
-   plugRef <- initGhcCtxt cc
-   -- Then we can actually run the program!
-   setNoDefaulting
-   res <- handleSourceError (getHoleFitsFromError plugRef)
-                            (compileParsedExpr expr >>= (return . Right))
-   return $ case res of
-              Left r -> map fst r
-              Right _ -> []
-
-
-setNoDefaulting :: Ghc ()
-setNoDefaulting =
-  -- Make sure we don't do too much defaulting by setting `default ()`
-  -- Note: I think this only applies to the error we would be generating,
-  -- I think if we replace the UnboundVar with a suitable var of the right
-  -- it would work... it just makes the in-between output a bit confusing.
-  do env <- getSession
-     setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
-
-
-getHoley :: CompileConfig -> String -> IO [LHsExpr GhcPs]
-getHoley cc str = runGhc (Just libdir) $ exprHoley cc str
-
-
-exprHoley :: CompileConfig -> String -> Ghc [LHsExpr GhcPs]
-exprHoley cc str = makeHoley <$> justParseExpr cc str
-
-justParseExpr :: CompileConfig -> String -> Ghc (LHsExpr GhcPs)
-justParseExpr cc str = do
-   plugRef <- initGhcCtxt cc
-   handleSourceError
-     (\err -> printException err >> error "parse failed")
-     (parseExpr str)
-
-runJustParseExpr :: CompileConfig -> String -> IO (LHsExpr GhcPs)
-runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
-
--- All possible replacement of one variable with a hole
-makeHoley :: LHsExpr GhcPs -> [LHsExpr GhcPs]
-makeHoley (L loc (HsApp x l r)) = rl ++ rr
-  where rl = map (\e -> L loc (HsApp x e r)) $ makeHoley l
-        rr = map (\e -> L loc (HsApp x l e)) $ makeHoley r
-makeHoley (L loc (HsVar x (L _ v))) =
-    [(L loc (HsUnboundVar x (TrueExprHole name)))]
-  where (ns,fs) = (occNameSpace (occName v), occNameFS (occName v))
-        name = mkOccNameFS ns (concatFS $ (fsLit "_"):[fs])
-
-makeHoley (L loc (HsPar x l)) =
-    map (L loc . HsPar x) $ makeHoley l
-makeHoley (L loc (ExprWithTySig x l t)) =
-    map (L loc . flip (ExprWithTySig x) t) $ makeHoley l
-makeHoley e = []
-
-
-fillHoleWithFit :: LHsExpr GhcPs -> HoleFit -> Maybe (LHsExpr GhcPs)
-fillHoleWithFit expr fit = fillHole expr (HsVar noExtField (L noSrcSpan (toName fit)))
- where toName (RawHoleFit sd) = mkVarUnqual $ fsLit $ showSDocUnsafe sd
-       toName (HoleFit {hfId = hfId}) = getRdrName hfId
-
-
--- Fill the first hole in the expression.
-fillHole :: LHsExpr GhcPs -> HsExpr GhcPs -> Maybe (LHsExpr GhcPs)
-fillHole (L loc (HsApp x l r)) fit
-    = case fillHole l fit of
-        Just res -> Just (L loc (HsApp x res r))
-        Nothing -> case fillHole r fit of
-                        Just res -> Just (L loc (HsApp x l res))
-                        Nothing -> Nothing
-fillHole (L loc (HsUnboundVar x _)) fit = Just (L loc fit)
-fillHole (L loc (HsPar x l)) fit =
-    fmap (L loc . HsPar x) $ fillHole l fit
-fillHole (L loc (ExprWithTySig x l t)) fit =
-    fmap (L loc . flip (ExprWithTySig x) t) $ fillHole l fit
-fillHole (L loc (HsLet x b e)) fit =
-    fmap (L loc . HsLet x b) $ fillHole e fit
-fillHole e _ = Nothing
-
-fillHoles :: LHsExpr GhcPs -> [HsExpr GhcPs] -> Maybe (LHsExpr GhcPs)
-fillHoles expr [] = Nothing
-fillHoles expr (f:fs) = (fillHole expr f) >>= flip fillHoles fs
-
-replacements :: LHsExpr GhcPs -> [[HoleFit]] -> [LHsExpr GhcPs]
-replacements e [] = [e]
-replacements e (first_hole_fit:rest) =
-    (mapMaybe (fillHoleWithFit e) first_hole_fit) >>= (flip replacements rest)
-
+runCheck :: Either [ValsAndRefs] Dynamic -> IO Bool
+runCheck (Left l) = return False
+runCheck (Right dval) =
+  -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
+  -- can get more information, but then there can be a mismatch of *which*
+  -- `Result` type it is... even when it's the same QuickCheck but compiled
+  -- with different flags. Ugh. So we do it this way, since *hopefully*
+  -- Bool will be the same (unless *base* was compiled differently, *UGGH*).
+  case fromDynamic @(IO [Bool]) dval of
+      Nothing ->
+        do pr_debug "wrong type!!"
+           return False
+      Just res ->
+        -- We need to forkProcess here, since we might be evaulating
+        -- non-yielding infinte expressions (like `last (repeat head)`), and
+        -- since they never yield, we can't do forkIO and then stop that thread.
+        -- If we could ensure *every library* was compiled with -fno-omit-yields
+        -- we could use lightweight threads, but that is a very big restriction,
+        -- especially if we want to later embed this into a plugin.
+        do pid <- forkProcess (proc res)
+           res <- timeout timeoutVal (getProcessStatus True False pid)
+           case res of
+             Just (Just (Exited ExitSuccess)) -> return True
+             Nothing -> do signalProcess killProcess pid
+                           return False
+             _ -> return False
+  where proc action =
+          do res <- action
+             exitImmediately $ if and res then ExitSuccess else (ExitFailure 1)
 
 compile :: CompileConfig -> String -> IO CompileRes
 compile cc str = do

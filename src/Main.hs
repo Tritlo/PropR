@@ -6,107 +6,33 @@ import Data.Maybe
 
 import System.Process
 import System.IO
+import System.Environment ( getArgs )
 
 import Data.Dynamic
 import Data.List
 import Data.Maybe
-import Data.Char (isSpace)
 
 import Text.ParserCombinators.ReadP
 
 import Control.Monad (filterM, when)
-import System.Timeout
 
 import Control.Concurrent
 import Data.IORef
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
-import System.Posix.Process
-import System.Posix.Signals
-import System.Exit
-import System.Environment
-
 import System.CPUTime
 import Text.Printf
 
 import Synth.Eval
+import Synth.Repair (repair)
+import Synth.Check
+import Synth.Util
+
 
 import GhcPlugins (unLoc)
 
-qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
-qcImport = "import Test.QuickCheck"
-buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
-buildCheckExprAtTy props context ty expr =
-     unlines [
-         "let qc__ = "  ++ qcArgs
-       , "    -- Context"
-       , unlines (map ("    " ++) context)
-       , "    -- Properties"
-       , unlines (map ("    " ++) props)
-       , "    expr__ :: " ++ ty
-       , "    expr__ = "++  expr
-       , "    propsToCheck__ = [ " ++
-                 (intercalate
-       "\n                     , " $ map propCheckExpr propNames) ++ "]"
-       , "in ((sequence propsToCheck__) :: IO [Bool])"]
-   where propNames = map (head . words) props
-         -- We can't consolidate this into check__, since the type
-         -- will be different!
-         propCheckExpr pname = "isSuccess <$> quickCheckWithResult qc__ ("
-                            ++ pname ++ " expr__ )"
-         propToLet p = "    " ++ p
-
-contextLet :: [String] -> String -> String
-contextLet context l =
-    unlines ["let"
-            , unlines $ map ("    " ++)  context
-            , "in " ++ l]
-
 -- The time we allow for a check to finish. Measured in microseconds.
-timeoutVal :: Int
-timeoutVal = 1000000
-
-runCheck :: Either [ValsAndRefs] Dynamic -> IO Bool
-runCheck (Left l) = return False
-runCheck (Right dval) =
-  -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
-  -- can get more information, but then there can be a mismatch of *which*
-  -- `Result` type it is... even when it's the same QuickCheck but compiled
-  -- with different flags. Ugh. So we do it this way, since *hopefully*
-  -- Bool will be the same (unless *base* was compiled differently, *UGGH*).
-  case fromDynamic @(IO [Bool]) dval of
-      Nothing ->
-        do pr_debug "wrong type!!"
-           return False
-      Just res ->
-        -- We need to forkProcess here, since we might be evaulating
-        -- non-yielding infinte expressions (like `last (repeat head)`), and
-        -- since they never yield, we can't do forkIO and then stop that thread.
-        -- If we could ensure *every library* was compiled with -fno-omit-yields
-        -- we could use lightweight threads, but that is a very big restriction,
-        -- especially if we want to later embed this into a plugin.
-        do pid <- forkProcess (proc res)
-           res <- timeout timeoutVal (getProcessStatus True False pid)
-           case res of
-             Just (Just (Exited ExitSuccess)) -> return True
-             Nothing -> do signalProcess killProcess pid
-                           return False
-             _ -> return False
-  where proc action =
-          do res <- action
-             exitImmediately $ if and res then ExitSuccess else (ExitFailure 1)
-
-pr_debug :: String -> IO ()
-pr_debug str = do dbg <- ("-fdebug" `elem`) <$> getArgs
-                  when dbg $ putStrLn str
-
-putStr' :: String -> IO ()
-putStr' str = putStr str >> hFlush stdout
-
-trim :: String -> String
-trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
-
 
 type SynthInput = (CompileConfig, Int, [String], String, [String])
 type Memo = IORef (Map SynthInput [String])
@@ -189,10 +115,6 @@ synthesizeSatisfying cc depth ioref context props ty = do
                                      xs <- combinations cs
                                      return (x:xs)
 
-
-hasDebug :: IO Bool
-hasDebug = ("-fdebug" `elem`) <$> getArgs
-
 data SynthFlags = SFlgs { synth_holes :: Int
                         , synth_depth :: Int
                         , synth_debug :: Bool}
@@ -225,27 +147,6 @@ compConf :: CompileConfig
 compConf = CompConf { importStmts = imports
                     , packages = pkgs
                     , hole_lvl = 0}
-
-
-repair :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
-repair cc props context ty wrong_prog =
-   do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
-      res <- getHoley cc prog_at_ty
-      -- We add the context by replacing a hole in a let.
-      holeyContext <- runJustParseExpr cc $ contextLet context "_"
-      let addContext = fromJust . fillHole holeyContext . unLoc
-
-      fits <- mapM (\e -> (e,) <$> (getHoleFits cc $ addContext e)) res
-      let repls = fits >>= (uncurry replacements)
-          to_check = map (trim . showUnsafe) repls
-          bcat = buildCheckExprAtTy props context ty
-          checks = map bcat to_check
-      pr_debug  "Fix candidates:"
-      mapM pr_debug to_check
-      let cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
-      compiled_checks <- zip repls <$> compileChecks cc' checks
-      res2 <- map fst <$> filterM (\(r,c) -> runCheck c) compiled_checks
-      return $ map showUnsafe res2
 
 showTime :: Integer -> String
 showTime time = if res > 1000
