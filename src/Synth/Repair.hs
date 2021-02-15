@@ -2,6 +2,7 @@
 module Synth.Repair where
 
 import GHC
+
 import TcHoleErrors (TypedHole (..), HoleFit(..))
 import Constraint (Ct(..), holeOcc)
 import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
@@ -17,6 +18,7 @@ import GHC.Paths (libdir)
 import Synth.Eval
 import Synth.Check
 import Synth.Util
+import Synth.Fill
 
 setNoDefaulting :: Ghc ()
 setNoDefaulting =
@@ -72,6 +74,8 @@ makeHoley (L loc (HsPar x l)) =
     map (L loc . HsPar x) $ makeHoley l
 makeHoley (L loc (ExprWithTySig x l t)) =
     map (L loc . flip (ExprWithTySig x) t) $ makeHoley l
+makeHoley (L loc (HsLet x b e)) =
+    fmap (L loc . HsLet x b) $ makeHoley e
 makeHoley e = []
 
 
@@ -81,26 +85,6 @@ fillHoleWithFit expr fit = fillHole expr (HsVar noExtField (L noSrcSpan (toName 
        toName (HoleFit {hfId = hfId}) = getRdrName hfId
 
 
--- Fill the first hole in the expression.
-fillHole :: LHsExpr GhcPs -> HsExpr GhcPs -> Maybe (LHsExpr GhcPs)
-fillHole (L loc (HsApp x l r)) fit
-    = case fillHole l fit of
-        Just res -> Just (L loc (HsApp x res r))
-        Nothing -> case fillHole r fit of
-                        Just res -> Just (L loc (HsApp x l res))
-                        Nothing -> Nothing
-fillHole (L loc (HsUnboundVar x _)) fit = Just (L loc fit)
-fillHole (L loc (HsPar x l)) fit =
-    fmap (L loc . HsPar x) $ fillHole l fit
-fillHole (L loc (ExprWithTySig x l t)) fit =
-    fmap (L loc . flip (ExprWithTySig x) t) $ fillHole l fit
-fillHole (L loc (HsLet x b e)) fit =
-    fmap (L loc . HsLet x b) $ fillHole e fit
-fillHole e _ = Nothing
-
-fillHoles :: LHsExpr GhcPs -> [HsExpr GhcPs] -> Maybe (LHsExpr GhcPs)
-fillHoles expr [] = Nothing
-fillHoles expr (f:fs) = (fillHole expr f) >>= flip fillHoles fs
 
 replacements :: LHsExpr GhcPs -> [[HoleFit]] -> [LHsExpr GhcPs]
 replacements e [] = [e]
@@ -111,19 +95,29 @@ replacements e (first_hole_fit:rest) =
 repair :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
 repair cc props context ty wrong_prog =
    do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
+      pr_debug prog_at_ty
       res <- getHoley cc prog_at_ty
+      pr_debug $ showUnsafe res
       -- We add the context by replacing a hole in a let.
       holeyContext <- runJustParseExpr cc $ contextLet context "_"
       let addContext = fromJust . fillHole holeyContext . unLoc
-
       fits <- mapM (\e -> (e,) <$> (getHoleFits cc $ addContext e)) res
       let repls = fits >>= (uncurry replacements)
-          to_check = map (trim . showUnsafe) repls
-          bcat = buildCheckExprAtTy props context ty
-          checks = map bcat to_check
+
+    --   -- We do it properly
+      bcatC <- runJustParseExpr cc $ buildCheckExprAtTy props context ty "_"
+      to_checks <- mapM (runJustParseExpr cc . trim . showUnsafe) repls
+      pr_debug $ showUnsafe bcatC
+      pr_debug $ showUnsafe to_checks
+      let checks = map ( fromJust . fillHole bcatC . unLoc) to_checks
       pr_debug  "Fix candidates:"
-      mapM pr_debug to_check
+      mapM (pr_debug . showUnsafe) checks
+    --   let
+    --       to_check = map (trim . showUnsafe) repls
+    --       bcat = buildCheckExprAtTy props context ty
+    --       checks = map bcat to_check
+    --   mapM pr_debug to_check
       let cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
-      compiled_checks <- zip repls <$> compileChecks cc' checks
+      compiled_checks <- zip repls <$> compileChecks cc' (map showUnsafe checks)
       res2 <- map fst <$> filterM (\(r,c) -> runCheck c) compiled_checks
       return $ map showUnsafe res2

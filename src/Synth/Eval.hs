@@ -51,12 +51,16 @@ holeFlags = [ Opt_ShowHoleConstraints
             , Opt_ShowTypeAppOfHoleFits
             , Opt_ShowTypeOfHoleFits ]
 
+setFlags = [Opt_Hpc]
+
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
-        ((foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
+        (flip (foldl gopt_set) setFlags) $
+          (foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
-               refLevelHoleFits = Just lvl })
+               refLevelHoleFits = Just lvl,
+               hpcDir = "/home/tritlo/ghc-synth/" }
 
 -- UTIL
 

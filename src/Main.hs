@@ -165,12 +165,17 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-        props = [ "prop_is_symmetric f xs = f xs == f (reverse xs)"
-                , "prop_bin f = f [] == 0 || f [] == 1"
-                , "prop_not_const f = not (f [] == f [1,2,3])"
-                , "prop_is_sum f = f [1,2,3] == 6" ]
-        ty = "[Int] -> Int"
-        wrong_prog = "foldl (-) 0"
+        -- ty = "[Int] -> Int"
+        -- wrong_prog = "(foldl (-) 0)"
+        -- props = ["prop_isSum f xs = f xs == sum xs"]
+        props = [ "prop_1 f = f 0 55 == 55"
+                , "prop_2 f = f 1071 1029 == 21"]
+        ty = "Int -> Int -> Int"
+        wrong_prog = unlines [
+                    "let { gcd' 0 b = gcd' 0 b",
+                    "    ; gcd' a b | b == 0 = a",
+                    "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
+                    "     in gcd'"]
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"
                   , "add = (+) :: Int -> Int -> Int"]
@@ -185,14 +190,14 @@ main = do
     putStrLn "PARAMETERS:"
     putStrLn $ "  MAX HOLES: "  ++ (show synth_holes)
     putStrLn $ "  MAX DEPTH: "  ++ (show synth_depth)
-    putStr' "PORGAM TO REPAIR: "
+    putStrLn "PORGAM TO REPAIR: "
     putStrLn wrong_prog
     putStr' "REPAIRING..."
     (t, fixes) <- time $ repair cc props context ty wrong_prog
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     putStrLn "REPAIRS:"
     mapM (putStrLn . (++) "  " . trim) fixes
-
+    error "ABORT"
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
     putStr' "GENERATING CANDIDATES..."

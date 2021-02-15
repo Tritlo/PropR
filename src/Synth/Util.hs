@@ -33,3 +33,11 @@ contextLet context l =
     unlines ["let"
             , unlines $ map ("    " ++)  context
             , "in " ++ l]
+
+mapFirst :: (a -> Maybe a) -> [a] -> Maybe [a]
+mapFirst = mapFirst' []
+  where mapFirst' :: [a] -> (a -> Maybe a) -> [a] -> Maybe [a]
+        mapFirst' sf _ [] = Nothing
+        mapFirst' sf f (a:as) = case f a of
+                                 Just a' -> Just $ (reverse (a':sf)) ++ as
+                                 _ -> mapFirst' (a:sf) f as
