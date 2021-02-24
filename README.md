@@ -1,3 +1,5 @@
+[![Build Status](https://www.travis-ci.com/Tritlo/ghc-synth.svg?token=YpmPqezsnvxxwFc8zMFo&branch=master)](https://www.travis-ci.com/Tritlo/ghc-synth)
+
 Synthesis using GHC
 ===================
 

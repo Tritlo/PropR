@@ -59,8 +59,7 @@ config lvl sflags =
           (foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
-               refLevelHoleFits = Just lvl,
-               hpcDir = "/home/tritlo/ghc-synth/" }
+               refLevelHoleFits = Just lvl }
 
 -- UTIL
 

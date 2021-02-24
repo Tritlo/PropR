@@ -1,0 +1,8 @@
+language: haskell
+cabal: "3.4"
+ghc:
+  - "8.10"
+before_script:
+  cabal install --lib QuickCheck
+install:
+  cabal install --only-dependencies
