@@ -4,6 +4,7 @@ import System.IO
 import Control.Monad (when)
 import System.Environment ( getArgs )
 import Data.Char (isSpace)
+import Data.Bits
 
 -- Removes whitespace before and after a string
 trim :: String -> String
@@ -27,12 +28,17 @@ dropPrefix :: String -> String -> String
 dropPrefix (p:ps) (s:ss) | p == s = dropPrefix ps ss
 dropPrefix _ s = s
 
+prop_dropsPrefix :: String -> String -> Bool
+prop_dropsPrefix st rest = dropPrefix st (st++rest) == rest
+
 -- Checks if a string starts with a given prefix
 startsWith :: String -> String -> Bool
 startsWith [] _ = True
 startsWith (p:ps) (s:ss) | p == s = startsWith ps ss
 startsWith _ _ = False
 
+prop_startsWith :: String -> String -> Bool
+prop_startsWith st rest = startsWith st (st ++ rest) == True
 
 contextLet :: [String] -> String -> String
 contextLet context l =
@@ -47,3 +53,18 @@ mapFirst = mapFirst' []
         mapFirst' sf f (a:as) = case f a of
                                  Just a' -> Just $ (reverse (a':sf)) ++ as
                                  _ -> mapFirst' (a:sf) f as
+
+-- Turns a list of booleans into an int
+boolsToBit :: [Bool] -> Int
+boolsToBit bs | length bs > size =
+    error $ "Only works for lists of length <= " ++ show size
+  where size = finiteBitSize (0 :: Int)
+boolsToBit bs =
+      (foldl (.|.) zeroBits  .
+      map (bit . fst) .
+      filter (\(_,x) -> x) .
+      zip [0..]) bs
+
+-- Turns an int into a list of booleans
+bitToBools :: Int -> [Bool]
+bitToBools b =  map (testBit b) [0.. (finiteBitSize (0 :: Int)) -1]

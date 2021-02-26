@@ -43,6 +43,8 @@ import System.Timeout
 
 import Synth.Util
 
+import Data.Bits (complement)
+
 -- Configuration and GHC setup
 
 holeFlags = [ Opt_ShowHoleConstraints
@@ -175,8 +177,11 @@ showUnsafe = showSDocUnsafe . ppr
 timeoutVal :: Int
 timeoutVal = 1000000
 
-runCheck :: Either [ValsAndRefs] Dynamic -> IO Bool
-runCheck (Left l) = return False
+-- Right True means that all the properties hold, while Right False mean that
+-- There is some error or infinite loop.
+-- Left bs indicates that the properties as ordered by bs are the ones that hold
+runCheck :: Either [ValsAndRefs] Dynamic -> IO (Either [Bool] Bool)
+runCheck (Left l) = return (Right False)
 runCheck (Right dval) =
   -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
   -- can get more information, but then there can be a mismatch of *which*
@@ -186,7 +191,7 @@ runCheck (Right dval) =
   case fromDynamic @(IO [Bool]) dval of
       Nothing ->
         do pr_debug "wrong type!!"
-           return False
+           return (Right False)
       Just res ->
         -- We need to forkProcess here, since we might be evaulating
         -- non-yielding infinte expressions (like `last (repeat head)`), and
@@ -197,13 +202,27 @@ runCheck (Right dval) =
         do pid <- forkProcess (proc res)
            res <- timeout timeoutVal (getProcessStatus True False pid)
            case res of
-             Just (Just (Exited ExitSuccess)) -> return True
+             Just (Just (Exited ExitSuccess)) -> return $ Right True
              Nothing -> do signalProcess killProcess pid
-                           return False
-             _ -> return False
+                           return $ Right False
+             Just (Just (Exited (ExitFailure x))) | x < 0 ->
+                -- If we have more than 8 props, we cannot tell
+                -- which ones failed from the exit code.
+                return $ Right False
+             Just (Just (Exited (ExitFailure x))) ->
+                 return (Left $ bitToBools $ complement x)
   where proc action =
           do res <- action
-             exitImmediately $ if and res then ExitSuccess else (ExitFailure 1)
+             exitImmediately $
+                if and res
+                then ExitSuccess
+                 -- We complement here, since ExitFailure 0 (i.e.
+                 -- all tests failed) is turned into ExitSuccess.
+                 -- We are limited to a maximum of 8 here, since the POSIX exit
+                 -- code is only 8 bits.
+                else ExitFailure $ if length res <= 8
+                                   then (complement $ boolsToBit res)
+                                   else -1
 
 compile :: CompileConfig -> String -> IO CompileRes
 compile cc str = do

@@ -25,7 +25,7 @@ import System.CPUTime
 import Text.Printf
 
 import Synth.Eval
-import Synth.Repair (repair)
+import Synth.Repair (repair, failingProps)
 import Synth.Check
 import Synth.Util
 
@@ -84,7 +84,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                  fits <- mapM
                    (\(i,(v,c)) ->
                       do pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
-                         (v,) <$> runCheck c) $ zip [1..] to_check
+                         (v,) . (Right True ==) <$> runCheck c) $ zip [1..] to_check
                  putStrLn "DONE!"
                  pr_debug $ (show inp) ++ " fits done!"
                  let res = map fst $ filter snd fits
@@ -190,8 +190,11 @@ main = do
     putStrLn "PARAMETERS:"
     putStrLn $ "  MAX HOLES: "  ++ (show synth_holes)
     putStrLn $ "  MAX DEPTH: "  ++ (show synth_depth)
-    putStrLn "PORGAM TO REPAIR: "
+    putStrLn "PROGRAM TO REPAIR: "
     putStrLn wrong_prog
+    putStrLn "FAILING PROPS:"
+    fps <- failingProps  cc props context ty wrong_prog
+    mapM (putStrLn . ("  " ++)) fps
     putStr' "REPAIRING..."
     (t, fixes) <- time $ repair cc props context ty wrong_prog
     putStrLn $ "DONE! (" ++ showTime t ++ ")"

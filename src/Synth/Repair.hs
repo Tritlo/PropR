@@ -19,6 +19,7 @@ import Synth.Eval
 import Synth.Check
 import Synth.Util
 import Synth.Fill
+import Data.Either
 
 setNoDefaulting :: Ghc ()
 setNoDefaulting =
@@ -91,6 +92,49 @@ replacements e [] = [e]
 replacements e (first_hole_fit:rest) =
     (mapMaybe (fillHoleWithFit e) first_hole_fit) >>= (flip replacements rest)
 
+-- Returns the props that fail for the given program
+failingProps :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
+failingProps _ [] _ _ _ = return []
+-- Our method for checking which props fail is restricted to maximum 8 at a time,
+-- so if we have more than that, we check the first 8 and then the rest, and
+-- so on.
+failingProps cc ps ctxt ty wp | length ps > 8 = do
+  let (ps1, ps2) = splitAt 64 ps
+  p1 <- failingProps cc ps1 ctxt ty wp
+  p2 <- failingProps cc ps2 ctxt ty wp
+  return (p1 ++ p2)
+failingProps cc props context ty wrong_prog =
+   do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
+      pr_debug prog_at_ty
+      parsed <- runJustParseExpr cc prog_at_ty
+      holeyContext <- runJustParseExpr cc $ contextLet context "_"
+      let wContext = fromJust $ fillHole holeyContext $ unLoc parsed
+      bcatC <- runJustParseExpr cc $ buildCheckExprAtTy props context ty "_"
+      to_check <- runJustParseExpr cc $ trim $ showUnsafe wContext
+      let check = fromJust $ fillHole bcatC $ unLoc to_check
+          cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
+      [compiled_check] <- compileChecks cc' [showUnsafe check]
+      ran <- runCheck compiled_check
+      case ran of
+         -- Some of the props are failing:
+         Left p -> return $ map fst $ filter (\(p,c) -> not c) $ zip props p
+         -- None of the props are failing:
+         Right True -> return []
+         -- One of the props is causing an error/infinite loop, so we need
+         -- to check each individually
+         Right False ->
+            case props of
+              -- If there's only one failing prop left, that's the one causing
+              -- the loop
+              [prop] -> return [prop]
+              -- Otherwise, we split the props into two sets, and check each
+              -- split individually.
+              xs -> do let fp :: [String] -> IO [String]
+                           fp ps = failingProps cc ps context ty wrong_prog
+                           ps1, ps2 :: [String]
+                           (ps1, ps2) = splitAt (length props `div` 2) props
+                       concat <$> mapM fp [ps1, ps2]
+
 
 repair :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
 repair cc props context ty wrong_prog =
@@ -104,7 +148,7 @@ repair cc props context ty wrong_prog =
       fits <- mapM (\e -> (e,) <$> (getHoleFits cc $ addContext e)) res
       let repls = fits >>= (uncurry replacements)
 
-    --   -- We do it properly
+      -- We do it properly
       bcatC <- runJustParseExpr cc $ buildCheckExprAtTy props context ty "_"
       to_checks <- mapM (runJustParseExpr cc . trim . showUnsafe) repls
       pr_debug $ showUnsafe bcatC
@@ -112,12 +156,8 @@ repair cc props context ty wrong_prog =
       let checks = map ( fromJust . fillHole bcatC . unLoc) to_checks
       pr_debug  "Fix candidates:"
       mapM (pr_debug . showUnsafe) checks
-    --   let
-    --       to_check = map (trim . showUnsafe) repls
-    --       bcat = buildCheckExprAtTy props context ty
-    --       checks = map bcat to_check
-    --   mapM pr_debug to_check
       let cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
       compiled_checks <- zip repls <$> compileChecks cc' (map showUnsafe checks)
-      res2 <- map fst <$> filterM (\(r,c) -> runCheck c) compiled_checks
+      ran <- mapM (\(f,c) -> runCheck c >>= return . (f,)) compiled_checks
+      let res2 = map fst $ filter (\(f,r) -> r == Right True) ran
       return $ map showUnsafe res2
