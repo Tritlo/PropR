@@ -46,6 +46,7 @@ test-suite test
   build-depends: base >= 4 && < 5,
                  tasty >= 1.4,
                  tasty-hunit >= 0.10,
+                 tasty-quickcheck >= 0.10,
                  synth,
                  -- packages used in repair:
                  QuickCheck
