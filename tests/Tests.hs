@@ -5,17 +5,23 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
-import Synth.Repair (repair, failingProps, propCounterExample)
-import Synth.Eval (CompileConfig(..), compileCheck)
+import Synth.Repair (repair, failingProps, propCounterExample, runJustParseExpr)
+import Synth.Eval (CompileConfig(..), compileCheck, traceTarget)
 import Synth.Util
 
 import Data.Bits (finiteBitSize)
 import Data.Dynamic (fromDynamic)
+import Data.Tree
 
+import GhcPlugins (getLoc)
 
 
 tests :: TestTree
-tests = testGroup "Tests" [utilTests, repairTests, failingPropsTests, counterExampleTests]
+tests = testGroup "Tests" [ utilTests
+                          , repairTests
+                          , failingPropsTests
+                          , counterExampleTests
+                          , traceTests]
 
 -- We can only do the inverse for ints up to 64, so we only support a maximum
 -- of 64 props!
@@ -69,7 +75,7 @@ repairTests = testGroup "Repair" [
   ]
 
 failingPropsTests = testGroup "Failing props" [
-    localOption (mkTimeout 5_000_000) $
+    localOption (mkTimeout 15_000_000) $
         testCase "Failing props for gcd" $ do
           let cc = CompConf {
                       hole_lvl=0,
@@ -163,5 +169,29 @@ counterExampleTests = testGroup "Counter Examples" [
           Just counter_example_args <- propCounterExample cc context ty wrong_prog failed_prop
           null counter_example_args @? "The counter example should not have any arguments!"
   ]
+
+
+traceTests = testGroup "Trace tests" [
+      localOption (mkTimeout 10_000_000) $
+          testCase "Trace foldl" $ do
+            let cc = CompConf {
+                        hole_lvl=0,
+                        packages = ["base", "process", "QuickCheck" ],
+                        importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]}
+                ty = "[Int] -> Int"
+                wrong_prog = "(foldl (-) 0)"
+                props = ["prop_isSum f xs = f xs == sum xs"]
+                context = []
+                expected = "((foldl (+) 0)) :: [Int] -> Int"
+            [failed_prop] <- failingProps cc props context ty wrong_prog
+            Just counter_example <- propCounterExample cc context ty wrong_prog failed_prop
+            Just (Node{subForest=[tree@Node{rootLabel=(tl, tname)}]})
+                 <- traceTarget cc wrong_prog failed_prop counter_example
+            expr <- runJustParseExpr cc wrong_prog
+            (getLoc expr) @?= mkInteractive tl
+            (all (== 1) $ map snd $ concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!"
+  ]
+
+
 
 main = defaultMain tests

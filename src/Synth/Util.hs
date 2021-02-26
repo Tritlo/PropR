@@ -6,6 +6,8 @@ import System.Environment ( getArgs )
 import Data.Char (isSpace)
 import Data.Bits
 
+import SrcLoc
+
 -- Removes whitespace before and after a string
 trim :: String -> String
 trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
@@ -68,3 +70,14 @@ boolsToBit bs =
 -- Turns an int into a list of booleans
 bitToBools :: Int -> [Bool]
 bitToBools b =  map (testBit b) [0.. (finiteBitSize (0 :: Int)) -1]
+
+-- We want to be able to make SrcSpans into the ones made by `justParseExpr`,
+-- which means we replace the actual filenames with "<interactive>""
+mkInteractive :: SrcSpan -> SrcSpan
+mkInteractive (RealSrcSpan rs) = RealSrcSpan $ mkRealSrcSpan ns ne
+  where UnhelpfulSpan ic = interactiveSrcSpan
+        rss = realSrcSpanStart rs
+        rse = realSrcSpanEnd rs
+        ns = mkRealSrcLoc ic (srcLocLine rss) (srcLocCol rss)
+        ne = mkRealSrcLoc ic (srcLocLine rse) (srcLocCol rse)
+mkInteractive (UnhelpfulSpan _) = interactiveSrcSpan

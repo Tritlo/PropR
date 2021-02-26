@@ -28,13 +28,14 @@ fillHole e _ = Nothing
 
 fillHoleLocalBinds :: LHsLocalBinds GhcPs -> HsExpr GhcPs -> Maybe (LHsLocalBinds GhcPs)
 fillHoleLocalBinds (L loc (HsValBinds x (ValBinds xv bs sigs))) fit =
-    fmap (\bs' -> (L loc (HsValBinds x (ValBinds xv bs' sigs)))) $ fb bs fit
-  where  fb :: Bag (LHsBindLR GhcPs GhcPs)
-            -> HsExpr GhcPs
-            -> Maybe (Bag (LHsBindLR GhcPs GhcPs))
-         fb bs fit =
-             fmap listToBag $ mapFirst ((flip fillHoleBind) fit) (bagToList bs)
+    fmap (\bs' -> (L loc (HsValBinds x (ValBinds xv bs' sigs)))) $ fillHoleBinds bs fit
 fillHoleLocalBinds _ _ = Nothing
+
+fillHoleBinds :: LHsBinds GhcPs
+            -> HsExpr GhcPs
+            -> Maybe (LHsBinds GhcPs)
+fillHoleBinds bs fit =
+     fmap listToBag $ mapFirst ((flip fillHoleBind) fit) (bagToList bs)
 
 fillHoleBind :: LHsBindLR GhcPs GhcPs -> HsExpr GhcPs -> Maybe (LHsBindLR GhcPs GhcPs)
 fillHoleBind (L loc (fb@FunBind{fun_matches=mg@MG{mg_alts =(L locms mtcs)}})) fit =

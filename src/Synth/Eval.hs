@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TypeApplications #-}
+{-# LANGUAGE RecordWildCards, TypeApplications, TupleSections #-}
 module Synth.Eval where
 
 import Synth.Types
@@ -28,8 +28,8 @@ import TysWiredIn (unitTy)
 import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
                   , occName, OccName(..), fsLit, mkOccNameFS, concatFS
                   , HscEnv(hsc_IC), InteractiveContext(ic_default)
-                  , mkVarUnqual, getRdrName)
-
+                  , mkVarUnqual, getRdrName, HscSource(..), interactiveSrcLoc)
+import DriverPhases (Phase(..))
 import Synth.Plugin
 import Data.IORef
 import TcHoleErrors (TypedHole (..), HoleFit(..))
@@ -45,8 +45,25 @@ import System.Timeout
 
 import Synth.Util
 
+import Data.Time.Clock
+import StringBuffer
+import System.IO
+import System.Directory
+import System.FilePath
+import Data.Char (isAlphaNum)
 import Data.Bits (complement)
 
+import PrelNames (mkMainModule)
+import GHC.Stack (HasCallStack)
+import System.Process
+
+import Trace.Hpc.Tix
+import Trace.Hpc.Mix
+import Trace.Hpc.Util
+
+import Data.Tree
+import Data.Maybe (listToMaybe)
+import Control.Monad (join)
 -- Configuration and GHC setup
 
 holeFlags = [ Opt_ShowHoleConstraints
@@ -152,6 +169,110 @@ evalOrHoleFits cc str = do
    handleSourceError (getHoleFitsFromError plugRef)
                      (dynCompileExpr str >>= (return . Right))
 
+traceTarget :: CompileConfig -> RExpr -> RExpr -> [RExpr]
+              -> IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
+traceTarget cc expr failing_prop failing_args = do
+      let tempDir = "./fake_targets"
+      createDirectoryIfMissing False tempDir
+      (tf,handle) <- openTempFile tempDir "FakeTarget.hs"
+      -- We generate the name of the module from the temporary file
+      let mname = takeWhile isAlphaNum $ dropExtension $ takeFileName tf
+          modTxt = exprToModule cc mname expr failing_prop failing_args
+          strBuff = stringToStringBuffer modTxt
+          m_name = mkModuleName mname
+          mod = IIModule m_name
+          exeName = dropExtension tf
+          tixFilePath = exeName ++ ".tix"
+          mixFilePath = tempDir
+      -- Note: we do not need to dump the text of the module into the file, it
+      -- only needs to exist. Otherwise we would have to write something like
+      -- `hPutStr handle modTxt`
+      hClose handle
+      liftIO $ mapM pr_debug $ lines modTxt
+      runGhc (Just libdir) $
+        do plugRef <- initGhcCtxt cc
+           -- We set the module as the main module, which makes GHC generate
+           -- the executable.
+           dynFlags <- getSessionDynFlags
+           setSessionDynFlags $ dynFlags {
+              mainModIs = mkMainModule $ fsLit mname,
+              hpcDir = "./fake_targets"
+              }
+           now <- liftIO getCurrentTime
+           let tid = TargetFile tf Nothing
+               target = Target tid True $ Just (strBuff, now)
+
+           -- Adding and loading the target causes the compilation to kick
+           -- off and compiles the file.
+           addTarget target
+           _ <- load LoadAllTargets
+           -- We should for here in case it doesn't terminate, and modify
+           -- the run function so that it use the trace reflect functionality
+           -- to timeout and dump the tix file if possible.
+           res <- liftIO $
+             do (_,_,_, ph) <- createProcess (proc exeName [])
+                              { env=Just [("HPCTIXFILE", tixFilePath)]
+                                -- We ignore the output
+                              , std_out=CreatePipe}
+                ec <- waitForProcess ph
+                tix <- readTix tixFilePath
+                let rm m = (m,) <$> readMix [mixFilePath] (Right m)
+                case tix of
+                   Just (Tix mods) -> do
+                     -- We throw away any extra functions in the file, such as
+                     -- the properties and the main function, and only look at
+                     -- the ticks for our expression
+                     [n@(Node{rootLabel=(root,_)})] <- filter isTarget . concatMap toDom <$> mapM rm mods
+                     return $ Just (fmap (\(k,v) -> (toFakeSpan tf root k, v)) n)
+                   _ -> return Nothing
+           removeTarget tid
+           liftIO $ removeDirectoryRecursive tempDir
+           {-
+           ctxt <- getContext
+           msum <- getModSummary m_name
+           tcEd <- parseModule msum >>= typecheckModule
+           loaded <- loadModule tcEd
+           showModule msum >>= liftIO . putStrLn
+           res <- handleSourceError
+                    (getHoleFitsFromError plugRef)
+                    (dynCompileExpr "main"
+                    >>= (return . Right))
+           setContext ctxt
+           -}
+           return res
+ where toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
+       toDom (TixModule _ _ _ ts, Mix _ _ _ _ es)
+         = createMixEntryDom $ zipWith (\ t (pos,bl) -> (pos, (bl, t))) ts es
+       isTarget (Node {rootLabel = (root, [(TopLevelBox ["fake_target"], _)])}) =
+          True
+       isTarget _ = False
+       -- We convert the HpcPos to the equivalent span we would get if we'd
+       -- parsed and compiled the expression directly.
+       toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
+       toFakeSpan tf root sp = mkSrcSpan start end
+         where fname = fsLit $ takeFileName tf
+               offset = 2
+               (rsl, _, _, _) = fromHpcPos root
+               (sl, sc, el, ec) = fromHpcPos sp
+               -- We add two spaces before every line in the source.
+               start = mkSrcLoc fname (sl-rsl) (sc-offset)
+               -- GHC Srcs end one after the end
+               end = mkSrcLoc fname (el-rsl) (ec-offset+1)
+
+
+exprToModule :: CompileConfig -> String -> RExpr -> RExpr -> [RExpr] -> RExpr
+exprToModule CompConf{..} mname expr failing_prop failing_args = unlines $ [
+   "module " ++mname++" where"
+   ]
+   ++ importStmts
+   ++ lines failing_prop
+   ++ ["fake_target ="]
+   ++ (map ("  " ++) $ lines expr)
+   ++ [ ""
+      , "main :: IO ()"
+      , "main = print (" ++ pname ++" fake_target " ++ unwords failing_args ++ ")"
+   ]
+  where pname = head (words failing_prop)
 
 -- Report error prints the error and stops execution
 reportError :: GhcMonad m => RExpr -> SourceError -> m b

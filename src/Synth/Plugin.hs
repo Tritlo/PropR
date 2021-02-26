@@ -4,6 +4,8 @@ import GhcPlugins hiding (TcPlugin)
 import TcHoleErrors
 import Data.IORef
 
+import TcRnTypes
+
 synthPlug :: IORef [(TypedHole, [HoleFit])] -> Plugin
 synthPlug plugRef =
   defaultPlugin {

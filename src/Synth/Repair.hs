@@ -109,7 +109,7 @@ buildCheck bc cc props context ty wrong_prog = do
       bcatC <- runJustParseExpr cc $ bc props context ty "_"
       to_check <- runJustParseExpr cc $ trim $ showUnsafe wContext
       let check = fromJust $ fillHole bcatC $ unLoc to_check
-          cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
+          cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
       return (cc', showUnsafe check)
 
 
@@ -180,7 +180,7 @@ repair cc props context ty wrong_prog =
       let checks = map ( fromJust . fillHole bcatC . unLoc) to_checks
       pr_debug  "Fix candidates:"
       mapM (pr_debug . showUnsafe) checks
-      let cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
+      let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
       compiled_checks <- zip repls <$> compileChecks cc' (map showUnsafe checks)
       ran <- mapM (\(f,c) -> runCheck c >>= return . (f,)) compiled_checks
       let res2 = map fst $ filter (\(f,r) -> r == Right True) ran

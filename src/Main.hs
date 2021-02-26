@@ -30,7 +30,7 @@ import Synth.Check
 import Synth.Util
 
 
-import GhcPlugins (unLoc)
+import GhcPlugins (unLoc, GenLocated(..))
 
 -- The time we allow for a check to finish. Measured in microseconds.
 
@@ -68,7 +68,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                  putStrLn "DONE!"
                  putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
                  putStr' "COMPILING CANDIDATE CHECKS..."
-                 let imps' = qcImport:importStmts cc
+                 let imps' = checkImports ++ importStmts cc
                      cc' = (cc {hole_lvl=0, importStmts=imps'})
                      to_check_exprs = map (bcat mty) cands
                  -- Doesn't work, since the types are too polymorphic, and if
@@ -165,17 +165,17 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-        -- ty = "[Int] -> Int"
-        -- wrong_prog = "(foldl (-) 0)"
-        -- props = ["prop_isSum f xs = f xs == sum xs"]
-        props = [ "prop_1 f = f 0 55 == 55"
-                , "prop_2 f = f 1071 1029 == 21"]
-        ty = "Int -> Int -> Int"
-        wrong_prog = unlines [
-                    "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
-                    "    ; gcd' a b | b == 0 = a",
-                    "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
-                    "     in gcd'"]
+        ty = "[Int] -> Int"
+        wrong_prog = "(foldl (-) 0)"
+        props = ["prop_isSum f xs = f xs == sum xs"]
+        -- props = [ "prop_1 f = f 0 55 == 55"
+        --         , "prop_2 f = f 1071 1029 == 21"]
+        -- ty = "Int -> Int -> Int"
+        -- wrong_prog = unlines [
+        --             "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
+        --             "    ; gcd' a b | b == 0 = a",
+        --             "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
+        --             "     in gcd'"]
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"
                   , "add = (+) :: Int -> Int -> Int"]
@@ -193,11 +193,14 @@ main = do
     putStrLn "PROGRAM TO REPAIR: "
     putStrLn wrong_prog
     putStrLn "FAILING PROPS:"
-    fps <- failingProps cc props context ty wrong_prog
-    mapM (putStrLn . ("  " ++)) fps
+    [fp] <- failingProps cc props context ty wrong_prog
+    mapM (putStrLn . ("  " ++)) [fp]
     putStrLn "COUNTER EXAMPLES:"
-    counterExamples <- mapM (propCounterExample cc context ty wrong_prog) fps
-    mapM (print ) counterExamples
+    Just counter_example <- propCounterExample cc context ty wrong_prog fp
+    print counter_example
+    res <- traceTarget cc wrong_prog fp counter_example
+    print res
+    error "ABORT"
     putStr' "REPAIRING..."
     (t, fixes) <- time $ repair cc props context ty wrong_prog
     putStrLn $ "DONE! (" ++ showTime t ++ ")"

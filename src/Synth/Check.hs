@@ -7,7 +7,8 @@ import Data.List (intercalate)
 
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 qcTime = 1000000
-qcImport = "import Test.QuickCheck"
+checkImports = [ "import Test.QuickCheck"
+               , "import Trace.Hpc.Reflect"]
 
 buildCheckExprAtTy :: [RProp] -> RContext -> RType -> RExpr -> RExpr
 buildCheckExprAtTy props context ty expr =
@@ -22,7 +23,8 @@ buildCheckExprAtTy props context ty expr =
        , "    propsToCheck__ = [ " ++
                  (intercalate
        "\n                     , " $ map propCheckExpr propNames) ++ "]"
-       , "in ((sequence propsToCheck__) :: IO [Bool])"]
+       , "in ((sequence propsToCheck__) :: IO [Bool])"
+         ]
    where propNames = map (head . words) props
          -- We can't consolidate this into check__, since the type
          -- will be different!
