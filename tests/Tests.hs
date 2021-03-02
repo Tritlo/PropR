@@ -55,7 +55,7 @@ repairTests = testGroup "Repair" [
               expected = "((foldl (+) 0)) :: [Int] -> Int"
           fixes <- map trim <$> repair cc props context ty wrong_prog
           expected `elem` fixes @? "Expected repair not found in fixes"
-    , localOption (mkTimeout 5_000_000) $
+    , localOption (mkTimeout 15_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let cc = CompConf {
                       hole_lvl=0,
