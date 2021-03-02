@@ -21,6 +21,7 @@ import Synth.Util
 import Synth.Fill
 import Synth.Types
 import Data.Either
+import Data.Dynamic (fromDyn)
 
 setNoDefaulting :: Ghc ()
 setNoDefaulting =
@@ -93,6 +94,36 @@ replacements e [] = [e]
 replacements e (first_hole_fit:rest) =
     (mapMaybe (fillHoleWithFit e) first_hole_fit) >>= (flip replacements rest)
 
+
+-- Builds a check of a program by parsing the context and the generated
+-- expression and replacing the relevant holes.
+buildCheck :: ([RProp] -> RContext -> RType -> RExpr -> RExpr)
+           -> CompileConfig -> [RProp] -> RContext -> RType -> RExpr
+           -> IO (CompileConfig, RExpr)
+buildCheck bc cc props context ty wrong_prog = do
+   do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
+      pr_debug prog_at_ty
+      parsed <- runJustParseExpr cc prog_at_ty
+      holeyContext <- runJustParseExpr cc $ contextLet context "_"
+      let wContext = fromJust $ fillHole holeyContext $ unLoc parsed
+      bcatC <- runJustParseExpr cc $ bc props context ty "_"
+      to_check <- runJustParseExpr cc $ trim $ showUnsafe wContext
+      let check = fromJust $ fillHole bcatC $ unLoc to_check
+          cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
+      return (cc', showUnsafe check)
+
+
+-- Get a list of strings which represent shrunk arguments to the property that
+-- makes it fail.
+propCounterExample :: CompileConfig -> RContext -> RType
+                   -> RExpr -> RProp -> IO (Maybe [RExpr])
+propCounterExample cc ctxt ty expr prop = do
+    (cc', check_exp) <- buildCheck buildCounterExampleExpr cc [prop] ctxt ty expr
+    exec <- compileCheck cc' check_exp
+    res <- fromDyn exec (return Nothing)
+    return res
+
+
 -- Returns the props that fail for the given program
 failingProps :: CompileConfig -> [RProp] -> RContext -> RType -> RExpr -> IO [RProp]
 failingProps _ [] _ _ _ = return []
@@ -104,17 +135,9 @@ failingProps cc ps ctxt ty wp | length ps > 8 = do
   p1 <- failingProps cc ps1 ctxt ty wp
   p2 <- failingProps cc ps2 ctxt ty wp
   return (p1 ++ p2)
-failingProps cc props context ty wrong_prog =
-   do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
-      pr_debug prog_at_ty
-      parsed <- runJustParseExpr cc prog_at_ty
-      holeyContext <- runJustParseExpr cc $ contextLet context "_"
-      let wContext = fromJust $ fillHole holeyContext $ unLoc parsed
-      bcatC <- runJustParseExpr cc $ buildCheckExprAtTy props context ty "_"
-      to_check <- runJustParseExpr cc $ trim $ showUnsafe wContext
-      let check = fromJust $ fillHole bcatC $ unLoc to_check
-          cc' = (cc {hole_lvl=0, importStmts=(qcImport:importStmts cc)})
-      [compiled_check] <- compileChecks cc' [showUnsafe check]
+failingProps cc props context ty wrong_prog = do
+      (cc', check) <- buildCheck buildCheckExprAtTy cc props context ty wrong_prog
+      [compiled_check] <- compileChecks cc' [check]
       ran <- runCheck compiled_check
       case ran of
          -- Some of the props are failing:

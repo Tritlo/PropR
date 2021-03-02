@@ -152,16 +152,27 @@ evalOrHoleFits cc str = do
    handleSourceError (getHoleFitsFromError plugRef)
                      (dynCompileExpr str >>= (return . Right))
 
+
+-- Report error prints the error and stops execution
+reportError :: GhcMonad m => RExpr -> SourceError -> m b
+reportError expr e = do liftIO $ do putStrLn "FAILED!"
+                                    putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
+                                    putStrLn expr
+                        printException e
+                        error "UNEXPECTED EXCEPTION"
+
+-- When we want to compile only one check
+compileCheck :: CompileConfig -> RExpr -> IO Dynamic
+compileCheck cc expr = runGhc (Just libdir) $ do
+    _ <- initGhcCtxt (cc {hole_lvl = 0})
+    handleSourceError (reportError expr) $ dynCompileExpr expr
+
+-- Since initialization has some overhead, we have a special case for compiling
+-- multiple checks at once.
 compileChecks :: CompileConfig -> [RExpr] -> IO [CompileRes]
 compileChecks cc exprs = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
-    mapM (\exp ->
-         handleSourceError (\e ->
-          do liftIO $ do putStrLn "FAILED!"
-                         putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
-                         putStrLn exp
-             printException e
-             error "UNEXPECTED EXCEPTION")
+    mapM (\exp -> handleSourceError (reportError exp)
           $ fmap Right $ dynCompileExpr exp ) exprs
 
 genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
@@ -178,6 +189,8 @@ showUnsafe = showSDocUnsafe . ppr
 
 timeoutVal :: Int
 timeoutVal = 1000000
+
+
 
 -- Right True means that all the properties hold, while Right False mean that
 -- There is some error or infinite loop.

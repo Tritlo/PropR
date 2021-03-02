@@ -1,20 +1,21 @@
-{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE NumericUnderscores, TypeApplications #-}
 module Main where
 
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
-import Synth.Repair (repair, failingProps)
-import Synth.Eval (CompileConfig(..))
+import Synth.Repair (repair, failingProps, propCounterExample)
+import Synth.Eval (CompileConfig(..), compileCheck)
 import Synth.Util
 
 import Data.Bits (finiteBitSize)
+import Data.Dynamic (fromDynamic)
 
 
 
 tests :: TestTree
-tests = testGroup "Tests" [utilTests, repairTests]
+tests = testGroup "Tests" [utilTests, repairTests, failingPropsTests, counterExampleTests]
 
 -- We can only do the inverse for ints up to 64, so we only support a maximum
 -- of 64 props!
@@ -65,8 +66,11 @@ repairTests = testGroup "Repair" [
               context = []
           fixes <- map trim <$> repair cc props context ty wrong_prog
           (length fixes > 0) @? "No fix found"
-    , localOption (mkTimeout 5_000_000) $
-        testCase "Failing props" $ do
+  ]
+
+failingPropsTests = testGroup "Failing props" [
+    localOption (mkTimeout 5_000_000) $
+        testCase "Failing props for gcd" $ do
           let cc = CompConf {
                       hole_lvl=0,
                       packages = ["base", "process", "QuickCheck" ],
@@ -101,5 +105,42 @@ repairTests = testGroup "Repair" [
             failed_props @?= props
     ]
 
+counterExampleTests = testGroup "Counter Examples" [
+      localOption (mkTimeout 10_000_000) $
+          testCase "Only one counter example" $ do
+            let cc = CompConf {
+                        hole_lvl=2,
+                        packages = ["base", "process", "QuickCheck" ],
+                        importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]}
+                ty = "[Int] -> Int"
+                wrong_prog = "(foldl (-) 0)"
+                props = ["prop_isSum f xs = f xs == sum xs"]
+                context = []
+                expected = "((foldl (+) 0)) :: [Int] -> Int"
+            [failed_prop] <- failingProps cc props context ty wrong_prog
+            Just [counter_example] <- propCounterExample cc context ty wrong_prog failed_prop
+            res <- compileCheck cc ("(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example)
+            case fromDynamic @Bool res of
+              Just v -> not v @? "Counter Example is not a counter example!"
+              Nothing -> error "Incorrect type!!"
+
+    , localOption (mkTimeout 10_000_000) $
+          testCase "Multiple examples" $ do
+            let cc = CompConf {
+                        hole_lvl=2,
+                        packages = ["base", "process", "QuickCheck" ],
+                        importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]}
+                ty = "Int -> Int -> Int"
+                wrong_prog = "(-)"
+                props = ["prop_isPlus f a b = f a b == (a + b)"]
+                context = []
+            [failed_prop] <- failingProps cc props context ty wrong_prog
+            Just counter_example_args <- propCounterExample cc context ty wrong_prog failed_prop
+            let arg_str = unwords counter_example_args
+            res <- compileCheck cc ("(-) " ++ arg_str ++ " == (+) " ++ arg_str)
+            case fromDynamic @Bool res of
+              Just v -> not v @? "Counter Example is not a counter example!"
+              Nothing -> error "Incorrect type!!"
+  ]
 
 main = defaultMain tests

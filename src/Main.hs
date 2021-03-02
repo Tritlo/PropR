@@ -25,7 +25,7 @@ import System.CPUTime
 import Text.Printf
 
 import Synth.Eval
-import Synth.Repair (repair, failingProps)
+import Synth.Repair
 import Synth.Check
 import Synth.Util
 
@@ -165,17 +165,17 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-        -- ty = "[Int] -> Int"
-        -- wrong_prog = "(foldl (-) 0)"
-        -- props = ["prop_isSum f xs = f xs == sum xs"]
-        props = [ "prop_1 f = f 0 55 == 55"
-                , "prop_2 f = f 1071 1029 == 21"]
-        ty = "Int -> Int -> Int"
-        wrong_prog = unlines [
-                    "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
-                    "    ; gcd' a b | b == 0 = a",
-                    "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
-                    "     in gcd'"]
+        ty = "[Int] -> Int"
+        wrong_prog = "(foldl (-) 0)"
+        props = ["prop_isSum f xs = f xs == sum xs"]
+        -- props = [ "prop_1 f = f 0 55 == 55"
+        --         , "prop_2 f = f 1071 1029 == 21"]
+        -- ty = "Int -> Int -> Int"
+        -- wrong_prog = unlines [
+        --             "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
+        --             "    ; gcd' a b | b == 0 = a",
+        --             "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
+        --             "     in gcd'"]
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"
                   , "add = (+) :: Int -> Int -> Int"]
@@ -193,8 +193,11 @@ main = do
     putStrLn "PROGRAM TO REPAIR: "
     putStrLn wrong_prog
     putStrLn "FAILING PROPS:"
-    fps <- failingProps  cc props context ty wrong_prog
+    fps <- failingProps cc props context ty wrong_prog
     mapM (putStrLn . ("  " ++)) fps
+    putStrLn "COUNTER EXAMPLES:"
+    counterExamples <- mapM (propCounterExample cc context ty wrong_prog) fps
+    mapM (print ) counterExamples
     putStr' "REPAIRING..."
     (t, fixes) <- time $ repair cc props context ty wrong_prog
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
