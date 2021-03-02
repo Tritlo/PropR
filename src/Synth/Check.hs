@@ -1,12 +1,14 @@
 module Synth.Check where
 
 import Synth.Util
+import Synth.Types
 
 import Data.List (intercalate)
 
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 qcImport = "import Test.QuickCheck"
-buildCheckExprAtTy :: [String] -> [String] -> String -> String -> String
+
+buildCheckExprAtTy :: [RProp] -> RContext -> RType -> RExpr -> RExpr
 buildCheckExprAtTy props context ty expr =
      unlines [
          "let qc__ = "  ++ qcArgs

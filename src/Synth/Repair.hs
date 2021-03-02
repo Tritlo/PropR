@@ -19,6 +19,7 @@ import Synth.Eval
 import Synth.Check
 import Synth.Util
 import Synth.Fill
+import Synth.Types
 import Data.Either
 
 setNoDefaulting :: Ghc ()
@@ -41,21 +42,21 @@ getHoleFits cc expr = runGhc (Just libdir) $ do
               Left r -> map fst r
               Right _ -> []
 
-getHoley :: CompileConfig -> String -> IO [LHsExpr GhcPs]
+getHoley :: CompileConfig -> RExpr -> IO [LHsExpr GhcPs]
 getHoley cc str = runGhc (Just libdir) $ exprHoley cc str
 
 
-exprHoley :: CompileConfig -> String -> Ghc [LHsExpr GhcPs]
+exprHoley :: CompileConfig -> RExpr -> Ghc [LHsExpr GhcPs]
 exprHoley cc str = makeHoley <$> justParseExpr cc str
 
-justParseExpr :: CompileConfig -> String -> Ghc (LHsExpr GhcPs)
+justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
 justParseExpr cc str = do
    plugRef <- initGhcCtxt cc
    handleSourceError
      (\err -> printException err >> error "parse failed")
      (parseExpr str)
 
-runJustParseExpr :: CompileConfig -> String -> IO (LHsExpr GhcPs)
+runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
 runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
 
 type Rewrite = LHsExpr GhcPs -> [LHsExpr GhcPs]
@@ -93,7 +94,7 @@ replacements e (first_hole_fit:rest) =
     (mapMaybe (fillHoleWithFit e) first_hole_fit) >>= (flip replacements rest)
 
 -- Returns the props that fail for the given program
-failingProps :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
+failingProps :: CompileConfig -> [RProp] -> RContext -> RType -> RExpr -> IO [RProp]
 failingProps _ [] _ _ _ = return []
 -- Our method for checking which props fail is restricted to maximum 8 at a time,
 -- so if we have more than that, we check the first 8 and then the rest, and
@@ -136,7 +137,7 @@ failingProps cc props context ty wrong_prog =
                        concat <$> mapM fp [ps1, ps2]
 
 
-repair :: CompileConfig -> [String] -> [String] -> String -> String -> IO [String]
+repair :: CompileConfig -> [RProp] -> RContext -> RType -> RExpr -> IO [RProp]
 repair cc props context ty wrong_prog =
    do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
       pr_debug prog_at_ty

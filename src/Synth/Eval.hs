@@ -1,6 +1,8 @@
 {-# LANGUAGE RecordWildCards, TypeApplications #-}
 module Synth.Eval where
 
+import Synth.Types
+
 -- GHC API
 import GHC
 import DynFlags
@@ -129,7 +131,7 @@ getHoleFitsFromError plugRef err = do
                  (holeOcc h1) == (holeOcc h2)
         sameHole _ _ = False
 
-monomorphiseType :: CompileConfig -> String -> IO (Maybe String)
+monomorphiseType :: CompileConfig -> RType -> IO (Maybe RType)
 monomorphiseType cc ty = do
    runGhc (Just libdir) $
        do _ <- initGhcCtxt cc
@@ -143,14 +145,14 @@ monomorphiseType cc ty = do
         -- ^ We take a leaf from QuickCheck's book and default all ambiguous
         -- foralls to the simplest one, unit.
 
-evalOrHoleFits :: CompileConfig -> String -> Ghc CompileRes
+evalOrHoleFits :: CompileConfig -> RExpr -> Ghc CompileRes
 evalOrHoleFits cc str = do
    plugRef <- initGhcCtxt cc
    -- Then we can actually run the program!
    handleSourceError (getHoleFitsFromError plugRef)
                      (dynCompileExpr str >>= (return . Right))
 
-compileChecks :: CompileConfig -> [String] -> IO [CompileRes]
+compileChecks :: CompileConfig -> [RExpr] -> IO [CompileRes]
 compileChecks cc exprs = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
     mapM (\exp ->
@@ -162,7 +164,7 @@ compileChecks cc exprs = runGhc (Just libdir) $ do
              error "UNEXPECTED EXCEPTION")
           $ fmap Right $ dynCompileExpr exp ) exprs
 
-genCandTys :: CompileConfig -> (String -> String -> String) -> [String] -> IO [String]
+genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
 genCandTys cc bcat cands = runGhc (Just libdir) $ do
     initGhcCtxt (cc {hole_lvl = 0})
     flags <- getSessionDynFlags
@@ -224,19 +226,19 @@ runCheck (Right dval) =
                                    then (complement $ boolsToBit res)
                                    else -1
 
-compile :: CompileConfig -> String -> IO CompileRes
+compile :: CompileConfig -> RType -> IO CompileRes
 compile cc str = do
    r <- runGhc (Just libdir) $ evalOrHoleFits cc str
    return r
 
-compileAtType :: CompileConfig -> String -> String -> IO CompileRes
+compileAtType :: CompileConfig -> RExpr -> RType -> IO CompileRes
 compileAtType cc str ty = compile cc ("((" ++ str ++ ") :: " ++ ty ++ ")")
 
 
 showHF :: HoleFit -> String
 showHF = showSDocUnsafe . pprPrefixOcc . hfId
 
-readHole :: HoleFit -> (String, [String])
+readHole :: HoleFit -> (String, [RExpr])
 readHole (RawHoleFit sdc) = (showSDocUnsafe sdc, [])
 readHole hf@HoleFit{..} =
     (showHF hf,
