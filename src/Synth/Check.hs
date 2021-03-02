@@ -6,6 +6,7 @@ import Synth.Types
 import Data.List (intercalate)
 
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
+qcTime = 1000000
 qcImport = "import Test.QuickCheck"
 
 buildCheckExprAtTy :: [RProp] -> RContext -> RType -> RExpr -> RExpr
@@ -30,7 +31,8 @@ buildCheckExprAtTy props context ty expr =
 
 -- Builds the actual check.
 propCheck :: String -> String
-propCheck pname = "quickCheckWithResult qc__ (" ++ pname ++ " expr__ )"
+propCheck pname = "quickCheckWithResult qc__ (within "
+                ++ show qcTime ++ " (" ++ pname ++ " expr__ ))"
 
 -- The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument

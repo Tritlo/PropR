@@ -165,17 +165,17 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-        ty = "[Int] -> Int"
-        wrong_prog = "(foldl (-) 0)"
-        props = ["prop_isSum f xs = f xs == sum xs"]
-        -- props = [ "prop_1 f = f 0 55 == 55"
-        --         , "prop_2 f = f 1071 1029 == 21"]
-        -- ty = "Int -> Int -> Int"
-        -- wrong_prog = unlines [
-        --             "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
-        --             "    ; gcd' a b | b == 0 = a",
-        --             "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
-        --             "     in gcd'"]
+        -- ty = "[Int] -> Int"
+        -- wrong_prog = "(foldl (-) 0)"
+        -- props = ["prop_isSum f xs = f xs == sum xs"]
+        props = [ "prop_1 f = f 0 55 == 55"
+                , "prop_2 f = f 1071 1029 == 21"]
+        ty = "Int -> Int -> Int"
+        wrong_prog = unlines [
+                    "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
+                    "    ; gcd' a b | b == 0 = a",
+                    "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
+                    "     in gcd'"]
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"
                   , "add = (+) :: Int -> Int -> Int"]

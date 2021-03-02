@@ -86,7 +86,7 @@ failingPropsTests = testGroup "Failing props" [
                           "     in gcd'"]
               context = []
           failed_props <- failingProps cc props context ty wrong_prog
-          -- Only the second prop should be failing
+          -- Only the first prop should be failing (due to an infinite loop)
           failed_props @?= [head props]
       , localOption (mkTimeout 10_000_000) $
           testCase "Only one failing prop" $ do
@@ -141,6 +141,27 @@ counterExampleTests = testGroup "Counter Examples" [
             case fromDynamic @Bool res of
               Just v -> not v @? "Counter Example is not a counter example!"
               Nothing -> error "Incorrect type!!"
+  ,  localOption (mkTimeout 15_000_000) $
+        testCase "No args loop fail" $ do
+          let cc = CompConf {
+                      hole_lvl=0,
+                      packages = ["base", "process", "QuickCheck" ],
+                      importStmts = ["import Prelude"]}
+              props :: [String]
+              props = [ "prop_1 f = f 0 55 == 55"
+                      , "prop_2 f = f 1071 1029 == 21"]
+              ty = "Int -> Int -> Int"
+              wrong_prog = unlines [
+                          "let { gcd' 0 b = gcd' 0 b",
+                          "    ; gcd' a b | b == 0 = a",
+                          "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
+                          "     in gcd'"]
+              context = []
+          [failed_prop] <- failingProps cc props context ty wrong_prog
+          -- Only the first prop should be failing (due to an infinite loop)
+          failed_prop @?= head props
+          Just counter_example_args <- propCounterExample cc context ty wrong_prog failed_prop
+          null counter_example_args @? "The counter example should not have any arguments!"
   ]
 
 main = defaultMain tests
