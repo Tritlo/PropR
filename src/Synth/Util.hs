@@ -7,6 +7,7 @@ import Data.Char (isSpace)
 import Data.Bits
 
 import SrcLoc
+import Data.List (intercalate)
 
 -- Removes whitespace before and after a string
 trim :: String -> String
@@ -44,9 +45,7 @@ prop_startsWith st rest = startsWith st (st ++ rest) == True
 
 contextLet :: [String] -> String -> String
 contextLet context l =
-    unlines ["let"
-            , unlines $ map ("    " ++)  context
-            , "in " ++ l]
+   "let {" ++ (intercalate "; " $ concatMap lines context) ++ "} in " ++ l
 
 mapFirst :: (a -> Maybe a) -> [a] -> Maybe [a]
 mapFirst = mapFirst' []

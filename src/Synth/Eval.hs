@@ -196,16 +196,25 @@ moduleToProb cc@CompConf{..} mod_path (Just fix_target) = do
                ((==) "prop" . take 4 . occNameString . occName . unLoc) fun_id
           isProp _ = False
           -- We get the type of the program
-          getTType (L _ (SigD _ (TypeSig _ ids sig))) |
-             t_name `elem` (map unLoc ids) =
-                   Just $ showUnsafe $ hsib_body $ hswc_body sig
+          getTType (L _ (SigD _ ts@(TypeSig _ ids sig))) |
+             t_name `elem` (map unLoc ids) = Just ts
           getTType _ = Nothing
-          t_defs = map showUnsafe $ filter isTDef hsmodDecls
-          wrong_prog = contextLet t_defs (showUnsafe t_name)
           props = map wrapProp $ filter isProp hsmodDecls
-          prog_ty = case mapMaybe getTType hsmodDecls of
+          prog_sig = case mapMaybe getTType hsmodDecls of
                       (pt:_) -> pt
                       _ -> error "Could not find the type of the fix_target!"
+          prog_ty = showUnsafe $ hsib_body $ hswc_body sig
+            where (TypeSig _ _ sig) = prog_sig
+          prog_binds :: LHsBindsLR GhcPs GhcPs
+          prog_binds = listToBag $ mapMaybe f $ filter isTDef hsmodDecls
+             where f (L _ (ValD _ b)) = Just $ noLoc b
+                   f _ = Nothing
+          wp_expr :: LHsExpr GhcPs
+          wp_expr = noLoc $ HsLet noExtField
+                     (noLoc (HsValBinds noExtField $
+                            ValBinds noExtField prog_binds [noLoc prog_sig]))
+                     (noLoc (HsVar noExtField (noLoc t_name)))
+          wrong_prog = showUnsafe wp_expr
       return (cc', ctxt, wrong_prog, prog_ty, props )
   where -- takes prop :: t ==> prop' :: target_type -> t
         -- since our previous assumptions relied on the

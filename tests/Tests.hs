@@ -253,6 +253,17 @@ moduleTests = testGroup "Module tests" [
       (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
       fixes <- repair cc' props context ty wrong_prog
       not (null fixes) @? "Repairs for foldl should work!"
+  , localOption (mkTimeout 30_000_000) $
+      testCase "Repair BrokenGCD" $ do
+        let cc = CompConf {
+                   hole_lvl=0,
+                   packages = ["base", "process", "QuickCheck" ],
+                   importStmts = ["import Prelude"]}
+            toFix = "tests/BrokenGCD.hs"
+            repair_target = Just "gcd'"
+        (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
+        fixes <- repair cc' props context ty wrong_prog
+        not (null fixes) @? "Repairs for gcd' should work!"
   ]
 
 main = defaultMain tests
