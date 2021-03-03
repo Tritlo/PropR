@@ -172,31 +172,13 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-        -- ty = "[Int] -> Int"
-        -- wrong_prog = "(foldl (-) 0)"
-        -- props = ["prop_isSum f xs = f xs == sum xs"]
-        props = [ "prop_1 f = f 0 55 == 55"
-                , "prop_2 f = f 1071 1029 == 21"]
-        ty = "Int -> Int -> Int"
-        wrong_prog = unlines [
-                    "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
-                    "    ; gcd' a b | b == 0 = a",
-                    "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
-                    "     in gcd'"]
-        context = [ "zero = 0 :: Int"
-                  , "one = 1 :: Int"
-                  , "add = (+) :: Int -> Int -> Int"]
+        Just target = repair_target
     [toFix] <- filter (not . (==) "-f" . take 2 ) <$> getArgs
-    print repair_target
-    print toFix
-    r@(cc', context', wrong_prog', ty', props') <- moduleToProb cc toFix repair_target
-    print r
-    (t, fixes) <- time $ repair cc' props' context' ty' wrong_prog'
-    print t
-    print fixes
-    error "ABORT"
+    (cc, context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
+    putStrLn "TARGET:"
+    putStrLn ("  `" ++ target ++ "` in " ++ toFix)
     putStrLn "SCOPE:"
-    mapM_ (putStrLn . ("  " ++)) imports
+    mapM_ (putStrLn . ("  " ++)) (importStmts cc)
     putStrLn "TARGET TYPE:"
     putStrLn $ "  "  ++ ty
     putStrLn "MUST SATISFY:"
@@ -209,25 +191,28 @@ main = do
     putStrLn "PROGRAM TO REPAIR: "
     putStrLn wrong_prog
     putStrLn "FAILING PROPS:"
-    [fp] <- failingProps cc props context ty wrong_prog
-    mapM (putStrLn . ("  " ++)) [fp]
+    failing_props <- failingProps cc props context ty wrong_prog
+    mapM (putStrLn . ("  " ++)) failing_props
     putStrLn "COUNTER EXAMPLES:"
-    Just counter_example <- propCounterExample cc context ty wrong_prog fp
-    print counter_example
-    Just res <- traceTarget cc wrong_prog fp counter_example
-    parsed <- runJustParseExpr cc wrong_prog
-    let eMap = Map.fromList $ map (\e -> (getLoc e, showUnsafe e)) $
-                 flattenExpr parsed
-        fr = map (\(s,r) -> (s, eMap Map.!? (mkInteractive s),
-                             r, maximum $ map snd r)) $ flatten res
-    mapM print fr
-    error "ABORT"
+    counter_examples <-
+       catMaybes <$>
+         mapM (propCounterExample cc context ty wrong_prog) failing_props
+    mapM (putStrLn . (++) "  " . unwords) counter_examples
+    eMap <-
+       (Map.fromList . map (\e -> (getLoc e, showUnsafe e))  . flattenExpr) <$>
+          runJustParseExpr cc wrong_prog
+    reses <- mapM (uncurry $ traceTarget cc wrong_prog)
+                 $ zip failing_props counter_examples
+    let trcs = map (map (\(s,r) ->
+                             (s, eMap Map.!? (mkInteractive s),
+                              r, maximum $ map snd r)) . flatten) $ catMaybes reses
+    putStrLn "TRACE OF COUNTER EXAMPLES:"
+    mapM (putStrLn . unlines . map ((++) "  " . show)) trcs
     putStr' "REPAIRING..."
     (t, fixes) <- time $ repair cc props context ty wrong_prog
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     putStrLn "REPAIRS:"
     mapM (putStrLn . (++) "  " . trim) fixes
-    error "ABORT"
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
     putStr' "GENERATING CANDIDATES..."
