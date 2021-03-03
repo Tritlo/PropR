@@ -6,12 +6,17 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
 import Synth.Repair (repair, failingProps, propCounterExample, runJustParseExpr)
-import Synth.Eval (CompileConfig(..), compileCheck, traceTarget)
+import Synth.Eval (CompileConfig(..), compileCheck, traceTarget, showUnsafe)
+import Synth.Flatten
 import Synth.Util
 
 import Data.Bits (finiteBitSize)
 import Data.Dynamic (fromDynamic)
 import Data.Tree
+import qualified Data.Map as Map
+import Trace.Hpc.Mix
+import Data.List (find)
+import Data.Maybe (isJust)
 
 import GhcPlugins (getLoc)
 
@@ -190,6 +195,47 @@ traceTests = testGroup "Trace tests" [
             expr <- runJustParseExpr cc wrong_prog
             (getLoc expr) @?= mkInteractive tl
             (all (== 1) $ map snd $ concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!"
+  ,  localOption (mkTimeout 30_000_000) $
+        testCase "Trace finds loop" $ do
+          let cc = CompConf {
+                      hole_lvl=0,
+                      packages = ["base", "process", "QuickCheck" ],
+                      importStmts = ["import Prelude"]}
+              props :: [String]
+              props = [ "prop_1 f = f 0 55 == 55"
+                      , "prop_2 f = f 1071 1029 == 21"]
+              ty = "Int -> Int -> Int"
+              wrong_prog = unlines [
+                          "let { gcd' 0 b = gcd' 0 b",
+                          "    ; gcd' a b | b == 0 = a",
+                          "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
+                          "     in gcd'"]
+              context = []
+          [failed_prop] <- failingProps cc props context ty wrong_prog
+          Just counter_example_args <- propCounterExample cc context ty wrong_prog failed_prop
+          -- We generate the trace
+          Just res <- traceTarget cc wrong_prog failed_prop counter_example_args
+          parsed <- runJustParseExpr cc wrong_prog
+          let eMap = Map.fromList $ map (\e -> (getLoc e, showUnsafe e)) $ flattenExpr parsed
+              trc = map (\(s,r) -> (s, eMap Map.!? (mkInteractive s), r, maximum $ map snd r)) $ flatten res
+              isXbox (ExpBox _) = True
+              isXBox _ = False
+              isInEMapOrNotExpBox (_, Just _, _, _) = True
+              isInEMapOrNotExpBox (_, _, r, _) = not (any isXBox $ map fst r)
+              isLooper (_, Just "gcd' 0 b",_, _) = True
+              isLooper _ = False
+
+              loopEntry = find isLooper trc
+
+          all isInEMapOrNotExpBox trc @? "All the expressions should be present in the trace!"
+          isJust loopEntry @? "The loop causing expresssion should be in the trace"
+          let Just (_,_,_,loops) = loopEntry
+          loops >= 100_000 @? "There should have been a lot of invocations of the loop!"
+
+
+
+
+
   ]
 
 

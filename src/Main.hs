@@ -28,9 +28,13 @@ import Synth.Eval
 import Synth.Repair
 import Synth.Check
 import Synth.Util
+import Synth.Flatten
+import Data.Tree
+
+import Trace.Hpc.Mix (BoxLabel(ExpBox))
 
 
-import GhcPlugins (unLoc, GenLocated(..))
+import GhcPlugins (unLoc, GenLocated(..), getLoc)
 
 -- The time we allow for a check to finish. Measured in microseconds.
 
@@ -165,17 +169,17 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-        ty = "[Int] -> Int"
-        wrong_prog = "(foldl (-) 0)"
-        props = ["prop_isSum f xs = f xs == sum xs"]
-        -- props = [ "prop_1 f = f 0 55 == 55"
-        --         , "prop_2 f = f 1071 1029 == 21"]
-        -- ty = "Int -> Int -> Int"
-        -- wrong_prog = unlines [
-        --             "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
-        --             "    ; gcd' a b | b == 0 = a",
-        --             "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
-        --             "     in gcd'"]
+        -- ty = "[Int] -> Int"
+        -- wrong_prog = "(foldl (-) 0)"
+        -- props = ["prop_isSum f xs = f xs == sum xs"]
+        props = [ "prop_1 f = f 0 55 == 55"
+                , "prop_2 f = f 1071 1029 == 21"]
+        ty = "Int -> Int -> Int"
+        wrong_prog = unlines [
+                    "let { gcd' 0 b = gcd' 0 b", -- bug: should be gcd' b 0
+                    "    ; gcd' a b | b == 0 = a",
+                    "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)}",
+                    "     in gcd'"]
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"
                   , "add = (+) :: Int -> Int -> Int"]
@@ -198,8 +202,13 @@ main = do
     putStrLn "COUNTER EXAMPLES:"
     Just counter_example <- propCounterExample cc context ty wrong_prog fp
     print counter_example
-    res <- traceTarget cc wrong_prog fp counter_example
-    print res
+    Just res <- traceTarget cc wrong_prog fp counter_example
+    parsed <- runJustParseExpr cc wrong_prog
+    let eMap = Map.fromList $ map (\e -> (getLoc e, showUnsafe e)) $
+                 flattenExpr parsed
+        fr = map (\(s,r) -> (s, eMap Map.!? (mkInteractive s),
+                             r, maximum $ map snd r)) $ flatten res
+    mapM print fr
     error "ABORT"
     putStr' "REPAIRING..."
     (t, fixes) <- time $ repair cc props context ty wrong_prog

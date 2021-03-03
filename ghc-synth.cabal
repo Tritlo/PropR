@@ -20,6 +20,7 @@ library synth
                    Synth.Repair,
                    Synth.Check,
                    Synth.Fill,
+                   Synth.Flatten,
                    Synth.Types,
                    Synth.Util
   build-depends: base >= 4 && < 5,
@@ -42,6 +43,7 @@ executable ghc-synth
                  process >= 1.6 && < 1.7,
                  containers >= 0.6 && < 0.7,
                  unix >= 2.7.2 && < 2.8,
+                 hpc >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
                  synth
 
@@ -57,6 +59,7 @@ test-suite test
                  tasty-quickcheck >= 0.10,
                  containers >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
+                 hpc >= 0.6 && < 0.7,
                  synth,
                  -- packages used in repair:
                  QuickCheck

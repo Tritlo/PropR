@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TypeApplications, TupleSections #-}
+{-# LANGUAGE RecordWildCards, TypeApplications, TupleSections, NumericUnderscores #-}
 module Synth.Eval where
 
 import Synth.Types
@@ -176,7 +176,7 @@ traceTarget cc expr failing_prop failing_args = do
       createDirectoryIfMissing False tempDir
       (tf,handle) <- openTempFile tempDir "FakeTarget.hs"
       -- We generate the name of the module from the temporary file
-      let mname = takeWhile isAlphaNum $ dropExtension $ takeFileName tf
+      let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
           modTxt = exprToModule cc mname expr failing_prop failing_args
           strBuff = stringToStringBuffer modTxt
           m_name = mkModuleName mname
@@ -214,7 +214,26 @@ traceTarget cc expr failing_prop failing_args = do
                               { env=Just [("HPCTIXFILE", tixFilePath)]
                                 -- We ignore the output
                               , std_out=CreatePipe}
-                ec <- waitForProcess ph
+                ec <- timeout timeoutVal $ waitForProcess ph
+
+                let -- If it doesn't respond to signals, we can't do anything
+                    -- other than terminate
+                    loop ec 0 = terminateProcess ph
+                    loop ec n = when (isNothing ec) $ do
+                       -- If it's taking too long, it's probably stuck in a loop.
+                       -- By sending the right signal though, it will dump the tix
+                       -- file before dying.
+                       pid <- getPid ph
+                       case pid of
+                          Just pid ->
+                             do signalProcess keyboardSignal pid
+                                ec2 <- timeout timeoutVal $ waitForProcess ph
+                                loop ec2 (n-1)
+                          _ -> -- It finished in the brief time between calls, so we're good.
+                               return ()
+                -- We give it 3 tries
+                loop ec 3
+
                 tix <- readTix tixFilePath
                 let rm m = (m,) <$> readMix [mixFilePath] (Right m)
                 case tix of
@@ -227,18 +246,6 @@ traceTarget cc expr failing_prop failing_args = do
                    _ -> return Nothing
            removeTarget tid
            liftIO $ removeDirectoryRecursive tempDir
-           {-
-           ctxt <- getContext
-           msum <- getModSummary m_name
-           tcEd <- parseModule msum >>= typecheckModule
-           loaded <- loadModule tcEd
-           showModule msum >>= liftIO . putStrLn
-           res <- handleSourceError
-                    (getHoleFitsFromError plugRef)
-                    (dynCompileExpr "main"
-                    >>= (return . Right))
-           setContext ctxt
-           -}
            return res
  where toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
        toDom (TixModule _ _ _ ts, Mix _ _ _ _ es)
@@ -309,7 +316,7 @@ showUnsafe :: Outputable p => p -> String
 showUnsafe = showSDocUnsafe . ppr
 
 timeoutVal :: Int
-timeoutVal = 1000000
+timeoutVal = 1_000_000
 
 
 
