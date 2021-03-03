@@ -24,6 +24,23 @@ fillHole (L loc (HsLet x b e)) fit =
     case fillHoleLocalBinds b fit of
         Just b' -> Just (L loc (HsLet x b' e))
         _ -> fmap (L loc . HsLet x b) $ fillHole e fit
+fillHole (L loc (HsIf x mb c t e)) fit =
+    case fillHole c fit of
+      Just r -> Just (L loc (HsIf x mb r t e))
+      _ -> case fillHole t fit of
+             Just r -> Just (L loc (HsIf x mb c r e))
+             _ -> case fillHole e fit of
+                    Just r -> Just (L loc (HsIf x mb c t r))
+                    Nothing -> Nothing
+fillHole (L loc (OpApp x c t e)) fit =
+    case fillHole c fit of
+      Just r -> Just (L loc (OpApp x r t e))
+      _ -> case fillHole t fit of
+             Just r -> Just (L loc (OpApp x c r e))
+             _ -> case fillHole e fit of
+                    Just r -> Just (L loc (OpApp x c t r))
+                    Nothing -> Nothing
+
 fillHole e _ = Nothing
 
 fillHoleLocalBinds :: LHsLocalBinds GhcPs -> HsExpr GhcPs -> Maybe (LHsLocalBinds GhcPs)
@@ -69,9 +86,22 @@ fillLGRHS (L l (GRHS x guards e)) fit =
         _ -> fmap (L l . GRHS x guards) $ fillHole e fit
 fillLGRHS _ _ = Nothing
 
--- TODO: allow fixes in guards!
 fillGStmt :: GuardLStmt GhcPs -> HsExpr GhcPs -> Maybe (GuardLStmt GhcPs)
-fillGStmt _ _ = Nothing
+fillGStmt e f = fillLStmt e f
+
+-- TODO: more kinds of statements
+fillLStmt :: LStmt GhcPs (LHsExpr GhcPs) -> HsExpr GhcPs -> Maybe (LStmt GhcPs (LHsExpr GhcPs))
+fillLStmt (L l (LastStmt x e b s)) fit =
+    fmap (\ne -> (L l (LastStmt x ne b s))) $ fillHole e fit
+fillLStmt (L l (BodyStmt x e se1 se2)) fit =
+    fmap (\ne -> (L l (BodyStmt x ne se1 se1))) $ fillHole e fit
+-- Guard statements are Bind statements
+fillLStmt (L l (BindStmt x p e se1 se2)) fit =
+    fmap (\ne -> (L l (BindStmt x p ne se1 se1))) $ fillHole e fit
+fillLStmt (L l (LetStmt x lbs)) fit =
+    fmap (\ne -> (L l (LetStmt x lbs))) $ fillHoleLocalBinds lbs fit
+fillLStmt _ _ = Nothing
+
 
 fillHoles :: LHsExpr GhcPs -> [HsExpr GhcPs] -> Maybe (LHsExpr GhcPs)
 fillHoles expr [] = Nothing
