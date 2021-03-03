@@ -121,7 +121,8 @@ synthesizeSatisfying cc depth ioref context props ty = do
 
 data SynthFlags = SFlgs { synth_holes :: Int
                         , synth_depth :: Int
-                        , synth_debug :: Bool}
+                        , synth_debug :: Bool
+                        , repair_target :: Maybe FilePath}
 
 
 getFlags :: IO SynthFlags
@@ -133,6 +134,8 @@ getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
                                     Just r | not (null r) -> read (tail r)
                                     Nothing -> 1
                   synth_debug = "-fdebug" `Map.member` args
+                  repair_target = tail <$> args Map.!? "-ftarget"
+
               when (synth_holes < 0) (error "NUMBER OF HOLES CANNOT BE NEGATIVE!")
               when (synth_depth < 0) (error "DEPTH CANNOT BE NEGATIVE!")
               return $ SFlgs {..}
@@ -183,6 +186,15 @@ main = do
         context = [ "zero = 0 :: Int"
                   , "one = 1 :: Int"
                   , "add = (+) :: Int -> Int -> Int"]
+    [toFix] <- filter (not . (==) "-f" . take 2 ) <$> getArgs
+    print repair_target
+    print toFix
+    r@(cc', context', wrong_prog', ty', props') <- moduleToProb cc toFix repair_target
+    print r
+    (t, fixes) <- time $ repair cc' props' context' ty' wrong_prog'
+    print t
+    print fixes
+    error "ABORT"
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) imports
     putStrLn "TARGET TYPE:"

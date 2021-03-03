@@ -1,4 +1,6 @@
-{-# LANGUAGE RecordWildCards, TypeApplications, TupleSections, NumericUnderscores #-}
+{-# LANGUAGE RecordWildCards, TypeApplications,
+            TupleSections, NumericUnderscores,
+            TypeFamilies, FlexibleContexts #-}
 module Synth.Eval where
 
 import Synth.Types
@@ -28,7 +30,8 @@ import TysWiredIn (unitTy)
 import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
                   , occName, OccName(..), fsLit, mkOccNameFS, concatFS
                   , HscEnv(hsc_IC), InteractiveContext(ic_default)
-                  , mkVarUnqual, getRdrName, HscSource(..), interactiveSrcLoc)
+                  , mkVarUnqual, getRdrName, HscSource(..), interactiveSrcLoc
+                  , occNameString)
 import DriverPhases (Phase(..))
 import Synth.Plugin
 import Data.IORef
@@ -64,6 +67,7 @@ import Trace.Hpc.Util
 import Data.Tree
 import Data.Maybe (listToMaybe)
 import Control.Monad (join)
+import Data.List (find)
 -- Configuration and GHC setup
 
 holeFlags = [ Opt_ShowHoleConstraints
@@ -168,6 +172,50 @@ evalOrHoleFits cc str = do
    -- Then we can actually run the program!
    handleSourceError (getHoleFitsFromError plugRef)
                      (dynCompileExpr str >>= (return . Right))
+
+moduleToProb :: CompileConfig -> FilePath -> Maybe String
+             -> IO (CompileConfig, RContext, RExpr, RType, [RExpr])
+moduleToProb _ _ Nothing = error "Whole module repair not available!"
+moduleToProb cc@CompConf{..} mod_path (Just fix_target) = do
+   let target = Target (TargetFile mod_path Nothing) True Nothing
+   runGhc (Just libdir) $ do
+      _ <- initGhcCtxt cc
+      addTarget target
+      _ <- load LoadAllTargets
+      let mname = mkModuleName $ dropExtension $ takeFileName mod_path
+      ParsedModule {..} <- getModSummary mname >>= parseModule
+      let (L _ (HsModule {..})) = pm_parsed_source
+          imps' = map showUnsafe hsmodImports
+          cc' = cc {importStmts = importStmts ++ imps'}
+          ctxt = map showUnsafe hsmodDecls
+          t_name = mkVarUnqual (fsLit fix_target)
+          isTDef (L _ (SigD _ (TypeSig _ ids _))) = t_name `elem` (map unLoc ids)
+          isTDef (L _ (ValD _ (FunBind{..}))) = t_name == unLoc fun_id
+          isTDef _ = False
+          isProp (L _ (ValD _ (FunBind{..}))) =
+               ((==) "prop" . take 4 . occNameString . occName . unLoc) fun_id
+          isProp _ = False
+          -- We get the type of the program
+          getTType (L _ (SigD _ (TypeSig _ ids sig))) |
+             t_name `elem` (map unLoc ids) =
+                   Just $ showUnsafe $ hsib_body $ hswc_body sig
+          getTType _ = Nothing
+          t_defs = map showUnsafe $ filter isTDef hsmodDecls
+          wrong_prog = contextLet t_defs (showUnsafe t_name)
+          props = map wrapProp $ filter isProp hsmodDecls
+          prog_ty = case mapMaybe getTType hsmodDecls of
+                      (pt:_) -> pt
+                      _ -> error "Could not find the type of the fix_target!"
+      return (cc', ctxt, wrong_prog, prog_ty, props )
+  where -- takes prop :: t ==> prop' :: target_type -> t
+        -- since our previous assumptions relied on the
+        -- properties to take in the function being fixed
+        -- as the first argument.
+        wrapProp pdef = unwords (p':fix_target:rest)
+           where (p:rest) = words $ showUnsafe pdef
+                 p' = "prop'" ++ (drop 4 p)
+
+
 
 traceTarget :: CompileConfig -> RExpr -> RExpr -> [RExpr]
               -> IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))

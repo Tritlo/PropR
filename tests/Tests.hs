@@ -6,7 +6,8 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 
 import Synth.Repair (repair, failingProps, propCounterExample, runJustParseExpr)
-import Synth.Eval (CompileConfig(..), compileCheck, traceTarget, showUnsafe)
+import Synth.Eval ( CompileConfig(..), compileCheck, traceTarget
+                  , showUnsafe, moduleToProb)
 import Synth.Flatten
 import Synth.Util
 
@@ -26,7 +27,8 @@ tests = testGroup "Tests" [ utilTests
                           , repairTests
                           , failingPropsTests
                           , counterExampleTests
-                          , traceTests]
+                          , traceTests
+                          , moduleTests]
 
 -- We can only do the inverse for ints up to 64, so we only support a maximum
 -- of 64 props!
@@ -239,5 +241,18 @@ traceTests = testGroup "Trace tests" [
   ]
 
 
+moduleTests = testGroup "Module tests" [
+  localOption (mkTimeout 30_000_000) $
+    testCase "Repair BrokenModule" $ do
+      let cc = CompConf {
+                 hole_lvl=0,
+                 packages = ["base", "process", "QuickCheck" ],
+                 importStmts = ["import Prelude"]}
+          toFix = "tests/BrokenModule.hs"
+          repair_target = Just "broken"
+      (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
+      fixes <- repair cc' props context ty wrong_prog
+      not (null fixes) @? "Repairs for foldl should work!"
+  ]
 
 main = defaultMain tests
