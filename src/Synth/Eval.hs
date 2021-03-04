@@ -47,6 +47,7 @@ import System.Environment
 import System.Timeout
 
 import Synth.Util
+import Synth.Check
 
 import Data.Time.Clock
 import StringBuffer
@@ -329,12 +330,15 @@ exprToModule CompConf{..} mname expr failing_prop failing_args = unlines $ [
    "module " ++mname++" where"
    ]
    ++ importStmts
+   ++ checkImports
    ++ lines failing_prop
    ++ ["fake_target ="]
    ++ (map ("  " ++) $ lines expr)
    ++ [ ""
       , "main :: IO ()"
-      , "main = print (" ++ pname ++" fake_target " ++ unwords failing_args ++ ")"
+      , "main = do r <- quickCheckWithResult (" ++ qcArgs ++ ") (" ++ pname ++" fake_target " ++ unwords failing_args ++ ")"
+      , "          print (isSuccess r) "
+
    ]
   where pname = head (words failing_prop)
 

@@ -11,6 +11,7 @@ one = 1
 
 prop_1 = gcd' 0 55 == 55
 prop_2 = gcd' 1071 1029 == 21
+prop_3 a b = gcd' (abs a) (abs b) == gcd (abs a) (abs b)
 
 gcd' :: Int -> Int -> Int
 gcd' 0 b = gcd' 0 b

@@ -194,15 +194,16 @@ main = do
     failing_props <- failingProps cc props context ty wrong_prog
     mapM (putStrLn . ("  " ++)) failing_props
     putStrLn "COUNTER EXAMPLES:"
-    counter_examples <-
-       catMaybes <$>
-         mapM (propCounterExample cc context ty wrong_prog) failing_props
-    mapM (putStrLn . (++) "  " . unwords) counter_examples
+    counter_examples <- mapM (propCounterExample cc context ty wrong_prog) failing_props
+    mapM (putStrLn . (++) "  " . unwords) $ catMaybes counter_examples
     eMap <-
        (Map.fromList . map (\e -> (getLoc e, showUnsafe e))  . flattenExpr) <$>
           runJustParseExpr cc wrong_prog
+
+    let hasCE (p, Just ce) = Just (p, ce)
+        hasCE _ = Nothing
     reses <- mapM (uncurry $ traceTarget cc wrong_prog)
-                 $ zip failing_props counter_examples
+                 $ mapMaybe hasCE $ zip failing_props counter_examples
     let trcs = map (map (\(s,r) ->
                              (s, eMap Map.!? (mkInteractive s),
                               r, maximum $ map snd r)) . flatten) $ catMaybes reses

@@ -280,7 +280,7 @@ moduleTests = testGroup "Module tests" [
       (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
       fixes <- repair cc' props context ty wrong_prog
       "(+)" `elem` (words $ concat fixes) @? "The expected repair should be present!"
-  , localOption (mkTimeout 15_000_000) $
+  , localOption (mkTimeout 30_000_000) $
       testCase "Repair BrokenGCD" $ do
         let cc = CompConf {
                    hole_lvl=0,

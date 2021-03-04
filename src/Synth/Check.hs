@@ -7,8 +7,7 @@ import Data.List (intercalate)
 
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 qcTime = 1000000
-checkImports = [ "import Test.QuickCheck"
-               , "import Trace.Hpc.Reflect"]
+checkImports = [ "import Test.QuickCheck" ]
 
 buildCheckExprAtTy :: [RProp] -> RContext -> RType -> RExpr -> RExpr
 buildCheckExprAtTy props context ty expr =
@@ -41,7 +40,7 @@ buildCounterExampleExpr [prop] context ty expr =
      "let {" ++
        (intercalate "; " . concatMap lines $
            ("qc__ = "  ++ qcArgs):context
-           ++ [ prop
+           ++ [ addWithin prop
               , "expr__ :: " ++ ty
               , "expr__ = "++  expr
               , "failureToMaybe :: Result -> Maybe [String]"
@@ -53,4 +52,9 @@ buildCounterExampleExpr [prop] context ty expr =
          -- We can't consolidate this into check__, since the type
          -- will be different!
          qcArgs = "stdArgs { chatty = False }"
+         -- We have to have the within within the prop, otherwise we
+         -- don't get the arguments used.
+         addWithin prop = s ++ "= within " ++ (show qcTime) ++"(" ++ e ++ ")"
+           where (s,('=':e)) = break ((==) '=') prop
+
 buildCounterExampleExpr _ _ _ _ = error "bCEE only works for one prop at a time!"
