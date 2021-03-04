@@ -1,6 +1,5 @@
 module Synth.Types where
 
-
 -- Properties are strings, for now. We could parse them into LHsExpr GhcPs later.
 type RProp = String
 

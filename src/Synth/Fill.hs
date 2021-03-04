@@ -94,10 +94,10 @@ fillLStmt :: LStmt GhcPs (LHsExpr GhcPs) -> HsExpr GhcPs -> Maybe (LStmt GhcPs (
 fillLStmt (L l (LastStmt x e b s)) fit =
     fmap (\ne -> (L l (LastStmt x ne b s))) $ fillHole e fit
 fillLStmt (L l (BodyStmt x e se1 se2)) fit =
-    fmap (\ne -> (L l (BodyStmt x ne se1 se1))) $ fillHole e fit
+    fmap (\ne -> (L l (BodyStmt x ne se1 se2))) $ fillHole e fit
 -- Guard statements are Bind statements
 fillLStmt (L l (BindStmt x p e se1 se2)) fit =
-    fmap (\ne -> (L l (BindStmt x p ne se1 se1))) $ fillHole e fit
+    fmap (\ne -> (L l (BindStmt x p ne se1 se2))) $ fillHole e fit
 fillLStmt (L l (LetStmt x lbs)) fit =
     fmap (\ne -> (L l (LetStmt x lbs))) $ fillHoleLocalBinds lbs fit
 fillLStmt _ _ = Nothing

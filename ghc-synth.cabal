@@ -21,6 +21,7 @@ library synth
                    Synth.Check,
                    Synth.Fill,
                    Synth.Flatten,
+                   Synth.Sanctify,
                    Synth.Types,
                    Synth.Util
   build-depends: base >= 4 && < 5,
@@ -57,6 +58,7 @@ test-suite test
                  tasty >= 1.4,
                  tasty-hunit >= 0.10,
                  tasty-quickcheck >= 0.10,
+                 tasty-expected-failure >= 0.12,
                  containers >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,

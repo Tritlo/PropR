@@ -8,7 +8,7 @@ import Constraint (Ct(..), holeOcc)
 import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
                   , occName, OccName(..), fsLit, mkOccNameFS, concatFS
                   , HscEnv(hsc_IC), InteractiveContext(ic_default)
-                  , mkVarUnqual, getRdrName, showSDocUnsafe)
+                  , mkVarUnqual, getRdrName, showSDocUnsafe, liftIO)
 
 import Control.Monad (filterM, when)
 
@@ -20,6 +20,7 @@ import Synth.Check
 import Synth.Util
 import Synth.Fill
 import Synth.Types
+import Synth.Sanctify
 import Data.Either
 import Data.Dynamic (fromDyn)
 
@@ -43,12 +44,11 @@ getHoleFits cc expr = runGhc (Just libdir) $ do
               Left r -> map fst r
               Right _ -> []
 
-getHoley :: CompileConfig -> RExpr -> IO [LHsExpr GhcPs]
+getHoley :: CompileConfig -> RExpr -> IO [(SrcSpan, LHsExpr GhcPs)]
 getHoley cc str = runGhc (Just libdir) $ exprHoley cc str
 
-
-exprHoley :: CompileConfig -> RExpr -> Ghc [LHsExpr GhcPs]
-exprHoley cc str = makeHoley <$> justParseExpr cc str
+exprHoley :: CompileConfig -> RExpr -> Ghc [(SrcSpan, LHsExpr GhcPs)]
+exprHoley cc str = sanctifyExpr <$> justParseExpr cc str
 
 justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
 justParseExpr cc str = do
@@ -59,28 +59,6 @@ justParseExpr cc str = do
 
 runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
 runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
-
-type Rewrite = LHsExpr GhcPs -> [LHsExpr GhcPs]
-type Match = LHsExpr GhcPs -> Bool
-
--- All possible replacement of one variable with a hole
-makeHoley :: Rewrite
-makeHoley (L loc (HsApp x l r)) = rl ++ rr
-  where rl = map (\e -> L loc (HsApp x e r)) $ makeHoley l
-        rr = map (\e -> L loc (HsApp x l e)) $ makeHoley r
-makeHoley (L loc (HsVar x (L _ v))) =
-    [(L loc (HsUnboundVar x (TrueExprHole name)))]
-  where (ns,fs) = (occNameSpace (occName v), occNameFS (occName v))
-        name = mkOccNameFS ns (concatFS $ (fsLit "_"):[fs])
-
-makeHoley (L loc (HsPar x l)) =
-    map (L loc . HsPar x) $ makeHoley l
-makeHoley (L loc (ExprWithTySig x l t)) =
-    map (L loc . flip (ExprWithTySig x) t) $ makeHoley l
-makeHoley (L loc (HsLet x b e)) =
-    fmap (L loc . HsLet x b) $ makeHoley e
-makeHoley e = []
-
 
 fillHoleWithFit :: LHsExpr GhcPs -> HoleFit -> Maybe (LHsExpr GhcPs)
 fillHoleWithFit expr fit = fillHole expr (HsVar noExtField (L noSrcSpan (toName fit)))
@@ -169,7 +147,7 @@ repair cc props context ty wrong_prog =
       -- We add the context by replacing a hole in a let.
       holeyContext <- runJustParseExpr cc $ contextLet context "_"
       let addContext = fromJust . fillHole holeyContext . unLoc
-      fits <- mapM (\e -> (e,) <$> (getHoleFits cc $ addContext e)) res
+      fits <- mapM (\(_,e) -> (e,) <$> (getHoleFits cc $ addContext e)) res
       let repls = fits >>= (uncurry replacements)
 
       -- We do it properly
@@ -180,6 +158,7 @@ repair cc props context ty wrong_prog =
       let checks = map ( fromJust . fillHole bcatC . unLoc) to_checks
       pr_debug  "Fix candidates:"
       mapM (pr_debug . showUnsafe) checks
+      pr_debug "Those were all of them!"
       let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
       compiled_checks <- zip repls <$> compileChecks cc' (map showUnsafe checks)
       ran <- mapM (\(f,c) -> runCheck c >>= return . (f,)) compiled_checks

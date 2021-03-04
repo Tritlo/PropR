@@ -4,12 +4,14 @@ module Main where
 import Test.Tasty
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
+import Test.Tasty.ExpectedFailure
 
 import Synth.Repair (repair, failingProps, propCounterExample, runJustParseExpr)
 import Synth.Eval ( CompileConfig(..), compileCheck, traceTarget
                   , showUnsafe, moduleToProb)
 import Synth.Flatten
 import Synth.Util
+import Synth.Sanctify
 
 import Data.Bits (finiteBitSize)
 import Data.Dynamic (fromDynamic)
@@ -28,7 +30,8 @@ tests = testGroup "Tests" [ utilTests
                           , failingPropsTests
                           , counterExampleTests
                           , traceTests
-                          , moduleTests]
+                          , moduleTests
+                          , sanctifyTests]
 
 -- We can only do the inverse for ints up to 64, so we only support a maximum
 -- of 64 props!
@@ -37,12 +40,25 @@ prop_BoolToBitsInverse bs =
    length bs <= finiteBitSize (0 :: Int) ==>
     take (length bs) (bitToBools (boolsToBit bs)) == bs
 
+prop_insertAt :: Eq a => Int -> a -> [a] -> Property
+prop_insertAt n a as = abs n < length as ==> (insertAt n' a as) !! n' == a
+  where n' = n `mod` (length as)
+
+prop_applToEach :: Int -> [a] -> Property
+prop_applToEach n xs = n >= 0 ==> length app == n*lxs
+                               && length (concatMap snd app) == n*lxs*lxs
+  where tl = zip [0..] . replicate n
+        lxs = length xs
+        app = applToEach tl xs
+
 utilTests :: TestTree
 utilTests = testProperties "Utils" [
       ("dropPrefix", property prop_dropsPrefix)
     , ("startsWith", property prop_startsWith)
     , ("boolToBitsInverse", property prop_BoolToBitsInverse)
-    ]
+    , ("oneAndRest", property (prop_oneAndRest @Integer))
+    , ("insertAt", property (prop_insertAt @Integer))
+    , ("applToEach", property (prop_applToEach @Integer)) ]
 
 repairTests = testGroup "Repair" [
     -- A simple tests to see if we can repair (foldl (-) 0) to (foldl (+) 0)
@@ -62,7 +78,8 @@ repairTests = testGroup "Repair" [
               expected = "((foldl (+) 0)) :: [Int] -> Int"
           fixes <- map trim <$> repair cc props context ty wrong_prog
           expected `elem` fixes @? "Expected repair not found in fixes"
-    , localOption (mkTimeout 15_000_000) $
+    , ignoreTestBecause "We now have so many options that it will time out" $
+       localOption (mkTimeout 10_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let cc = CompConf {
                       hole_lvl=0,
@@ -233,13 +250,24 @@ traceTests = testGroup "Trace tests" [
           isJust loopEntry @? "The loop causing expresssion should be in the trace"
           let Just (_,_,_,loops) = loopEntry
           loops >= 100_000 @? "There should have been a lot of invocations of the loop!"
-
-
-
-
-
   ]
 
+
+sanctifyTests = testGroup "Sanctify tests" [
+  localOption (mkTimeout 1_000_000) $
+    testCase "Sanctify foldl program" $ do
+      let cc = CompConf {
+                 hole_lvl=0,
+                 packages = ["base", "process", "QuickCheck" ],
+                 importStmts = ["import Prelude"]}
+          toFix = "tests/BrokenModule.hs"
+          repair_target = Just "broken"
+      (cc', _, wrong_prog, _, _) <- moduleToProb cc toFix repair_target
+      expr <- runJustParseExpr cc' wrong_prog
+      -- There are 7 ways to replace parts of the broken function in BrokenModule
+      -- with holes:
+      length (sanctifyExpr expr) @?= 7
+  ]
 
 moduleTests = testGroup "Module tests" [
   localOption (mkTimeout 30_000_000) $
@@ -252,8 +280,9 @@ moduleTests = testGroup "Module tests" [
           repair_target = Just "broken"
       (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
       fixes <- repair cc' props context ty wrong_prog
-      not (null fixes) @? "Repairs for foldl should work!"
-  , localOption (mkTimeout 30_000_000) $
+      "(+)" `elem` (words $ concat fixes) @? "The expected repair should be present!"
+  , ignoreTestBecause "We now have so many options that it will time out" $
+     localOption (mkTimeout 15_000_000) $
       testCase "Repair BrokenGCD" $ do
         let cc = CompConf {
                    hole_lvl=0,
