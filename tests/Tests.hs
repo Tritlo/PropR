@@ -12,6 +12,7 @@ import Synth.Eval ( CompileConfig(..), compileCheck, traceTarget
 import Synth.Flatten
 import Synth.Util
 import Synth.Sanctify
+import Synth.Diff
 
 import Data.Bits (finiteBitSize)
 import Data.Dynamic (fromDynamic)
@@ -261,7 +262,7 @@ sanctifyTests = testGroup "Sanctify tests" [
                  importStmts = ["import Prelude"]}
           toFix = "tests/BrokenModule.hs"
           repair_target = Just "broken"
-      (cc', _, wrong_prog, _, _) <- moduleToProb cc toFix repair_target
+      (cc', _, wrong_prog, _, _, _) <- moduleToProb cc toFix repair_target
       expr <- runJustParseExpr cc' wrong_prog
       -- There are 7 ways to replace parts of the broken function in BrokenModule
       -- with holes:
@@ -269,17 +270,28 @@ sanctifyTests = testGroup "Sanctify tests" [
   ]
 
 moduleTests = testGroup "Module tests" [
-  localOption (mkTimeout 30_000_000) $
-    testCase "Repair BrokenModule" $ do
-      let cc = CompConf {
-                 hole_lvl=0,
-                 packages = ["base", "process", "QuickCheck" ],
-                 importStmts = ["import Prelude"]}
-          toFix = "tests/BrokenModule.hs"
-          repair_target = Just "broken"
-      (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
-      fixes <- repair cc' props context ty wrong_prog
-      "(+)" `elem` (words $ concat fixes) @? "The expected repair should be present!"
+    localOption (mkTimeout 30_000_000) $
+      testCase "Repair BrokenModule With Diff" $ do
+        let cc = CompConf {
+                  hole_lvl=0,
+                  packages = ["base", "process", "QuickCheck" ],
+                  importStmts = ["import Prelude"]}
+            toFix = "tests/BrokenModule.hs"
+            repair_target = Just "broken"
+            expected = map unlines [ [ "tests/BrokenModule.hs:8:1-20"
+                                     , "-broken = foldl (-) 0"
+                                     , "+broken = sum"]
+                                   , [ "tests/BrokenModule.hs:8:1-20"
+                                     , "-broken = foldl (-) 0"
+                                     , "+broken = foldl add 0"]
+                                   , [ "tests/BrokenModule.hs:8:1-20"
+                                     , "-broken = foldl (-) 0"
+                                     , "+broken = foldl (+) 0"]]
+
+        (cc', context, wrong_prog, ty, props, mod) <- moduleToProb cc toFix repair_target
+        fixes <- (repair cc' props context ty wrong_prog) >>= mapM (getFixBinds cc)
+        let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
+        fixDiffs @?= expected
   , localOption (mkTimeout 30_000_000) $
       testCase "Repair BrokenGCD" $ do
         let cc = CompConf {
@@ -288,9 +300,16 @@ moduleTests = testGroup "Module tests" [
                    importStmts = ["import Prelude"]}
             toFix = "tests/BrokenGCD.hs"
             repair_target = Just "gcd'"
-        (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
-        fixes <- repair cc' props context ty wrong_prog
-        not (null fixes) @? "Repairs for gcd' should work!"
+            expected = map unlines [[
+                  "tests/BrokenGCD.hs:(17,1)-(21,28)"
+                , "-gcd' 0 b = gcd' 0 b"
+                , "+gcd' 0 b = b"
+                , "gcd' a b | b == 0 = a"
+                , "gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)" ]]
+        (cc', context, wrong_prog, ty, props, mod) <- moduleToProb cc toFix repair_target
+        fixes <- (repair cc' props context ty wrong_prog) >>= mapM (getFixBinds cc)
+        let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
+        fixDiffs @?= expected
   ]
 
 main = defaultMain tests

@@ -175,7 +175,7 @@ evalOrHoleFits cc str = do
                      (dynCompileExpr str >>= (return . Right))
 
 moduleToProb :: CompileConfig -> FilePath -> Maybe String
-             -> IO (CompileConfig, RContext, RExpr, RType, [RExpr])
+             -> IO (CompileConfig, RContext, RExpr, RType, [RExpr], ParsedModule)
 moduleToProb _ _ Nothing = error "Whole module repair not available!"
 moduleToProb cc@CompConf{..} mod_path (Just fix_target) = do
    let target = Target (TargetFile mod_path Nothing) True Nothing
@@ -184,7 +184,7 @@ moduleToProb cc@CompConf{..} mod_path (Just fix_target) = do
       addTarget target
       _ <- load LoadAllTargets
       let mname = mkModuleName $ dropExtension $ takeFileName mod_path
-      ParsedModule {..} <- getModSummary mname >>= parseModule
+      mod@ParsedModule {..} <- getModSummary mname >>= parseModule
       let (L _ (HsModule {..})) = pm_parsed_source
           imps' = map showUnsafe hsmodImports
           cc' = cc {importStmts = importStmts ++ imps'}
@@ -216,7 +216,7 @@ moduleToProb cc@CompConf{..} mod_path (Just fix_target) = do
                             ValBinds noExtField prog_binds [noLoc prog_sig]))
                      (noLoc (HsVar noExtField (noLoc t_name)))
           wrong_prog = showUnsafe wp_expr
-      return (cc', ctxt, wrong_prog, prog_ty, props )
+      return (cc', ctxt, wrong_prog, prog_ty, props, mod)
   where -- takes prop :: t ==> prop' :: target_type -> t
         -- since our previous assumptions relied on the
         -- properties to take in the function being fixed

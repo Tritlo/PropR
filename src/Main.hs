@@ -29,6 +29,7 @@ import Synth.Repair
 import Synth.Check
 import Synth.Util
 import Synth.Flatten
+import Synth.Diff
 import Data.Tree
 
 import Trace.Hpc.Mix (BoxLabel(ExpBox))
@@ -174,7 +175,7 @@ main = do
     let cc = compConf {hole_lvl=synth_holes}
         Just target = repair_target
     [toFix] <- filter (not . (==) "-f" . take 2 ) <$> getArgs
-    (cc, context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
+    (cc, context, wrong_prog, ty, props, mod) <- moduleToProb cc toFix repair_target
     putStrLn "TARGET:"
     putStrLn ("  `" ++ target ++ "` in " ++ toFix)
     putStrLn "SCOPE:"
@@ -195,7 +196,7 @@ main = do
     mapM (putStrLn . ("  " ++)) failing_props
     putStrLn "COUNTER EXAMPLES:"
     counter_examples <- mapM (propCounterExample cc context ty wrong_prog) failing_props
-    mapM (putStrLn . (++) "  " . unwords) $ catMaybes counter_examples
+    mapM (putStrLn . (++) "  " . (\t -> if (t == "") then "<none>" else t) . unwords) $ catMaybes counter_examples
     eMap <-
        (Map.fromList . map (\e -> (getLoc e, showUnsafe e))  . flattenExpr) <$>
           runJustParseExpr cc wrong_prog
@@ -213,7 +214,9 @@ main = do
     (t, fixes) <- time $ repair cc props context ty wrong_prog
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     putStrLn "REPAIRS:"
-    mapM (putStrLn . (++) "  " . trim) fixes
+    fbs <- mapM (getFixBinds cc) fixes
+    mapM (putStrLn . unlines . map ((++) "  ") . lines) $
+       map (concatMap (prettyFix True) . snd . applyFixes mod) fbs
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
     putStr' "GENERATING CANDIDATES..."

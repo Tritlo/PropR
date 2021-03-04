@@ -23,6 +23,7 @@ library synth
                    Synth.Flatten,
                    Synth.Sanctify,
                    Synth.Types,
+                   Synth.Diff,
                    Synth.Util
   build-depends: base >= 4 && < 5,
                  ghc >= 8 && < 9,
