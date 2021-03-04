@@ -34,9 +34,7 @@ to see it in action on the `foldl (-) 0` example, or you can run
 $ cabal run ghc-synth -- tests/BrokenGCD.hs -ftarget=gcd\'
 ```
 
-to run it on the infinitely looping `gcd'`. However, the latter will take
-VERY long, due to the amount of possible holes we can place (this will
-improve once we integrate the trace information)
+to run it on the infinitely looping `gcd'`.
 
 To run the tests, you can either run `cabal run test` or `cabal test`. Note
 that there is an up-to-date run of the tests over at Travis-CI, which can be

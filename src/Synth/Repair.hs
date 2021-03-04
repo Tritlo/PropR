@@ -23,6 +23,10 @@ import Synth.Types
 import Synth.Sanctify
 import Data.Either
 import Data.Dynamic (fromDyn)
+import Data.List (sortOn)
+import Data.Set (Set)
+import Data.Tree (flatten)
+import qualified Data.Set as Set
 
 setNoDefaulting :: Ghc ()
 setNoDefaulting =
@@ -142,12 +146,41 @@ repair :: CompileConfig -> [RProp] -> RContext -> RType -> RExpr -> IO [RProp]
 repair cc props context ty wrong_prog =
    do let prog_at_ty = "("++ wrong_prog ++ ") :: " ++ ty
       pr_debug prog_at_ty
-      res <- getHoley cc prog_at_ty
-      pr_debug $ showUnsafe res
+      holey_exprs <- getHoley cc prog_at_ty
+      pr_debug $ showUnsafe holey_exprs
+
+
+      -- We can use the failing_props and the counter_examples to filter
+      -- out locations that we know won't matter.
+      failing_props <- failingProps cc props context ty prog_at_ty
+      counter_examples <- mapM (propCounterExample cc context ty prog_at_ty) failing_props
+      let hasCE (p, Just ce) = Just (p, ce)
+          hasCE _ = Nothing
+          -- We find the ones with counter-examples and pick the shortest one
+          ps_w_ce =
+             sortOn (length . snd ) $ mapMaybe hasCE $ zip failing_props counter_examples
+      holey_exprs <- case ps_w_ce of
+         (p,ce):_ ->
+             do trc <- traceTarget cc prog_at_ty p ce
+                case trc of
+                   Just res -> do
+                      let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
+                          invokes = map only_max $ flatten res
+                          non_zero = filter (\(src,n) -> n > 0) invokes
+                          non_zero_src = Set.fromList $ map fst non_zero
+                          non_zero_holes = filter (\(l,e) -> l `Set.member` non_zero_src) holey_exprs
+                      pr_debug "Invokes:"
+                      pr_debug $ showUnsafe invokes
+                      pr_debug "Non-zero holes:"
+                      pr_debug $ showUnsafe non_zero_holes
+                      return non_zero_holes
+                   _ -> return holey_exprs
+         _ -> return holey_exprs
+
       -- We add the context by replacing a hole in a let.
       holeyContext <- runJustParseExpr cc $ contextLet context "_"
       let addContext = fromJust . fillHole holeyContext . unLoc
-      fits <- mapM (\(_,e) -> (e,) <$> (getHoleFits cc $ addContext e)) res
+      fits <- mapM (\(_,e) -> (e,) <$> (getHoleFits cc $ addContext e)) holey_exprs
       let repls = fits >>= (uncurry replacements)
 
       -- We do it properly

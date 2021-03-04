@@ -78,8 +78,7 @@ repairTests = testGroup "Repair" [
               expected = "((foldl (+) 0)) :: [Int] -> Int"
           fixes <- map trim <$> repair cc props context ty wrong_prog
           expected `elem` fixes @? "Expected repair not found in fixes"
-    , ignoreTestBecause "We now have so many options that it will time out" $
-       localOption (mkTimeout 10_000_000) $
+    , localOption (mkTimeout 20_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let cc = CompConf {
                       hole_lvl=0,
@@ -281,8 +280,7 @@ moduleTests = testGroup "Module tests" [
       (cc', context, wrong_prog, ty, props) <- moduleToProb cc toFix repair_target
       fixes <- repair cc' props context ty wrong_prog
       "(+)" `elem` (words $ concat fixes) @? "The expected repair should be present!"
-  , ignoreTestBecause "We now have so many options that it will time out" $
-     localOption (mkTimeout 15_000_000) $
+  , localOption (mkTimeout 15_000_000) $
       testCase "Repair BrokenGCD" $ do
         let cc = CompConf {
                    hole_lvl=0,
