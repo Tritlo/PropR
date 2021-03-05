@@ -1,4 +1,5 @@
 [![Build Status](https://www.travis-ci.com/Tritlo/ghc-synth.svg?token=YpmPqezsnvxxwFc8zMFo&branch=master)](https://www.travis-ci.com/Tritlo/ghc-synth)
+[![Haskell CI](https://github.com/Tritlo/ghc-synth/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/ghc-synth/actions/workflows/haskell.yml)
 
 Program repair using GHC
 ===================
