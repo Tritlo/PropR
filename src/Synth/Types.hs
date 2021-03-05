@@ -13,3 +13,10 @@ type RType = String
 type RExpr = String
 
 type RFix = (LHsDecl GhcPs, LHsDecl GhcPs)
+
+-- A collection of things needed for a problem
+data RProblem = RProb { r_props :: [RProp]
+                      , r_ctxt :: RContext
+                      , r_target :: String
+                      , r_ty :: RType
+                      , r_prog :: RExpr }

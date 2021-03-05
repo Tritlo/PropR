@@ -30,6 +30,7 @@ import Synth.Check
 import Synth.Util
 import Synth.Flatten
 import Synth.Diff
+import Synth.Types
 import Data.Tree
 
 import Trace.Hpc.Mix (BoxLabel(ExpBox))
@@ -100,7 +101,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                 return []
 
   where
-    bcat = buildCheckExprAtTy props context
+    bcat ty cand = buildCheckExprAtTy $ RProb props context "" ty cand
     wrap p = "(" ++ p ++ ")"
     cc' = if depth <= 1 then (cc {hole_lvl=0}) else (cc {hole_lvl=1})
     recur :: (String, [String]) -> IO [String]
@@ -174,38 +175,36 @@ main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
     [toFix] <- filter (not . (==) "-f" . take 2 ) <$> getArgs
-    (cc, context, mod, probs) <- moduleToProb cc toFix repair_target
-    let ((target, wrong_prog, ty, props):_) = if null probs
-                                              then error "NO TARGET FOUND!"
-                                              else probs
+    (cc, mod, probs) <- moduleToProb cc toFix repair_target
+    let (rp@RProb{..}:_) = if null probs then error "NO TARGET FOUND!" else probs
     putStrLn "TARGET:"
-    putStrLn ("  `" ++ target ++ "` in " ++ toFix)
+    putStrLn ("  `" ++ r_target ++ "` in " ++ toFix)
     putStrLn "SCOPE:"
     mapM_ (putStrLn . ("  " ++)) (importStmts cc)
     putStrLn "TARGET TYPE:"
-    putStrLn $ "  "  ++ ty
+    putStrLn $ "  "  ++ r_ty
     putStrLn "MUST SATISFY:"
-    mapM_ (putStrLn . ("  " ++)) props
+    mapM_ (putStrLn . ("  " ++)) r_props
     putStrLn "IN CONTEXT:"
-    mapM_ (putStrLn . ("  " ++)) context
+    mapM_ (putStrLn . ("  " ++)) r_ctxt
     putStrLn "PARAMETERS:"
     putStrLn $ "  MAX HOLES: "  ++ (show synth_holes)
     putStrLn $ "  MAX DEPTH: "  ++ (show synth_depth)
     putStrLn "PROGRAM TO REPAIR: "
-    putStrLn wrong_prog
+    putStrLn r_prog
     putStrLn "FAILING PROPS:"
-    failing_props <- failingProps cc props context ty wrong_prog
+    failing_props <- failingProps cc rp
     mapM (putStrLn . ("  " ++)) failing_props
     putStrLn "COUNTER EXAMPLES:"
-    counter_examples <- mapM (propCounterExample cc context ty wrong_prog) failing_props
+    counter_examples <- mapM (propCounterExample cc rp) failing_props
     mapM (putStrLn . (++) "  " . (\t -> if (t == "") then "<none>" else t) . unwords) $ catMaybes counter_examples
     eMap <-
        (Map.fromList . map (\e -> (getLoc e, showUnsafe e))  . flattenExpr) <$>
-          runJustParseExpr cc wrong_prog
+          runJustParseExpr cc r_prog
 
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
-    reses <- mapM (uncurry $ traceTarget cc wrong_prog)
+    reses <- mapM (uncurry $ traceTarget cc r_prog)
                  $ mapMaybe hasCE $ zip failing_props counter_examples
     let trcs = map (map (\(s,r) ->
                              (s, eMap Map.!? (mkInteractive s),
@@ -213,7 +212,7 @@ main = do
     putStrLn "TRACE OF COUNTER EXAMPLES:"
     mapM (putStrLn . unlines . map ((++) "  " . show)) trcs
     putStr' "REPAIRING..."
-    (t, fixes) <- time $ repair cc props context ty wrong_prog
+    (t, fixes) <- time $ repair cc rp
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     putStrLn "REPAIRS:"
     fbs <- mapM (getFixBinds cc) fixes
@@ -222,7 +221,7 @@ main = do
     putStrLn "SYNTHESIZING..."
     memo <- newIORef (Map.empty)
     putStr' "GENERATING CANDIDATES..."
-    (t, r) <- time $ synthesizeSatisfying cc synth_depth memo context props ty
+    (t, r) <- time $ synthesizeSatisfying cc synth_depth memo r_ctxt r_props r_ty
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     case r of
         [] -> putStrLn "NO MATCH FOUND!"

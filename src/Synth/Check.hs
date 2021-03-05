@@ -1,3 +1,4 @@
+{-# LANGUAGE RecordWildCards #-}
 module Synth.Check where
 
 import Synth.Util
@@ -9,18 +10,18 @@ qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 qcTime = 1000000
 checkImports = [ "import Test.QuickCheck" ]
 
-buildCheckExprAtTy :: [RProp] -> RContext -> RType -> RExpr -> RExpr
-buildCheckExprAtTy props context ty expr =
+buildCheckExprAtTy :: RProblem -> RExpr
+buildCheckExprAtTy RProb{..} =
      "let {" ++
        (intercalate "; " . concatMap lines $
-         ("qc__ = " ++ qcArgs):context
-         ++ props
-         ++ [ "expr__ :: " ++ ty
-            , "expr__ = "++  expr
+         ("qc__ = " ++ qcArgs):r_ctxt
+         ++ r_props
+         ++ [ "expr__ :: " ++ r_ty
+            , "expr__ = "++  r_prog
             , "propsToCheck__ = [ " ++
                  (intercalate ", " $ map propCheckExpr propNames) ++ "]" ])
      ++ "} in ((sequence propsToCheck__) :: IO [Bool])"
-   where propNames = map (head . words) props
+   where propNames = map (head . words) r_props
          -- We can't consolidate this into check__, since the type
          -- will be different!
          propCheckExpr pname = "isSuccess <$> " ++ propCheck pname
@@ -35,14 +36,14 @@ propCheck pname = "quickCheckWithResult qc__ (within "
 -- to the given prop if it fails for the given program, and nothing otherwise.
 -- Note that we have to have it take in a list of properties to match the shape
 -- of bCEAT
-buildCounterExampleExpr :: [RProp] -> RContext -> RType -> RExpr -> RExpr
-buildCounterExampleExpr [prop] context ty expr =
+buildCounterExampleExpr :: RProp -> RProblem -> RExpr
+buildCounterExampleExpr prop RProb{..} =
      "let {" ++
        (intercalate "; " . concatMap lines $
-           ("qc__ = "  ++ qcArgs):context
+           ("qc__ = "  ++ qcArgs):r_ctxt
            ++ [ addWithin prop
-              , "expr__ :: " ++ ty
-              , "expr__ = "++  expr
+              , "expr__ :: " ++ r_ty
+              , "expr__ = "++  r_prog
               , "failureToMaybe :: Result -> Maybe [String]"
               , "failureToMaybe (Failure {failingTestCase = s}) = Just s"
               , "failureToMaybe _ = Nothing"
@@ -56,5 +57,3 @@ buildCounterExampleExpr [prop] context ty expr =
          -- don't get the arguments used.
          addWithin prop = s ++ "= within " ++ (show qcTime) ++"(" ++ e ++ ")"
            where (s,('=':e)) = break ((==) '=') prop
-
-buildCounterExampleExpr _ _ _ _ = error "bCEE only works for one prop at a time!"

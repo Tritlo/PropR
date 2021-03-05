@@ -177,8 +177,7 @@ evalOrHoleFits cc str = do
                      (dynCompileExpr str >>= (return . Right))
 
 moduleToProb :: CompileConfig -> FilePath -> Maybe String
-             -> IO ( CompileConfig , RContext , ParsedModule
-                   , [(String, RExpr, RType, [RProp])])
+             -> IO ( CompileConfig, ParsedModule, [RProblem])
 moduleToProb cc@CompConf{..} mod_path mb_target = do
    let target = Target (TargetFile mod_path Nothing) True Nothing
    runGhc (Just libdir) $ do
@@ -205,11 +204,14 @@ moduleToProb cc@CompConf{..} mod_path mb_target = do
                    prop_vars = Set.fromList $ mapMaybe mbVar $
                                concatMap (flattenBind . (\(ValD _ b) -> noLoc b) . unLoc) props
 
-          getTarget :: RdrName -> Maybe (String, RExpr, RType, [RProp])
+          getTarget :: RdrName -> Maybe RProblem
           getTarget t_name =
              case prog_sig of
-               Just s -> Just ( fix_target, showUnsafe $ wp_expr s, prog_ty s
-                              , wrapped_props)
+               Just s -> Just $ RProb { r_target = fix_target
+                                      , r_prog = showUnsafe $ wp_expr s
+                                      , r_ctxt = ctxt
+                                      , r_ty = prog_ty s
+                                      , r_props = wrapped_props }
                _ -> Nothing
             where
               fix_target = showUnsafe t_name
@@ -249,7 +251,7 @@ moduleToProb cc@CompConf{..} mod_path mb_target = do
                            Just r -> [r]
                            _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
                    Nothing -> mapMaybe getTarget fix_targets
-      return (cc', ctxt, mod, probs)
+      return (cc', mod, probs)
 
 
 
