@@ -48,6 +48,7 @@ import System.Timeout
 
 import Synth.Util
 import Synth.Check
+import Synth.Flatten
 
 import Data.Time.Clock
 import StringBuffer
@@ -69,6 +70,7 @@ import Data.Tree
 import Data.Maybe (listToMaybe)
 import Control.Monad (join)
 import Data.List (find)
+import qualified Data.Set as Set
 -- Configuration and GHC setup
 
 holeFlags = [ Opt_ShowHoleConstraints
@@ -175,9 +177,9 @@ evalOrHoleFits cc str = do
                      (dynCompileExpr str >>= (return . Right))
 
 moduleToProb :: CompileConfig -> FilePath -> Maybe String
-             -> IO (CompileConfig, RContext, RExpr, RType, [RExpr], ParsedModule)
-moduleToProb _ _ Nothing = error "Whole module repair not available!"
-moduleToProb cc@CompConf{..} mod_path (Just fix_target) = do
+             -> IO ( CompileConfig , RContext , ParsedModule
+                   , [(String, RExpr, RType, [RProp])])
+moduleToProb cc@CompConf{..} mod_path mb_target = do
    let target = Target (TargetFile mod_path Nothing) True Nothing
    runGhc (Just libdir) $ do
       _ <- initGhcCtxt cc
@@ -186,44 +188,68 @@ moduleToProb cc@CompConf{..} mod_path (Just fix_target) = do
       let mname = mkModuleName $ dropExtension $ takeFileName mod_path
       mod@ParsedModule {..} <- getModSummary mname >>= parseModule
       let (L _ (HsModule {..})) = pm_parsed_source
-          imps' = map showUnsafe hsmodImports
           cc' = cc {importStmts = importStmts ++ imps'}
+            where imps' = map showUnsafe hsmodImports
           ctxt = map showUnsafe hsmodDecls
-          t_name = mkVarUnqual (fsLit fix_target)
-          isTDef (L _ (SigD _ (TypeSig _ ids _))) = t_name `elem` (map unLoc ids)
-          isTDef (L _ (ValD _ (FunBind{..}))) = t_name == unLoc fun_id
-          isTDef _ = False
-          isProp (L _ (ValD _ (FunBind{..}))) =
-               ((==) "prop" . take 4 . occNameString . occName . unLoc) fun_id
-          isProp _ = False
-          -- We get the type of the program
-          getTType (L _ (SigD _ ts@(TypeSig _ ids sig))) |
-             t_name `elem` (map unLoc ids) = Just ts
-          getTType _ = Nothing
-          props = map wrapProp $ filter isProp hsmodDecls
-          prog_sig = case mapMaybe getTType hsmodDecls of
-                      (pt:_) -> pt
-                      _ -> error "Could not find the type of the fix_target!"
-          prog_ty = showUnsafe $ hsib_body $ hswc_body sig
-            where (TypeSig _ _ sig) = prog_sig
-          prog_binds :: LHsBindsLR GhcPs GhcPs
-          prog_binds = listToBag $ mapMaybe f $ filter isTDef hsmodDecls
-             where f (L _ (ValD _ b)) = Just $ noLoc b
-                   f _ = Nothing
-          wp_expr :: LHsExpr GhcPs
-          wp_expr = noLoc $ HsLet noExtField
-                     (noLoc (HsValBinds noExtField $
-                            ValBinds noExtField prog_binds [noLoc prog_sig]))
-                     (noLoc (HsVar noExtField (noLoc t_name)))
-          wrong_prog = showUnsafe wp_expr
-      return (cc', ctxt, wrong_prog, prog_ty, props, mod)
-  where -- takes prop :: t ==> prop' :: target_type -> t
-        -- since our previous assumptions relied on the
-        -- properties to take in the function being fixed
-        -- as the first argument.
-        wrapProp pdef = unwords (p':fix_target:rest)
-           where (p:rest) = words $ showUnsafe pdef
-                 p' = "prop'" ++ (drop 4 p)
+          props = filter isProp hsmodDecls
+            where isProp (L _ (ValD _ (FunBind{..}))) =
+                     ((==) "prop" . take 4 . occNameString . occName . unLoc) fun_id
+                  isProp _ = False
+
+          fix_targets = Set.toList $ fun_ids `Set.intersection` prop_vars
+             where funId (L _ (ValD _ (FunBind{..}))) = Just (unLoc fun_id)
+                   funId _ = Nothing
+                   fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
+                   mbVar (L _ (HsVar _ v)) = Just (unLoc v)
+                   mbVar _ = Nothing
+                   prop_vars = Set.fromList $ mapMaybe mbVar $
+                               concatMap (flattenBind . (\(ValD _ b) -> noLoc b) . unLoc) props
+
+          getTarget :: RdrName -> Maybe (String, RExpr, RType, [RProp])
+          getTarget t_name =
+             case prog_sig of
+               Just s -> Just ( fix_target, showUnsafe $ wp_expr s, prog_ty s
+                              , wrapped_props)
+               _ -> Nothing
+            where
+              fix_target = showUnsafe t_name
+              isTDef (L _ (SigD _ (TypeSig _ ids _))) = t_name `elem` (map unLoc ids)
+              isTDef (L _ (ValD _ (FunBind{..}))) = t_name == unLoc fun_id
+              isTDef _ = False
+              -- We get the type of the program
+              getTType (L _ (SigD _ ts@(TypeSig _ ids sig))) |
+                 t_name `elem` (map unLoc ids) = Just ts
+              getTType _ = Nothing
+              -- takes prop :: t ==> prop' :: target_type -> t since our
+              -- previous assumptions relied on the properties to take in the
+              -- function being fixed  as the first argument.
+              wrapProp pdef = unwords (p':fix_target:rest)
+                 where (p:rest) = words $ showUnsafe pdef
+                       p' = "prop'" ++ (drop 4 p)
+              wrapped_props = map wrapProp props
+              prog_binds :: LHsBindsLR GhcPs GhcPs
+              prog_binds = listToBag $ mapMaybe f $ filter isTDef hsmodDecls
+                 where f (L _ (ValD _ b)) = Just $ noLoc b
+                       f _ = Nothing
+              prog_sig :: Maybe (Sig GhcPs)
+              prog_sig = case mapMaybe getTType hsmodDecls of
+                           (pt:_) -> Just pt
+                           _ -> Nothing
+              prog_ty :: Sig GhcPs -> String
+              prog_ty prog_sig = showUnsafe $ hsib_body $ hswc_body sig
+                 where (TypeSig _ _ sig) = prog_sig
+              wp_expr :: Sig GhcPs -> LHsExpr GhcPs
+              wp_expr prog_sig = noLoc $ HsLet noExtField (noLoc lbs) (noLoc le)
+                where le =  HsVar noExtField (noLoc t_name)
+                      lbs = HsValBinds noExtField $
+                               ValBinds noExtField prog_binds [noLoc prog_sig]
+          probs = case mb_target of
+                   Just t ->
+                       case getTarget (mkVarUnqual $ fsLit t) of
+                           Just r -> [r]
+                           _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
+                   Nothing -> mapMaybe getTarget fix_targets
+      return (cc', ctxt, mod, probs)
 
 
 

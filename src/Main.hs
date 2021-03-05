@@ -173,9 +173,11 @@ main :: IO ()
 main = do
     SFlgs {..} <- getFlags
     let cc = compConf {hole_lvl=synth_holes}
-        Just target = repair_target
     [toFix] <- filter (not . (==) "-f" . take 2 ) <$> getArgs
-    (cc, context, wrong_prog, ty, props, mod) <- moduleToProb cc toFix repair_target
+    (cc, context, mod, probs) <- moduleToProb cc toFix repair_target
+    let ((target, wrong_prog, ty, props):_) = if null probs
+                                              then error "NO TARGET FOUND!"
+                                              else probs
     putStrLn "TARGET:"
     putStrLn ("  `" ++ target ++ "` in " ++ toFix)
     putStrLn "SCOPE:"

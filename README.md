@@ -25,13 +25,13 @@ To run the program, ensure that `QuickCheck` is installed by running
 `$ cabal install --lib QuickCheck `. You can then run
 
 ```
-$ cabal run ghc-synth -- tests/BrokenModule.hs -ftarget=broken
+$ cabal run ghc-synth -- tests/BrokenModule.hs
 ```
 
 to see it in action on the `foldl (-) 0` example, or you can run
 
 ```
-$ cabal run ghc-synth -- tests/BrokenGCD.hs -ftarget=gcd\'
+$ cabal run ghc-synth -- tests/BrokenGCD.hs
 ```
 
 to run it on the infinitely looping `gcd'`.

@@ -262,7 +262,7 @@ sanctifyTests = testGroup "Sanctify tests" [
                  importStmts = ["import Prelude"]}
           toFix = "tests/BrokenModule.hs"
           repair_target = Just "broken"
-      (cc', _, wrong_prog, _, _, _) <- moduleToProb cc toFix repair_target
+      (cc', _, _, [(target, wrong_prog, ty, props)]) <- moduleToProb cc toFix Nothing
       expr <- runJustParseExpr cc' wrong_prog
       -- There are 7 ways to replace parts of the broken function in BrokenModule
       -- with holes:
@@ -288,10 +288,19 @@ moduleTests = testGroup "Module tests" [
                                      , "-broken = foldl (-) 0"
                                      , "+broken = foldl (+) 0"]]
 
-        (cc', context, wrong_prog, ty, props, mod) <- moduleToProb cc toFix repair_target
+        (cc', context, mod, [(target, wrong_prog, ty, props)]) <- moduleToProb cc toFix Nothing
         fixes <- (repair cc' props context ty wrong_prog) >>= mapM (getFixBinds cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
+  , localOption (mkTimeout 30_000_000) $
+      testCase "Repair BrokenModule finds correct target" $ do
+        let cc = CompConf {
+                  hole_lvl=0,
+                  packages = ["base", "process", "QuickCheck" ],
+                  importStmts = ["import Prelude"]}
+            toFix = "tests/BrokenModule.hs"
+        (_, _, _, [(target, _, _, _)]) <- moduleToProb cc toFix Nothing
+        target @?= "broken"
   , localOption (mkTimeout 30_000_000) $
       testCase "Repair BrokenGCD" $ do
         let cc = CompConf {
@@ -306,7 +315,7 @@ moduleTests = testGroup "Module tests" [
                 , "+gcd' 0 b = b"
                 , "gcd' a b | b == 0 = a"
                 , "gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)" ]]
-        (cc', context, wrong_prog, ty, props, mod) <- moduleToProb cc toFix repair_target
+        (cc', context, mod, [(target, wrong_prog, ty, props)]) <- moduleToProb cc toFix repair_target
         fixes <- (repair cc' props context ty wrong_prog) >>= mapM (getFixBinds cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
