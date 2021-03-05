@@ -443,6 +443,8 @@ runCheck (Right dval) =
                 return $ Right False
              Just (Just (Exited (ExitFailure x))) ->
                  return (Left $ bitToBools $ complement x)
+             -- Anything else and we have no way to tell what went wrong.
+             _ -> return $ Right False
   where proc action =
           do res <- action
              exitImmediately $
