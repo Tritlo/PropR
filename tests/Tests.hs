@@ -6,7 +6,8 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import Test.Tasty.ExpectedFailure
 
-import Synth.Repair (repair, failingProps, propCounterExample, runJustParseExpr)
+import Synth.Repair ( repair, failingProps, propCounterExample
+                    , runJustParseExpr, getExprFitCands)
 import Synth.Eval ( CompileConfig(..), compileCheck, traceTarget
                   , showUnsafe, moduleToProb)
 import Synth.Flatten
@@ -82,6 +83,34 @@ repairTests = testGroup "Repair" [
                           , r_prog=wrong_prog, r_props=props}
           fixes <- map trim <$> repair cc rp
           expected `elem` fixes @? "Expected repair not found in fixes"
+    , localOption (mkTimeout 20_000_000) $
+        testCase "GetExprCands finds important candidates" $ do
+          let cc = CompConf {
+                      hole_lvl=0,
+                      packages = ["base", "process", "QuickCheck" ],
+                      importStmts = ["import Prelude"]}
+              wrong_prog = unlines [
+                          "let { gcd' 0 b = gcd' 0 b",
+                          "    ; gcd' a b | b == 0 = a",
+                          "    ; gcd' a b = if (a > b) then gcd' (a-b) b else gcd' a (b-a)",
+                          "    ; a_constant_string = \"hello, world!\"}",
+                          "     in gcd'"]
+              expected =  [ "EFC {\"hello, world!\"}"
+                          , "EFC {gcd' 0 b}"
+                          , "EFC {gcd' 0}"
+                          , "EFC {0}"
+                          , "EFC {b == 0}"
+                          , "EFC {0}"
+                          , "EFC {if (a > b) then gcd' (a - b) b else gcd' a (b - a)}"
+                          , "EFC {a > b}"
+                          , "EFC {gcd' (a - b) b}"
+                          , "EFC {gcd' (a - b)}"
+                          , "EFC {a - b}"
+                          , "EFC {gcd' a (b - a)}"
+                          , "EFC {gcd' a}"
+                          , "EFC {b - a}"]
+          expr_cands <- getExprFitCands cc wrong_prog
+          map showUnsafe expr_cands @?= expected
     , localOption (mkTimeout 20_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let cc = CompConf {
