@@ -159,8 +159,14 @@ repair cc rp@RProb{..} =
              sortOn (length . snd ) $ mapMaybe hasCE $ zip failing_props counter_examples
       holey_exprs <- case ps_w_ce of
          (p,ce):_ ->
+             -- We run the trace to find which expressions are touched in the
+             -- counter example
              do trc <- traceTarget cc prog_at_ty p ce
                 case trc of
+                   -- We then remove suggested holes that are unlikely to help
+                   -- (naively for now in the sense that we remove only holes
+                   -- which did not get evaluated at all, so they are definitely
+                   -- not going to matter).
                    Just res -> do
                       let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
                           invokes = map only_max $ flatten res
