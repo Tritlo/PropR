@@ -21,13 +21,20 @@ synthPlug :: [ExprFitCand] -> IORef [(TypedHole, [HoleFit])] -> Plugin
 synthPlug local_exprs plugRef =
   defaultPlugin {
     holeFitPlugin = \_ -> Just $
-      fromPureHFPlugin $
-        HoleFitPlugin {
+        HoleFitPluginR {
+        hfPluginInit = newTcRef (0 :: Int)
+        , hfPluginStop = \_ -> return ()
+        , hfPluginRun = \iref -> HoleFitPlugin {
               candPlugin = (\_ c -> return c)
             , fitPlugin = (\h f -> do
+                 -- Bump the number of times this plugin has been called, used
+                 -- to make sure we only check expression fits once.
+                 num_calls <- readTcRef iref
+                 writeTcRef iref (num_calls + 1)
                  dflags <- getDynFlags
                  exprs <- case tyHCt h of
-                            Just ct ->
+                            -- We only do fits for non-refinement hole fits, i.e. the first time the plugin is called.
+                            Just ct | num_calls == 0->
                                -- Since ExprFitCands are not supported in GHC yet  we manually implement them here by
                                -- checking that all the variables in the expression are in scope and that the type matches.
                                do gbl_env <- getGlobalRdrEnv
@@ -48,4 +55,4 @@ synthPlug local_exprs plugRef =
                             _ -> return []
                  let fits = (map (RawHoleFit . ppr) exprs) ++ f
                  liftIO $ modifyIORef plugRef ((h,fits):)
-                 return fits)}}
+                 return fits)}}}

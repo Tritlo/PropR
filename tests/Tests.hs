@@ -367,6 +367,22 @@ moduleTests = testGroup "Module tests" [
         fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
+  , localOption (mkTimeout 30_000_000) $
+      testCase "Repair MagicConstant" $ do
+        let cc = CompConf {
+                   hole_lvl=0,
+                   packages = ["base", "process", "QuickCheck" ],
+                   importStmts = ["import Prelude"]}
+            toFix = "tests/MagicConstant.hs"
+            repair_target = Nothing
+            expected = map unlines [[ "tests/MagicConstant.hs:7:1-14"
+                                    , "-theAnswer = 17"
+                                    , "+theAnswer = (42)"]]
+
+        (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
+        fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
+        let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
+        fixDiffs @?= expected
   ]
 
 main = defaultMain tests

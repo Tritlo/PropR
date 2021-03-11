@@ -7,11 +7,21 @@ import Bag
 
 import Synth.Util
 import Synth.Types
+import Data.List (intercalate)
 
 -- The baseHole, available anywhere you could put an expression
 baseHole :: SrcSpan -> (SrcSpan, LHsExpr GhcPs)
 baseHole loc =
-  (loc, L loc (HsUnboundVar noExtField (TrueExprHole (mkVarOcc "_"))))
+  (loc, L loc (HsUnboundVar noExtField (TrueExprHole (mkVarOcc $
+                                                   "_" ++ (locToStr loc)))))
+
+-- LocToStr helps us ensure that the holes we insert have unique names.
+locToStr :: SrcSpan -> String
+locToStr (UnhelpfulSpan x) = unpackFS x
+locToStr s@(RealSrcSpan r) = intercalate "_" $
+   map show $ [srcSpanStartLine r, srcSpanStartCol r]
+              ++ (if isOneLineSpan s then [] else [srcSpanEndLine r])
+              ++ [srcSpanEndCol r]
 
 -- All possible replacement of one variable with a hole, i.e. we are making
 -- the expression "holey". Could also be named `perforate`, `stigmatize` or
@@ -22,7 +32,7 @@ sanctifyExpr :: LHsExpr GhcPs -> [(SrcSpan, LHsExpr GhcPs)]
 sanctifyExpr (L loc (HsVar x (L _ v))) =
     [(loc, L loc (HsUnboundVar x (TrueExprHole name)))]
   where (ns,fs) = (occNameSpace (occName v), occNameFS (occName v))
-        name = mkOccNameFS ns (concatFS $ (fsLit "_"):[fs])
+        name = mkOccNameFS ns (concatFS $ (fsLit "_"):[fs, fsLit $ locToStr loc])
 sanctifyExpr (L loc (HsApp x l r)) = (baseHole loc):(rl ++ rr)
   where rl = map (\(l',e)-> (l', L loc (HsApp x e r))) $ sanctifyExpr l
         rr = map (\(l',e)-> (l', L loc (HsApp x l e))) $ sanctifyExpr r
