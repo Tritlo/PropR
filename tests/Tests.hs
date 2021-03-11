@@ -377,7 +377,7 @@ moduleTests = testGroup "Module tests" [
             repair_target = Nothing
             expected = map unlines [[ "tests/MagicConstant.hs:7:1-14"
                                     , "-theAnswer = 17"
-                                    , "+theAnswer = (42)"]]
+                                    , "+theAnswer = 42"]]
 
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
         fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)

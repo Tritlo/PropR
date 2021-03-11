@@ -12,7 +12,8 @@ import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
                   , occName, OccName(..), fsLit, mkOccNameFS, concatFS
                   , HscEnv(hsc_IC), InteractiveContext(ic_default)
                   , mkVarUnqual, getRdrName, showSDocUnsafe, liftIO
-                  , VarSet, isEmptyVarSet, intersectVarSet, tyCoFVsOfType)
+                  , VarSet, isEmptyVarSet, intersectVarSet, tyCoFVsOfType
+                  , appPrec)
 
 import Control.Monad (filterM, when)
 
@@ -281,7 +282,9 @@ repair cc rp@RProb{..} =
           processFit hf@(HoleFit {..}) =
               return $ HsVar noExtField (L noSrcSpan (getRdrName hfId))
           processFit (RawHoleFit sd) =
-             (HsPar noExtField) <$> runJustParseExpr cc (showUnsafe sd)
+                 (unLoc . parenthesizeHsExpr appPrec) <$>
+                 runJustParseExpr cc (showUnsafe sd)
+
       processed_fits <- mapM (\(e,fs) ->
           (e,) <$> (mapM (mapM processFit) fs)) fits
       let repls = processed_fits >>= (uncurry replacements)
