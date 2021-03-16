@@ -29,13 +29,90 @@ To run the program, ensure that `QuickCheck` is installed by running
 $ cabal run ghc-synth -- tests/BrokenModule.hs
 ```
 
-to see it in action on the `foldl (-) 0` example, or you can run
+to see it in action on the `foldl (-) 0` example. This produces the following:
+
+```
+TARGET:
+  `broken` in tests/BrokenModule.hs
+SCOPE:
+  import Prelude hiding (id, ($), ($!), asTypeOf)
+TARGET TYPE:
+  [Int] -> Int
+MUST SATISFY:
+  prop'_isSum broken xs = broken xs == sum xs
+IN CONTEXT:
+  prop_isSum :: [Int] -> Bool
+  prop_isSum xs = broken xs == sum xs
+  broken :: [Int] -> Int
+  broken = foldl (-) 0
+  add :: Int -> Int -> Int
+  add = (+)
+  main :: IO ()
+  main = print "Unrelated main function"
+PARAMETERS:
+  MAX HOLES: 2
+  MAX DEPTH: 1
+PROGRAM TO REPAIR: 
+let
+  broken :: [Int] -> Int
+  broken = foldl (-) 0
+in broken
+FAILING PROPS:
+  prop'_isSum broken xs = broken xs == sum xs
+COUNTER EXAMPLES:
+  [1]
+TRACE OF COUNTER EXAMPLES:
+  (RealSrcSpan SrcSpanMultiLine "FakeTarget38652-0.hs" 0 -1 4 10,Nothing,[(TopLevelBox ["fake_target"],1)],1)
+  (RealSrcSpan SrcSpanMultiLine "FakeTarget38652-0.hs" 1 1 4 10,Just "let\n  broken :: [Int] -> Int\n  broken = foldl (-) 0\nin broken",[(ExpBox False,1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 3 23,Nothing,[(LocalBox ["fake_target","broken"],1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 12 23,Just "foldl (-) 0",[(ExpBox False,1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 18 21,Just "(-)",[(ExpBox False,1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 22 23,Just "0",[(ExpBox False,1)],1)
+
+REPAIRING...DONE! (6.03s)
+REPAIRS:
+  tests/BrokenModule.hs:8:1-20
+  -broken = foldl (-) 0
+  +broken = sum
+
+  tests/BrokenModule.hs:8:1-20
+  -broken = foldl (-) 0
+  +broken = foldl add 0
+
+  tests/BrokenModule.hs:8:1-20
+  -broken = foldl (-) 0
+  +broken = foldl (+) 0
+
+SYNTHESIZING...
+GENERATING CANDIDATES...DONE!
+GENERATED 130 CANDIDATES!
+COMPILING CANDIDATE CHECKS...DONE!
+CHECKING 130 CANDIDATES...DONE!
+DONE! (4.88s)
+FOUND MATCH:
+sum
+```
+
+Showing how it works.
+
+For the `BrokenGCD` module, we get an interesting result:
 
 ```
 $ cabal run ghc-synth -- tests/BrokenGCD.hs
 ```
 
-to run it on the infinitely looping `gcd'`.
+gives us:
+
+```
+REPAIRS:
+  tests/BrokenGCD.hs:(17,1)-(21,28)
+  -gcd' 0 b = gcd' 0 b
+  +gcd' 0 b = b
+  gcd' a b | b == 0 = a
+  gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)
+```
+
+Showing how we could fix the infinitely looping `gcd` program.
 
 To run the tests, you can either run `cabal run test` or `cabal test`. Note
 that there is an up-to-date run of the tests over at Travis-CI, which can be
