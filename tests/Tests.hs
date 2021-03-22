@@ -337,7 +337,7 @@ moduleTests = testGroup "Module tests" [
                                      , "+broken = foldl (+) 0"]]
 
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-        fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
+        fixes <- (repair cc' rp) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   , localOption (mkTimeout 30_000_000) $
@@ -364,7 +364,7 @@ moduleTests = testGroup "Module tests" [
                 , "gcd' a b | b == 0 = a"
                 , "gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)" ]]
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-        fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
+        fixes <- (repair cc' rp) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   , localOption (mkTimeout 30_000_000) $
@@ -380,7 +380,7 @@ moduleTests = testGroup "Module tests" [
                                     , "+theAnswer = 42"]]
 
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-        fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
+        fixes <- (repair cc' rp) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   ]

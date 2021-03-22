@@ -170,6 +170,7 @@ time act = do start <- getCPUTime
               done <- getCPUTime
               return (done - start, r)
 
+
 main :: IO ()
 main = do
     SFlgs {..} <- getFlags
@@ -177,6 +178,11 @@ main = do
     [toFix] <- filter (not . (==) "-f" . take 2 ) <$> getArgs
     (cc, mod, probs) <- moduleToProb cc toFix repair_target
     let (rp@RProb{..}:_) = if null probs then error "NO TARGET FOUND!" else probs
+    -- eprob <- translate cc rp
+    -- putStrLn $ showUnsafe $ buildProbCheck eprob
+    -- putStrLn "====VS===="
+    -- mapM putStrLn $ lines $ buildCheckExprAtTy rp
+    -- error "ABORT"
     putStrLn "TARGET:"
     putStrLn ("  `" ++ r_target ++ "` in " ++ toFix)
     putStrLn "SCOPE:"
@@ -215,7 +221,7 @@ main = do
     (t, fixes) <- time $ repair cc rp
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     putStrLn "REPAIRS:"
-    fbs <- mapM (getFixBinds cc) fixes
+    fbs <- mapM (fmap getFixBinds . runJustParseExpr cc ) fixes
     mapM (putStrLn . unlines . map ((++) "  ") . lines) $
        map (concatMap (prettyFix True) . snd . applyFixes mod) fbs
     putStrLn "SYNTHESIZING..."

@@ -29,7 +29,7 @@ import Synth.Flatten
 import Synth.Sanctify
 import Data.Either
 import Data.Dynamic (fromDyn)
-import Data.List (sortOn)
+import Data.List (sortOn, intercalate)
 import Data.Set (Set)
 import Data.Tree (flatten)
 import qualified Data.Set as Set
@@ -70,6 +70,10 @@ exprHoley cc str = sanctifyExpr <$> justParseExpr cc str
 justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
 justParseExpr cc str = do
    plugRef <- initGhcCtxt cc
+   parseExprNoInit str
+
+parseExprNoInit :: RExpr -> Ghc (LHsExpr GhcPs)
+parseExprNoInit str =
    handleSourceError
      (\err -> printException err >> error "parse failed")
      (parseExpr str)
@@ -99,6 +103,20 @@ replacements e [] = [e]
 replacements e (first_hole_fit:rest) =
     (mapMaybe (fillHole e) first_hole_fit) >>= (flip replacements rest)
 
+
+-- Translate from the old String based version to the new LHsExpr version.
+translate :: CompileConfig -> RProblem -> IO EProblem
+translate cc RProb{..} = runGhc (Just libdir) $ do
+  _ <- initGhcCtxt cc
+  e_prog <- parseExprNoInit r_prog
+  ~(L _ (ExprWithTySig _ _ e_ty)) <- parseExprNoInit ("undefined :: " ++ r_ty)
+  let clt = "let {" ++ (intercalate "; " . concatMap lines $ r_ctxt) ++ "} in undefined"
+  ~(L _ (HsLet _ e_ctxt _)) <- parseExprNoInit clt
+  let plt = "let {" ++ (intercalate "; ". concatMap lines $ r_props) ++ "} in undefined"
+  ~(L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ lbs _))) _)) <- parseExprNoInit plt
+  let e_props = bagToList lbs
+      e_target = r_target
+  return (EProb {..})
 
 -- Builds a check of a program by parsing the context and the generated
 -- expression and replacing the relevant holes.
@@ -290,7 +308,7 @@ repair cc rp@RProb{..} =
       let repls = processed_fits >>= (uncurry replacements)
 
       -- We do it properly
-      bcatC <- runJustParseExpr cc $ buildCheckExprAtTy rp{r_prog="_"}
+      bcatC <- buildProbCheck <$> (translate cc rp{r_prog="_"})
       to_checks <- mapM (runJustParseExpr cc . trim . showUnsafe) repls
       pr_debug $ showUnsafe bcatC
       pr_debug $ showUnsafe to_checks
