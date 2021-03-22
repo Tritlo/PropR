@@ -59,6 +59,8 @@ fillHoleBind (L loc (fb@FunBind{fun_matches=mg@MG{mg_alts =(L locms mtcs)}})) fi
     case mapFirst ((flip fillMatch) fit) mtcs of
         Just r -> Just (L loc (fb {fun_matches=mg{mg_alts=(L locms r)}}))
         _ -> Nothing
+fillHoleBind (L loc (VarBind x b v k)) fit =
+    fmap (L loc . flip (VarBind x b) k) $ fillHole v fit
 fillHoleBind _ _ = Nothing
 
 fillMatch :: (LMatch GhcPs (LHsExpr GhcPs))

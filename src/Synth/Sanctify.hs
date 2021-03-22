@@ -68,6 +68,8 @@ sanctifyBind :: LHsBind GhcPs -> [(SrcSpan, LHsBind GhcPs)]
 sanctifyBind (L loc (fb@FunBind{fun_matches=mg@MG{mg_alts=(L locms mtcs)}})) =
   (map (\(l,m') -> (l,(L loc $ fb {fun_matches = mg {mg_alts=(L locms m')}})))
   . applToEach sanctifyMatch)  mtcs
+sanctifyBind (L loc (VarBind x b v k)) =
+    map (\(l',v') -> (l', L loc (VarBind x b v' k))) $ sanctifyExpr v
 sanctifyBind _ = []
 
 sanctifyMatch :: LMatch GhcPs (LHsExpr GhcPs) -> [(SrcSpan, LMatch GhcPs (LHsExpr GhcPs))]
