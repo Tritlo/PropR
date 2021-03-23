@@ -7,7 +7,7 @@ import Test.Tasty.QuickCheck
 import Test.Tasty.ExpectedFailure
 
 import Synth.Repair ( repair, failingProps, propCounterExample
-                    , runJustParseExpr, getExprFitCands)
+                    , runJustParseExpr, getExprFitCands, translate)
 import Synth.Eval ( CompileConfig(..), compileCheck, traceTarget
                   , showUnsafe, moduleToProb)
 import Synth.Flatten
@@ -151,9 +151,10 @@ failingPropsTests = testGroup "Failing props" [
               context = []
               rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-          failed_props <- failingProps cc rp
+          tp <- translate cc rp
+          failed_props <- failingProps cc tp
           -- Only the first prop should be failing (due to an infinite loop)
-          failed_props @?= [head props]
+          (map showUnsafe failed_props) @?= [head props]
       , localOption (mkTimeout 10_000_000) $
           testCase "Only one failing prop" $ do
             let cc = CompConf {
@@ -169,8 +170,9 @@ failingPropsTests = testGroup "Failing props" [
                 expected = "((foldl (+) 0)) :: [Int] -> Int"
                 rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                            , r_prog=wrong_prog, r_props=props}
-            failed_props <- failingProps cc rp
-            failed_props @?= props
+            tp <- translate cc rp
+            failed_props <- failingProps cc tp
+            map showUnsafe failed_props @?= props
     ]
 
 counterExampleTests = testGroup "Counter Examples" [
@@ -187,8 +189,9 @@ counterExampleTests = testGroup "Counter Examples" [
                 expected = "((foldl (+) 0)) :: [Int] -> Int"
                 rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                            , r_prog=wrong_prog, r_props=props}
-            [failed_prop] <- failingProps cc rp
-            Just [counter_example] <- propCounterExample cc rp failed_prop
+            tp <- translate cc rp
+            [failed_prop] <- failingProps cc tp
+            Just [counter_example] <- propCounterExample cc tp failed_prop
             res <- compileCheck cc ("(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example)
             case fromDynamic @Bool res of
               Just v -> not v @? "Counter Example is not a counter example!"
@@ -206,8 +209,9 @@ counterExampleTests = testGroup "Counter Examples" [
                 context = []
                 rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                            , r_prog=wrong_prog, r_props=props}
-            [failed_prop] <- failingProps cc rp
-            Just counter_example_args <- propCounterExample cc rp failed_prop
+            tp <- translate cc rp
+            [failed_prop] <- failingProps cc tp
+            Just counter_example_args <- propCounterExample cc tp failed_prop
             let arg_str = unwords counter_example_args
             res <- compileCheck cc ("(-) " ++ arg_str ++ " == (+) " ++ arg_str)
             case fromDynamic @Bool res of
@@ -231,10 +235,11 @@ counterExampleTests = testGroup "Counter Examples" [
               context = []
               rp = RProb {r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-          [failed_prop] <- failingProps cc rp
+          tp <- translate cc rp
+          [failed_prop] <- failingProps cc tp
           -- Only the first prop should be failing (due to an infinite loop)
-          failed_prop @?= head props
-          Just counter_example_args <- propCounterExample cc rp failed_prop
+          (showUnsafe failed_prop) @?= head props
+          Just counter_example_args <- propCounterExample cc tp failed_prop
           null counter_example_args @? "The counter example should not have any arguments!"
   ]
 
@@ -253,8 +258,9 @@ traceTests = testGroup "Trace tests" [
                 expected = "((foldl (+) 0)) :: [Int] -> Int"
                 rp = RProb {r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-            [failed_prop] <- failingProps cc rp
-            Just counter_example <- propCounterExample cc rp failed_prop
+            tp <- translate cc rp
+            [failed_prop] <- failingProps cc tp
+            Just counter_example <- propCounterExample cc tp failed_prop
             Just (Node{subForest=[tree@Node{rootLabel=(tl, tname)}]})
                  <- traceTarget cc wrong_prog failed_prop counter_example
             expr <- runJustParseExpr cc wrong_prog
@@ -278,8 +284,9 @@ traceTests = testGroup "Trace tests" [
               context = []
               rp = RProb {r_target = "", r_ctxt=context, r_ty=ty
                          , r_prog=wrong_prog, r_props=props}
-          [failed_prop] <- failingProps cc rp
-          Just counter_example_args <- propCounterExample cc rp failed_prop
+          tp <- translate cc rp
+          [failed_prop] <- failingProps cc tp
+          Just counter_example_args <- propCounterExample cc tp failed_prop
           -- We generate the trace
           Just res <- traceTarget cc wrong_prog failed_prop counter_example_args
           parsed <- runJustParseExpr cc wrong_prog

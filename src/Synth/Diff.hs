@@ -5,7 +5,6 @@ import GHC
 import Bag
 import Synth.Types
 import Synth.Eval
-import Synth.Repair (runJustParseExpr)
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

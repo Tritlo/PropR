@@ -76,7 +76,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
                  putStr' "COMPILING CANDIDATE CHECKS..."
                  let imps' = checkImports ++ importStmts cc
                      cc' = (cc {hole_lvl=0, importStmts=imps'})
-                     to_check_exprs = map (bcat mty) cands
+                     to_check_probs = map (rprob mty) cands
+                 to_check_exprs <- mapM (fmap (showUnsafe . buildSuccessCheck)
+                                        . translate cc) to_check_probs
                  -- Doesn't work, since the types are too polymorphic, and if
                  -- the target type cannot be monomorphised, the fits will
                  -- be too general for QuickCheck
@@ -101,7 +103,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                 return []
 
   where
-    bcat ty cand = buildCheckExprAtTy $ RProb props context "" ty cand
+    rprob ty cand = RProb props context "" ty cand
     wrap p = "(" ++ p ++ ")"
     cc' = if depth <= 1 then (cc {hole_lvl=0}) else (cc {hole_lvl=1})
     recur :: (String, [String]) -> IO [String]

@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards, TypeApplications,
             TupleSections, NumericUnderscores,
-            TypeFamilies, FlexibleContexts #-}
+            TypeFamilies, FlexibleContexts, MagicHash #-}
 module Synth.Eval where
 
 import Synth.Types
@@ -58,7 +58,8 @@ import System.FilePath
 import Data.Char (isAlphaNum)
 import Data.Bits (complement)
 
-import PrelNames (mkMainModule)
+import PrelNames (mkMainModule, toDynName)
+import GHC.Prim (unsafeCoerce#)
 import GHC.Stack (HasCallStack)
 import System.Process
 
@@ -262,7 +263,7 @@ moduleToProb cc@CompConf{..} mod_path mb_target = do
 
 
 
-traceTarget :: CompileConfig -> RExpr -> RExpr -> [RExpr]
+traceTarget :: CompileConfig -> RExpr -> EProp -> [RExpr]
               -> IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
 traceTarget cc expr failing_prop failing_args = do
       let tempDir = "./fake_targets"
@@ -270,7 +271,7 @@ traceTarget cc expr failing_prop failing_args = do
       (tf,handle) <- openTempFile tempDir "FakeTarget.hs"
       -- We generate the name of the module from the temporary file
       let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
-          modTxt = exprToModule cc mname expr failing_prop failing_args
+          modTxt = exprToModule cc mname expr (showUnsafe failing_prop) failing_args
           strBuff = stringToStringBuffer modTxt
           m_name = mkModuleName mname
           mod = IIModule m_name
@@ -378,12 +379,12 @@ exprToModule CompConf{..} mname expr failing_prop failing_args = unlines $ [
   where pname = head (words failing_prop)
 
 -- Report error prints the error and stops execution
-reportError :: GhcMonad m => RExpr -> SourceError -> m b
-reportError expr e = do liftIO $ do putStrLn "FAILED!"
-                                    putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
-                                    putStrLn expr
-                        printException e
-                        error "UNEXPECTED EXCEPTION"
+reportError :: (GhcMonad m, Outputable p) => p -> SourceError -> m b
+reportError p e = do liftIO $ do putStrLn "FAILED!"
+                                 putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
+                                 putStrLn (showUnsafe p)
+                     printException e
+                     error "UNEXPECTED EXCEPTION"
 
 -- When we want to compile only one check
 compileCheck :: CompileConfig -> RExpr -> IO Dynamic
@@ -398,6 +399,29 @@ compileChecks cc exprs = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
     mapM (\exp -> handleSourceError (reportError exp)
           $ fmap Right $ dynCompileExpr exp ) exprs
+
+-- When we want to compile only one parsed check
+compileParsedCheck :: CompileConfig -> EExpr -> IO Dynamic
+compileParsedCheck cc expr = runGhc (Just libdir) $ do
+    _ <- initGhcCtxt (cc {hole_lvl = 0})
+    handleSourceError (reportError expr) $ dynCompileParsedExpr expr
+
+-- Since initialization has some overhead, we have a special case for compiling
+-- multiple checks at once.
+compileParsedChecks :: CompileConfig -> [EExpr] -> IO [CompileRes]
+compileParsedChecks cc exprs = runGhc (Just libdir) $ do
+    _ <- initGhcCtxt (cc {hole_lvl = 0})
+    mapM (\exp -> handleSourceError (reportError exp)
+          $ fmap Right $ dynCompileParsedExpr exp ) exprs
+
+-- Adapted from dynCompileExpr in InteractiveEval
+dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic
+dynCompileParsedExpr parsed_expr = do
+  let loc = getLoc parsed_expr
+      to_dyn_expr = mkHsApp (L loc . HsVar noExtField . L loc $ getRdrName toDynName)
+                            parsed_expr
+  hval <- compileParsedExpr to_dyn_expr
+  return (unsafeCoerce# hval :: Dynamic)
 
 genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
 genCandTys cc bcat cands = runGhc (Just libdir) $ do
