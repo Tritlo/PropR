@@ -12,26 +12,26 @@ import RdrName
 import FastString
 import TysWiredIn
 import BasicTypes (IntegralLit(..), SourceText(..), PromotionFlag (..), Origin(..))
-import ConLike (ConLike(..))
 import Data.Maybe
 import TcEvidence (idHsWrapper)
+import OccName (tcName, dataName, NameSpace)
 
 
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 -- Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
 qcArgsExpr :: Maybe Integer -> LHsExpr GhcPs
-qcArgsExpr shrinks = noLoc $ RecordUpd NoExtField
-                              (noLoc $ HsVar NoExtField $ noLoc $
-                                   mkVarUnqual $ fsLit "stdArgs")
-                               (chatty:(case shrinks of
-                                           Just s -> [maxShrinks s]
-                                           Nothing -> []))
+qcArgsExpr shrinks = noLoc $ RecordUpd { rupd_ext = NoExtField
+                                       , rupd_expr = stdargs
+                                       , rupd_flds = upds}
    where
-     unambig n =  (noLoc $ Unambiguous NoExtField $
-                           noLoc $ mkVarUnqual $ fsLit n)
+     stdargs = noLoc $ HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "stdArgs"
+     upds = chatty:(case shrinks of
+                     Just s -> [maxShrinks s]
+                     Nothing -> [])
+     unambig n =  (noLoc $ Unambiguous NoExtField $ noLoc $ mkVarUnqual $ fsLit n)
      rupd str e = noLoc $ HsRecField (unambig str) (noLoc e) False
      chatty :: LHsRecUpdField GhcPs
-     chatty = rupd "chatty" (HsConLikeOut NoExtField $ RealDataCon falseDataCon)
+     chatty = rupd "chatty" (unLoc $ tfn dataName "False")
      maxShrinks :: Integer -> LHsRecUpdField GhcPs
      maxShrinks shrinks = rupd "maxShrinks"
         (HsLit NoExtField (HsInt NoExtField $ IL NoSourceText False shrinks))
@@ -50,14 +50,28 @@ baseFun nm val = noLoc $ FunBind NoExtField (noLoc nm)
          elb :: LHsLocalBinds GhcPs
          elb = noLoc $ EmptyLocalBinds NoExtField
 
+-- Shorthands for common constructs
+tf :: String -> LHsExpr GhcPs
+tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
+tfn :: NameSpace -> String -> LHsExpr GhcPs
+tfn ns = noLoc . HsVar NoExtField . noLoc . mkUnqual ns . fsLit
+il :: Integer -> LHsExpr GhcPs
+il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
+tt :: String -> LHsType GhcPs
+tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
+
 buildSuccessCheck :: EProblem -> EExpr
 buildSuccessCheck EProb {..} =
       noLoc $ HsLet NoExtField ctxt check_prog
   where (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
         qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ Just 0)
         nvb = (ValBinds vbe nvbs vsigs)
-        nvbs = unionManyBags [unitBag qcb, vbs, listToBag e_props,
-                             listToBag [expr_b, pcb]]
+        nvbs = unionManyBags [ vbs
+                             , listToBag e_props
+                             , unitBag qcb
+                             , unitBag expr_b
+                             , unitBag pcb
+                             ]
         expr_b = baseFun (mkVarUnqual $ fsLit "expr__")
                          (noLoc $ ExprWithTySig NoExtField
                                      (noLoc $ HsPar NoExtField e_prog) e_ty)
@@ -66,17 +80,11 @@ buildSuccessCheck EProb {..} =
         prop_to_name (L _ (FunBind {fun_id = fid})) = Just fid
         prop_to_name _ = Nothing
         prop_names = mapMaybe prop_to_name e_props
-        tf :: String -> LHsExpr GhcPs
-        tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
-        il :: Integer -> LHsExpr GhcPs
-        il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
         propsToCheck = map (propCheckExpr $ tf "isSuccess") prop_names
 
 
         pcb = baseFun (mkVarUnqual $ fsLit "propsToCheck__")
                       (noLoc $ ExplicitList NoExtField Nothing propsToCheck)
-        tt :: String -> LHsType GhcPs
-        tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkVarUnqual . fsLit
         sq_ty :: LHsSigWcType GhcPs
         sq_ty = HsWC NoExtField $
                  HsIB NoExtField $ noLoc $
@@ -114,9 +122,10 @@ propCheckExpr extractor prop =
 -- Note that we have to have it take in a list of properties to match the shape
 -- of bCEAT
 buildCounterExampleCheck :: EProp -> EProblem -> LHsExpr GhcPs -- RExpr
-buildCounterExampleCheck prop@(L loc fb@(FunBind {fun_id=fid,
-                                                  fun_matches=fm@MG{mg_alts= (L lm malts)}})) EProb{..} =
-      noLoc $ HsLet NoExtField ctxt check_prog
+buildCounterExampleCheck
+   (L loc fb@(FunBind { fun_id=fid,
+                        fun_matches=fm@MG{mg_alts= (L lm malts)}}))
+   EProb{..} = noLoc $ HsLet NoExtField ctxt check_prog
   where (L bl (HsValBinds be vb)) = e_ctxt
         (ValBinds vbe vbs vsigs) = vb
         qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr Nothing)
@@ -139,27 +148,19 @@ buildCounterExampleCheck prop@(L loc fb@(FunBind {fun_id=fid,
                                       (noLoc $ HsPar NoExtField b)
                  aW g = g
 
-        tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
-        il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
-        tt :: String -> LHsType GhcPs
-        tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkVarUnqual . fsLit
         sq_ty :: LHsSigWcType GhcPs
         sq_ty = HsWC NoExtField $
                  HsIB NoExtField $ noLoc $
                   HsAppTy NoExtField
                           (tt "IO")
-                          -- Maybe String
-                          $ noLoc $ HsParTy NoExtField $
-                          (noLoc $ HsAppTy NoExtField (tt "Maybe")
-                                      (noLoc $ HsListTy NoExtField $ tt "String"))
+                          (noLoc $ HsParTy NoExtField $
+                             (noLoc $ HsAppTy NoExtField (tt "Maybe")
+                               (noLoc $ HsListTy NoExtField $ tt "String")))
         check_prog :: LHsExpr GhcPs
         check_prog = noLoc $ HsPar NoExtField $ noLoc $ ExprWithTySig NoExtField
                    (noLoc $ HsPar NoExtField
                     (noLoc $ HsPar NoExtField $ propCheckExpr (tf "failureToMaybe") fid)) sq_ty
 
-        -- Fail fun
-        unambig :: String -> Located (FieldOcc GhcPs)
-        unambig n = (noLoc $ FieldOcc NoExtField $ noLoc $ mkVarUnqual $ fsLit n)
         ffid :: Located RdrName
         ffid = (noLoc $ mkVarUnqual $ fsLit "failureToMaybe")
 
@@ -169,24 +170,22 @@ buildCounterExampleCheck prop@(L loc fb@(FunBind {fun_id=fid,
                                             (GRHSs NoExtField
                                                    [noLoc $ GRHS NoExtField [] nothing]
                                                    elb))
-          where nothing = noLoc $ (HsConLikeOut NoExtField $ RealDataCon nothingDataCon)
+          where nothing = tfn dataName "Nothing"
         failure_case = (noLoc $ Match NoExtField
                                             (FunRhs ffid Prefix NoSrcStrict)
                                             [noLoc $ ConPatIn failure fcondets]
                                             (GRHSs NoExtField
-                                                   [noLoc $ GRHS NoExtField []
-                                                    $ noLoc $ HsApp NoExtField
-                                                     (noLoc $ HsConLikeOut NoExtField
-                                                            $ RealDataCon $ justDataCon)
-                                                   svar
-                                                   ]
+                                                   [ noLoc $ GRHS NoExtField []
+                                                   $ noLoc $ HsApp NoExtField
+                                                      (tfn dataName "Just")
+                                                      svar]
                                                    elb))
           where svar :: LHsExpr GhcPs
                 svar = noLoc $ HsVar NoExtField $ svarname
                 svarname :: Located RdrName
                 svarname = noLoc $ mkVarUnqual $ fsLit "s"
                 failure :: Located RdrName
-                failure = noLoc $ mkVarUnqual $ fsLit "Failure"
+                failure = noLoc $ mkUnqual dataName $ fsLit "Failure"
                 failing_tc :: Located RdrName
                 failing_tc = noLoc $ mkVarUnqual $ fsLit "failingTestCase"
                 fcondets :: HsConPatDetails GhcPs

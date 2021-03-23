@@ -8,7 +8,7 @@ import Test.Tasty.ExpectedFailure
 
 import Synth.Repair ( repair, failingProps, propCounterExample
                     , runJustParseExpr, getExprFitCands, translate)
-import Synth.Eval ( CompileConfig(..), compileCheck, traceTarget
+import Synth.Eval ( CompileConfig(..), compileParsedCheck, traceTarget
                   , showUnsafe, moduleToProb)
 import Synth.Flatten
 import Synth.Util
@@ -192,7 +192,8 @@ counterExampleTests = testGroup "Counter Examples" [
             tp <- translate cc rp
             [failed_prop] <- failingProps cc tp
             Just [counter_example] <- propCounterExample cc tp failed_prop
-            res <- compileCheck cc ("(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example)
+            let expr = ("(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example)
+            res <- runJustParseExpr cc expr >>= compileParsedCheck cc
             case fromDynamic @Bool res of
               Just v -> not v @? "Counter Example is not a counter example!"
               Nothing -> error "Incorrect type!!"
@@ -213,7 +214,8 @@ counterExampleTests = testGroup "Counter Examples" [
             [failed_prop] <- failingProps cc tp
             Just counter_example_args <- propCounterExample cc tp failed_prop
             let arg_str = unwords counter_example_args
-            res <- compileCheck cc ("(-) " ++ arg_str ++ " == (+) " ++ arg_str)
+                expr = ("(-) " ++ arg_str ++ " == (+) " ++ arg_str)
+            res <- runJustParseExpr cc expr >>= compileParsedCheck cc
             case fromDynamic @Bool res of
               Just v -> not v @? "Counter Example is not a counter example!"
               Nothing -> error "Incorrect type!!"

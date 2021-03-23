@@ -13,7 +13,7 @@ import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
                   , HscEnv(hsc_IC), InteractiveContext(ic_default)
                   , mkVarUnqual, getRdrName, showSDocUnsafe, liftIO
                   , VarSet, isEmptyVarSet, intersectVarSet, tyCoFVsOfType
-                  , appPrec)
+                  , appPrec, nameOccName, RdrName(..), mkVarOcc)
 
 import Control.Monad (filterM, when)
 
@@ -62,9 +62,7 @@ getHoleFits cc local_exprs expr = runGhc (Just libdir) $ do
               Right _ -> []
 
 getHoley :: CompileConfig -> RExpr -> IO [(SrcSpan, LHsExpr GhcPs)]
-getHoley cc str = runGhc (Just libdir) $ exprHoley cc str
-exprHoley :: CompileConfig -> RExpr -> Ghc [(SrcSpan, LHsExpr GhcPs)]
-exprHoley cc str = sanctifyExpr <$> justParseExpr cc str
+getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str
 
 justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
 justParseExpr cc str = do
@@ -123,7 +121,7 @@ propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
 propCounterExample cc ep prop = do
     let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
         bcc = buildCounterExampleCheck prop ep
-    exec <- compileCheck cc' (showUnsafe bcc)
+    exec <- compileParsedCheck cc' bcc
     res <- fromDyn exec (return Nothing)
     return res
 
@@ -206,7 +204,7 @@ failingProps cc rp@(EProb{e_props=ps}) | length ps > 8 = do
 failingProps cc ep@EProb{..} = do
       let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
           check = buildSuccessCheck ep
-      [compiled_check] <- compileChecks cc' [showUnsafe check]
+      [compiled_check] <- compileParsedChecks cc' [check]
       ran <- runCheck compiled_check
       case ran of
          -- Some of the props are failing:
@@ -230,7 +228,7 @@ failingProps cc ep@EProb{..} = do
 
 
 repair :: CompileConfig -> RProblem -> IO [RExpr]
-repair cc rp@RProb{..} =
+repair cc rprob@RProb{..} =
    do let prog_at_ty = "("++ r_prog ++ ") :: " ++ r_ty
       pr_debug prog_at_ty
       holey_exprs <- getHoley cc prog_at_ty
@@ -239,7 +237,7 @@ repair cc rp@RProb{..} =
 
       -- We can use the failing_props and the counter_examples to filter
       -- out locations that we know won't matter.
-      tp <- translate cc rp
+      tp <- translate cc rprob
       failing_props <- failingProps cc tp
       counter_examples <- mapM (propCounterExample cc tp) failing_props
       let hasCE (p, Just ce) = Just (p, ce)
@@ -283,23 +281,29 @@ repair cc rp@RProb{..} =
       -- fits
       let processFit :: HoleFit -> IO (HsExpr GhcPs)
           processFit hf@(HoleFit {..}) =
-              return $ HsVar noExtField (L noSrcSpan (getRdrName hfId))
+              return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
+            -- NukeExact copied from RdrName
+            where nukeExact :: Name -> RdrName
+                  nukeExact n | isExternalName n = Orig (nameModule n) (nameOccName n)
+                              | otherwise        = Unqual (nameOccName n)
           processFit (RawHoleFit sd) =
                  (unLoc . parenthesizeHsExpr appPrec) <$>
                  runJustParseExpr cc (showUnsafe sd)
+
 
       processed_fits <- mapM (\(e,fs) ->
           (e,) <$> (mapM (mapM processFit) fs)) fits
       let repls = processed_fits >>= (uncurry replacements)
 
       -- We do it properly
-      bcatC <- buildSuccessCheck <$> (translate cc rp{r_prog="_"})
+      let hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
+          bcatC = buildSuccessCheck tp{e_prog=hole}
       let checks = map ( fromJust . fillHole bcatC . unLoc) repls
       pr_debug  "Fix candidates:"
       mapM (pr_debug . showUnsafe) checks
       pr_debug "Those were all of them!"
       let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
-      compiled_checks <- zip repls <$> compileChecks cc' (map showUnsafe checks)
+      compiled_checks <- zip repls <$> compileParsedChecks cc' checks
       ran <- mapM (\(f,c) -> runCheck c >>= return . (f,)) compiled_checks
       let res2 = map fst $ filter (\(f,r) -> r == Right True) ran
       return $ map showUnsafe res2

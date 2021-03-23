@@ -379,36 +379,22 @@ exprToModule CompConf{..} mname expr failing_prop failing_args = unlines $ [
   where pname = head (words failing_prop)
 
 -- Report error prints the error and stops execution
-reportError :: (GhcMonad m, Outputable p) => p -> SourceError -> m b
+reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b
 reportError p e = do liftIO $ do putStrLn "FAILED!"
                                  putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
                                  putStrLn (showUnsafe p)
                      printException e
                      error "UNEXPECTED EXCEPTION"
 
--- When we want to compile only one check
-compileCheck :: CompileConfig -> RExpr -> IO Dynamic
-compileCheck cc expr = runGhc (Just libdir) $ do
-    _ <- initGhcCtxt (cc {hole_lvl = 0})
-    handleSourceError (reportError expr) $ dynCompileExpr expr
-
--- Since initialization has some overhead, we have a special case for compiling
--- multiple checks at once.
-compileChecks :: CompileConfig -> [RExpr] -> IO [CompileRes]
-compileChecks cc exprs = runGhc (Just libdir) $ do
-    _ <- initGhcCtxt (cc {hole_lvl = 0})
-    mapM (\exp -> handleSourceError (reportError exp)
-          $ fmap Right $ dynCompileExpr exp ) exprs
-
 -- When we want to compile only one parsed check
-compileParsedCheck :: CompileConfig -> EExpr -> IO Dynamic
+compileParsedCheck :: HasCallStack => CompileConfig -> EExpr -> IO Dynamic
 compileParsedCheck cc expr = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
     handleSourceError (reportError expr) $ dynCompileParsedExpr expr
 
 -- Since initialization has some overhead, we have a special case for compiling
 -- multiple checks at once.
-compileParsedChecks :: CompileConfig -> [EExpr] -> IO [CompileRes]
+compileParsedChecks :: HasCallStack => CompileConfig -> [EExpr] -> IO [CompileRes]
 compileParsedChecks cc exprs = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
     mapM (\exp -> handleSourceError (reportError exp)
