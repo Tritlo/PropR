@@ -14,7 +14,7 @@ import TysWiredIn
 import BasicTypes (IntegralLit(..), SourceText(..), PromotionFlag (..), Origin(..))
 import Data.Maybe
 import TcEvidence (idHsWrapper)
-import OccName (tcName, dataName, NameSpace)
+import OccName (tcName, dataName, NameSpace, mkVarOcc)
 
 
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
@@ -59,6 +59,9 @@ il :: Integer -> LHsExpr GhcPs
 il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 tt :: String -> LHsType GhcPs
 tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
+
+hole :: LHsExpr GhcPs
+hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
 buildSuccessCheck :: EProblem -> EExpr
 buildSuccessCheck EProb {..} =
