@@ -34,7 +34,6 @@ jobs:
 
     - name: Install dependencies
       run: |
-        cabal update
         cabal install --lib QuickCheck
         cabal build --only-dependencies --enable-tests --enable-benchmarks
     - name: Build
