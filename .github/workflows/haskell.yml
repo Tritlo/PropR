@@ -19,12 +19,14 @@ jobs:
         cabal-version: '3.4'
 
     - name: Cache
-      uses: actions/cache@v1
+      uses: actions/cache@v2
       env:
         cache-name: cache-cabal
       with:
-        path: ~/.cabal
-        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
+        path: |
+          ~/.cabal
+          dist-newstyle
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('*.cabal') }}-${{ hashFiles('cabal.project') }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
         restore-keys: |
           ${{ runner.os }}-build-${{ env.cache-name }}-
           ${{ runner.os }}-build-

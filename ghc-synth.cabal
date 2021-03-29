@@ -5,7 +5,7 @@ version: 0.0.1
 author: Matthías Páll Gissurarson
 maintainer: mpg@mpg.is
 synopsis: synthtest
-description: just a test
+description: Program repair using GHC, HPC tracing and typed-hole synthesis.
 
 category: Compiler Plugin
 license: MIT
