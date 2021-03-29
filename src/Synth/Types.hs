@@ -9,8 +9,6 @@ import qualified Outputable as O
 -- Properties are strings, for now. We could parse them into LHsExpr GhcPs later.
 type RProp = String
 
--- The context is really just a big let binding which we could parse into a
--- LHsBinds GhcPs
 type RContext = [String]
 
 type RType = String
@@ -24,6 +22,20 @@ data RProblem = RProb { r_props :: [RProp]
                       , r_target :: String
                       , r_ty :: RType
                       , r_prog :: RExpr }
+
+type EProp = LHsBind GhcPs
+
+type EContext = LHsLocalBinds GhcPs
+
+type EType = LHsSigWcType GhcPs
+type EExpr = LHsExpr GhcPs
+
+data EProblem = EProb { e_props :: [EProp]
+                      , e_ctxt :: EContext
+                      , e_target :: String
+                      , e_ty :: EType
+                      , e_prog :: EExpr }
+
 
 -- ExprFitCands are used by the plugin to check whether an expression could fit
 -- a given hole. Since they are not supported within the HoleFit framework, we

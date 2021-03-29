@@ -1,4 +1,4 @@
-{-# LANGUAGE RecordWildCards, TupleSections #-}
+{-# LANGUAGE RecordWildCards, TupleSections, FlexibleContexts #-}
 module Synth.Repair where
 
 import GHC
@@ -13,7 +13,7 @@ import GhcPlugins (substTyWith, PluginWithArgs(..), StaticPlugin(..)
                   , HscEnv(hsc_IC), InteractiveContext(ic_default)
                   , mkVarUnqual, getRdrName, showSDocUnsafe, liftIO
                   , VarSet, isEmptyVarSet, intersectVarSet, tyCoFVsOfType
-                  , appPrec)
+                  , appPrec, nameOccName, RdrName(..))
 
 import Control.Monad (filterM, when)
 
@@ -29,7 +29,7 @@ import Synth.Flatten
 import Synth.Sanctify
 import Data.Either
 import Data.Dynamic (fromDyn)
-import Data.List (sortOn)
+import Data.List (sortOn, intercalate)
 import Data.Set (Set)
 import Data.Tree (flatten)
 import qualified Data.Set as Set
@@ -62,26 +62,12 @@ getHoleFits cc local_exprs expr = runGhc (Just libdir) $ do
               Right _ -> []
 
 getHoley :: CompileConfig -> RExpr -> IO [(SrcSpan, LHsExpr GhcPs)]
-getHoley cc str = runGhc (Just libdir) $ exprHoley cc str
-
-exprHoley :: CompileConfig -> RExpr -> Ghc [(SrcSpan, LHsExpr GhcPs)]
-exprHoley cc str = sanctifyExpr <$> justParseExpr cc str
-
-justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
-justParseExpr cc str = do
-   plugRef <- initGhcCtxt cc
-   handleSourceError
-     (\err -> printException err >> error "parse failed")
-     (parseExpr str)
-
-runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
-runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
+getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str
 
 -- Parse, rename and type check an expression
-justTcExpr :: CompileConfig -> RExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
-justTcExpr cc str = do
+justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
+justTcExpr cc parsed = do
    _ <- initGhcCtxt cc
-   parsed <- justParseExpr cc str
    hsc_env <- getSession
    ((wm,em), res) <- liftIO $ runTcInteractive hsc_env $
                      captureTopConstraints $
@@ -100,36 +86,34 @@ replacements e (first_hole_fit:rest) =
     (mapMaybe (fillHole e) first_hole_fit) >>= (flip replacements rest)
 
 
--- Builds a check of a program by parsing the context and the generated
--- expression and replacing the relevant holes.
-buildCheck :: (RProblem -> RExpr) -> CompileConfig -> RProblem
-           -> IO (CompileConfig, RExpr)
-buildCheck bc cc rp@RProb{..} = do
-   do let prog_at_ty = "("++ r_prog ++ ") :: " ++ r_ty
-      pr_debug prog_at_ty
-      parsed <- runJustParseExpr cc prog_at_ty
-      holeyContext <- runJustParseExpr cc $ contextLet r_ctxt "_"
-      let wContext = fromJust $ fillHole holeyContext $ unLoc parsed
-      bcatC <- runJustParseExpr cc $ bc rp{r_prog="_"}
-      to_check <- runJustParseExpr cc $ trim $ showUnsafe wContext
-      let check = fromJust $ fillHole bcatC $ unLoc to_check
-          cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
-      return (cc', showUnsafe check)
-
+-- Translate from the old String based version to the new LHsExpr version.
+translate :: CompileConfig -> RProblem -> IO EProblem
+translate cc RProb{..} = runGhc (Just libdir) $ do
+  _ <- initGhcCtxt cc
+  e_prog <- parseExprNoInit r_prog
+  ~(L _ (ExprWithTySig _ _ e_ty)) <- parseExprNoInit ("undefined :: " ++ r_ty)
+  let clt = "let {" ++ (intercalate "; " . concatMap lines $ r_ctxt) ++ "} in undefined"
+  ~(L _ (HsLet _ e_ctxt _)) <- parseExprNoInit clt
+  let plt = "let {" ++ (intercalate "; ". concatMap lines $ r_props) ++ "} in undefined"
+  ~(L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ lbs _))) _)) <- parseExprNoInit plt
+  let e_props = bagToList lbs
+      e_target = r_target
+  return (EProb {..})
 
 -- Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
-propCounterExample :: CompileConfig -> RProblem -> RProp -> IO (Maybe [RExpr])
-propCounterExample cc rp prop = do
-    (cc', check_exp) <- buildCheck (buildCounterExampleExpr prop) cc rp
-    exec <- compileCheck cc' check_exp
+propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
+propCounterExample cc ep prop = do
+    let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
+        bcc = buildCounterExampleCheck prop ep
+    exec <- compileParsedCheck cc' bcc
     res <- fromDyn exec (return Nothing)
     return res
 
 
 -- getExprFitCands takes an expression and generates HoleFitCandidates from
 -- every subexpression.
-getExprFitCands :: CompileConfig -> RExpr -> IO [ExprFitCand]
+getExprFitCands :: CompileConfig -> EExpr -> IO [ExprFitCand]
 getExprFitCands cc expr = runGhc (Just libdir) $ do
    -- setSessionDynFlags reads the package database.
    setSessionDynFlags =<< getSessionDynFlags
@@ -192,53 +176,58 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
                             && not (isHoleCt ct)
 
 -- Returns the props that fail for the given program
-failingProps :: CompileConfig -> RProblem -> IO [RProp]
-failingProps _ RProb{r_props=[]} = return []
+failingProps :: CompileConfig -> EProblem -> IO [EProp]
+failingProps _ EProb{e_props=[]} = return []
 -- Our method for checking which props fail is restricted to maximum 8 at a time,
 -- so if we have more than that, we check the first 8 and then the rest, and
 -- so on.
-failingProps cc rp@(RProb{r_props=ps}) | length ps > 8 = do
+failingProps cc rp@(EProb{e_props=ps}) | length ps > 8 = do
   let (ps1, ps2) = splitAt 8 ps
-  p1 <- failingProps cc rp{r_props=ps1}
-  p2 <- failingProps cc rp{r_props=ps2}
+  p1 <- failingProps cc rp{e_props=ps1}
+  p2 <- failingProps cc rp{e_props=ps2}
   return (p1 ++ p2)
-failingProps cc rp@RProb{..} = do
-      (cc', check) <- buildCheck buildCheckExprAtTy cc rp
-      [compiled_check] <- compileChecks cc' [check]
+failingProps cc ep@EProb{..} = do
+      let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
+          check = buildSuccessCheck ep
+      [compiled_check] <- compileParsedChecks cc' [check]
       ran <- runCheck compiled_check
       case ran of
          -- Some of the props are failing:
-         Left p -> return $ map fst $ filter (\(p,c) -> not c) $ zip r_props p
+         Left p -> return $ map fst $ filter (\(p,c) -> not c) $ zip e_props p
          -- None of the props are failing:
          Right True -> return []
          -- One of the props is causing an error/infinite loop, so we need
          -- to check each individually
          Right False ->
-            case r_props of
+            case e_props of
               -- If there's only one failing prop left, that's the one causing
               -- the loop
               [prop] -> return [prop]
               -- Otherwise, we split the props into two sets, and check each
               -- split individually.
-              xs -> do let fp :: [String] -> IO [String]
-                           fp ps = failingProps cc rp{r_props=ps}
-                           ps1, ps2 :: [String]
-                           (ps1, ps2) = splitAt (length r_props `div` 2) r_props
+              xs -> do let fp :: [EProp] -> IO [EProp]
+                           fp ps = failingProps cc ep{e_props=ps}
+                           ps1, ps2 :: [EProp]
+                           (ps1, ps2) = splitAt (length e_props `div` 2) e_props
                        concat <$> mapM fp [ps1, ps2]
 
 
-repair :: CompileConfig -> RProblem -> IO [RExpr]
-repair cc rp@RProb{..} =
-   do let prog_at_ty = "("++ r_prog ++ ") :: " ++ r_ty
-      pr_debug prog_at_ty
-      holey_exprs <- getHoley cc prog_at_ty
+repair :: CompileConfig -> EProblem -> IO [RExpr]
+repair cc tp@EProb{..} =
+   do let prog_at_ty =
+             noLoc $ ExprWithTySig NoExtField
+                (noLoc $ HsPar NoExtField e_prog) e_ty
+      trace_correl <- buildTraceCorrel cc prog_at_ty
+
+      let holey_exprs = sanctifyExpr trace_correl
+      pr_debug $ showUnsafe prog_at_ty
       pr_debug $ showUnsafe holey_exprs
 
 
       -- We can use the failing_props and the counter_examples to filter
       -- out locations that we know won't matter.
-      failing_props <- failingProps cc (rp {r_prog=prog_at_ty})
-      counter_examples <- mapM (propCounterExample cc rp) failing_props
+      failing_props <- failingProps cc tp
+      counter_examples <- mapM (propCounterExample cc tp) failing_props
       let hasCE (p, Just ce) = Just (p, ce)
           hasCE _ = Nothing
           -- We find the ones with counter-examples and pick the shortest one
@@ -259,7 +248,7 @@ repair cc rp@RProb{..} =
                           invokes = map only_max $ flatten res
                           non_zero = filter (\(src,n) -> n > 0) invokes
                           non_zero_src = Set.fromList $ map fst non_zero
-                          non_zero_holes = filter (\(l,e) -> l `Set.member` non_zero_src) holey_exprs
+                          non_zero_holes = filter (\(l,e) -> isGoodSrcSpan l && l `Set.member` non_zero_src) holey_exprs
                       pr_debug "Invokes:"
                       pr_debug $ showUnsafe invokes
                       pr_debug "Non-zero holes:"
@@ -269,10 +258,11 @@ repair cc rp@RProb{..} =
          _ -> return holey_exprs
 
       -- We add the context by replacing a hole in a let.
-      holeyContext <- runJustParseExpr cc $ contextLet r_ctxt "_"
+      let holeyContext = noLoc $ HsLet NoExtField e_ctxt hole
+          undefContext = noLoc $ HsLet NoExtField e_ctxt $ noLoc $ HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
 
       -- We find expressions that can be used as candidates in the program
-      expr_cands <- getExprFitCands cc $ contextLet r_ctxt "undefined"
+      expr_cands <- getExprFitCands cc undefContext
       let addContext = fromJust . fillHole holeyContext . unLoc
       fits <- mapM (\(_,e) -> (e,) <$>
                 (getHoleFits cc expr_cands $ addContext e)) holey_exprs
@@ -280,26 +270,26 @@ repair cc rp@RProb{..} =
       -- fits
       let processFit :: HoleFit -> IO (HsExpr GhcPs)
           processFit hf@(HoleFit {..}) =
-              return $ HsVar noExtField (L noSrcSpan (getRdrName hfId))
+              return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
+            -- NukeExact copied from RdrName
+            where nukeExact :: Name -> RdrName
+                  nukeExact n | isExternalName n = Orig (nameModule n) (nameOccName n)
+                              | otherwise        = Unqual (nameOccName n)
           processFit (RawHoleFit sd) =
                  (unLoc . parenthesizeHsExpr appPrec) <$>
                  runJustParseExpr cc (showUnsafe sd)
 
-      processed_fits <- mapM (\(e,fs) ->
-          (e,) <$> (mapM (mapM processFit) fs)) fits
-      let repls = processed_fits >>= (uncurry replacements)
 
-      -- We do it properly
-      bcatC <- runJustParseExpr cc $ buildCheckExprAtTy rp{r_prog="_"}
-      to_checks <- mapM (runJustParseExpr cc . trim . showUnsafe) repls
-      pr_debug $ showUnsafe bcatC
-      pr_debug $ showUnsafe to_checks
-      let checks = map ( fromJust . fillHole bcatC . unLoc) to_checks
+      processed_fits <- mapM (\(e,fs) -> (e,) <$> (mapM (mapM processFit) fs)) fits
+      let repls = processed_fits >>= (uncurry replacements)
+          -- We do it properly
+          bcatC = buildSuccessCheck tp{e_prog=hole}
+          checks = map ( fromJust . fillHole bcatC . unLoc) repls
       pr_debug  "Fix candidates:"
       mapM (pr_debug . showUnsafe) checks
       pr_debug "Those were all of them!"
       let cc' = (cc {hole_lvl=0, importStmts=(checkImports ++ importStmts cc)})
-      compiled_checks <- zip repls <$> compileChecks cc' (map showUnsafe checks)
+      compiled_checks <- zip repls <$> compileParsedChecks cc' checks
       ran <- mapM (\(f,c) -> runCheck c >>= return . (f,)) compiled_checks
       let res2 = map fst $ filter (\(f,r) -> r == Right True) ran
       return $ map showUnsafe res2

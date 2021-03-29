@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards, TypeApplications,
             TupleSections, NumericUnderscores,
-            TypeFamilies, FlexibleContexts #-}
+            TypeFamilies, FlexibleContexts, MagicHash #-}
 module Synth.Eval where
 
 import Synth.Types
@@ -58,7 +58,8 @@ import System.FilePath
 import Data.Char (isAlphaNum)
 import Data.Bits (complement)
 
-import PrelNames (mkMainModule)
+import PrelNames (mkMainModule, toDynName)
+import GHC.Prim (unsafeCoerce#)
 import GHC.Stack (HasCallStack)
 import System.Process
 
@@ -135,6 +136,19 @@ initGhcCtxt' CompConf{..} local_exprs = do
    getContext >>= setContext . (imports ++)
    return plugRef
 
+justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
+justParseExpr cc str = do
+   plugRef <- initGhcCtxt cc
+   parseExprNoInit str
+
+parseExprNoInit :: RExpr -> Ghc (LHsExpr GhcPs)
+parseExprNoInit str =
+   handleSourceError
+     (\err -> printException err >> error "parse failed")
+     (parseExpr str)
+
+runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
+runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
 
 type ValsAndRefs = ([HoleFit], [HoleFit])
 type CompileRes = Either [ValsAndRefs] Dynamic
@@ -261,22 +275,42 @@ moduleToProb cc@CompConf{..} mod_path mb_target = do
       return (cc', mod, probs)
 
 
+-- When we do the trace, we use a "fake_target" function. This build the
+-- corresponding expression, so we can correlate the trace information with
+-- the expression we're checking.
+buildTraceCorrel :: CompileConfig -> EExpr -> IO EExpr
+buildTraceCorrel cc expr = do
+   let correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
+   pcorrel <- runJustParseExpr cc (showUnsafe (
+          (noLoc $ HsLet NoExtField (noLoc $ HsValBinds NoExtField
+               (ValBinds NoExtField (unitBag correl) [])) hole) :: LHsExpr GhcPs))
+   let (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _)) = pcorrel
+       [L _ (FunBind{fun_matches=
+          MG{mg_alts=
+             (L _ [L _ (Match{m_grhss=
+                GRHSs{grhssGRHSs= [(L _ (GRHS _ _ bod))] }})])}})] = bagToList bg
+   return bod
 
-traceTarget :: CompileConfig -> RExpr -> RExpr -> [RExpr]
+-- Run HPC to get the trace information.
+traceTarget :: CompileConfig -> EExpr -> EProp -> [RExpr]
               -> IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
-traceTarget cc expr failing_prop failing_args = do
+traceTarget cc expr@(L (RealSrcSpan realSpan) _)
+       failing_prop failing_args = do
       let tempDir = "./fake_targets"
       createDirectoryIfMissing False tempDir
       (tf,handle) <- openTempFile tempDir "FakeTarget.hs"
       -- We generate the name of the module from the temporary file
       let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
-          modTxt = exprToModule cc mname expr failing_prop failing_args
+          correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
+          modTxt = exprToModule cc mname correl (showUnsafe failing_prop) failing_args
           strBuff = stringToStringBuffer modTxt
           m_name = mkModuleName mname
           mod = IIModule m_name
           exeName = dropExtension tf
           tixFilePath = exeName ++ ".tix"
           mixFilePath = tempDir
+
+      pr_debug modTxt
       -- Note: we do not need to dump the text of the module into the file, it
       -- only needs to exist. Otherwise we would have to write something like
       -- `hPutStr handle modTxt`
@@ -351,24 +385,26 @@ traceTarget cc expr failing_prop failing_args = do
        toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
        toFakeSpan tf root sp = mkSrcSpan start end
          where fname = fsLit $ takeFileName tf
-               offset = 2
-               (rsl, _, _, _) = fromHpcPos root
+               (rsl, rsc, rel, rec) = fromHpcPos root
+               eloff = rel - (srcSpanEndLine realSpan)
+               ecoff = rec - (srcSpanEndCol realSpan)
                (sl, sc, el, ec) = fromHpcPos sp
                -- We add two spaces before every line in the source.
-               start = mkSrcLoc fname (sl-rsl) (sc-offset)
+               start = mkSrcLoc fname (sl-eloff) (sc-ecoff-1)
                -- GHC Srcs end one after the end
-               end = mkSrcLoc fname (el-rsl) (ec-offset+1)
+               end = mkSrcLoc fname (el-eloff) (ec-ecoff)
+traceTarget cc e@(L _ xp) fp fa = do
+   trace_correl@(L tl _ ) <- buildTraceCorrel cc e
+   traceTarget cc (L tl xp) fp fa
 
-
-exprToModule :: CompileConfig -> String -> RExpr -> RExpr -> [RExpr] -> RExpr
+exprToModule :: CompileConfig -> String -> LHsBind GhcPs -> RProp -> [RExpr] -> RExpr
 exprToModule CompConf{..} mname expr failing_prop failing_args = unlines $ [
    "module " ++mname++" where"
    ]
    ++ importStmts
    ++ checkImports
    ++ lines failing_prop
-   ++ ["fake_target ="]
-   ++ (map ("  " ++) $ lines expr)
+   ++ [showUnsafe expr]
    ++ [ ""
       , "main :: IO ()"
       , "main = do r <- quickCheckWithResult (" ++ qcArgs ++ ") (" ++ pname ++" fake_target " ++ unwords failing_args ++ ")"
@@ -378,26 +414,35 @@ exprToModule CompConf{..} mname expr failing_prop failing_args = unlines $ [
   where pname = head (words failing_prop)
 
 -- Report error prints the error and stops execution
-reportError :: GhcMonad m => RExpr -> SourceError -> m b
-reportError expr e = do liftIO $ do putStrLn "FAILED!"
-                                    putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
-                                    putStrLn expr
-                        printException e
-                        error "UNEXPECTED EXCEPTION"
+reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b
+reportError p e = do liftIO $ do putStrLn "FAILED!"
+                                 putStrLn "UNEXPECTED EXCEPTION WHEN COMPILING CHECK:"
+                                 putStrLn (showUnsafe p)
+                     printException e
+                     error "UNEXPECTED EXCEPTION"
 
--- When we want to compile only one check
-compileCheck :: CompileConfig -> RExpr -> IO Dynamic
-compileCheck cc expr = runGhc (Just libdir) $ do
+-- When we want to compile only one parsed check
+compileParsedCheck :: HasCallStack => CompileConfig -> EExpr -> IO Dynamic
+compileParsedCheck cc expr = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
-    handleSourceError (reportError expr) $ dynCompileExpr expr
+    handleSourceError (reportError expr) $ dynCompileParsedExpr expr
 
 -- Since initialization has some overhead, we have a special case for compiling
 -- multiple checks at once.
-compileChecks :: CompileConfig -> [RExpr] -> IO [CompileRes]
-compileChecks cc exprs = runGhc (Just libdir) $ do
+compileParsedChecks :: HasCallStack => CompileConfig -> [EExpr] -> IO [CompileRes]
+compileParsedChecks cc exprs = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
     mapM (\exp -> handleSourceError (reportError exp)
-          $ fmap Right $ dynCompileExpr exp ) exprs
+          $ fmap Right $ dynCompileParsedExpr exp ) exprs
+
+-- Adapted from dynCompileExpr in InteractiveEval
+dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic
+dynCompileParsedExpr parsed_expr = do
+  let loc = getLoc parsed_expr
+      to_dyn_expr = mkHsApp (L loc . HsVar noExtField . L loc $ getRdrName toDynName)
+                            parsed_expr
+  hval <- compileParsedExpr to_dyn_expr
+  return (unsafeCoerce# hval :: Dynamic)
 
 genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
 genCandTys cc bcat cands = runGhc (Just libdir) $ do

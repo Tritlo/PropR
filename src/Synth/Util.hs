@@ -8,7 +8,12 @@ import Data.Bits
 
 import SrcLoc
 import Data.List (intercalate, sort)
+import GHC
+import Synth.Types
 
+progAtTy :: EExpr -> EType -> EExpr
+progAtTy e_prog e_ty =
+   noLoc $ ExprWithTySig NoExtField (noLoc $ HsPar NoExtField e_prog) e_ty
 -- Removes whitespace before and after a string
 trim :: String -> String
 trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace

@@ -76,7 +76,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
                  putStr' "COMPILING CANDIDATE CHECKS..."
                  let imps' = checkImports ++ importStmts cc
                      cc' = (cc {hole_lvl=0, importStmts=imps'})
-                     to_check_exprs = map (bcat mty) cands
+                     to_check_probs = map (rprob mty) cands
+                 to_check_exprs <- mapM (fmap buildSuccessCheck
+                                        . translate cc) to_check_probs
                  -- Doesn't work, since the types are too polymorphic, and if
                  -- the target type cannot be monomorphised, the fits will
                  -- be too general for QuickCheck
@@ -84,7 +86,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                  --    case mono_ty of
                  --        Just typ -> return $ map (bcat typ) cands
                  --        Nothing -> genCandTys cc' bcat cands
-                 to_check <- zip cands <$> compileChecks cc' to_check_exprs
+                 to_check <- zip cands <$> compileParsedChecks cc' to_check_exprs
                  putStrLn "DONE!"
                  putStr' ("CHECKING " ++ (show lv) ++ " CANDIDATES...")
                  fits <- mapM
@@ -101,7 +103,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                 return []
 
   where
-    bcat ty cand = buildCheckExprAtTy $ RProb props context "" ty cand
+    rprob ty cand = RProb props context "" ty cand
     wrap p = "(" ++ p ++ ")"
     cc' = if depth <= 1 then (cc {hole_lvl=0}) else (cc {hole_lvl=1})
     recur :: (String, [String]) -> IO [String]
@@ -170,6 +172,7 @@ time act = do start <- getCPUTime
               done <- getCPUTime
               return (done - start, r)
 
+
 main :: IO ()
 main = do
     SFlgs {..} <- getFlags
@@ -177,6 +180,7 @@ main = do
     [toFix] <- filter (not . (==) "-f" . take 2 ) <$> getArgs
     (cc, mod, probs) <- moduleToProb cc toFix repair_target
     let (rp@RProb{..}:_) = if null probs then error "NO TARGET FOUND!" else probs
+    tp@EProb{..} <- translate cc rp
     putStrLn "TARGET:"
     putStrLn ("  `" ++ r_target ++ "` in " ++ toFix)
     putStrLn "SCOPE:"
@@ -193,10 +197,10 @@ main = do
     putStrLn "PROGRAM TO REPAIR: "
     putStrLn r_prog
     putStrLn "FAILING PROPS:"
-    failing_props <- failingProps cc rp
-    mapM (putStrLn . ("  " ++)) failing_props
+    failing_props <- failingProps cc tp
+    mapM (putStrLn . ("  " ++) . showUnsafe) failing_props
     putStrLn "COUNTER EXAMPLES:"
-    counter_examples <- mapM (propCounterExample cc rp) failing_props
+    counter_examples <- mapM (propCounterExample cc tp) failing_props
     mapM (putStrLn . (++) "  " . (\t -> if (t == "") then "<none>" else t) . unwords) $ catMaybes counter_examples
     eMap <-
        (Map.fromList . map (\e -> (getLoc e, showUnsafe e))  . flattenExpr) <$>
@@ -204,7 +208,7 @@ main = do
 
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
-    reses <- mapM (uncurry $ traceTarget cc r_prog)
+    reses <- mapM (uncurry $ traceTarget cc e_prog)
                  $ mapMaybe hasCE $ zip failing_props counter_examples
     let trcs = map (map (\(s,r) ->
                              (s, eMap Map.!? (mkInteractive s),
@@ -212,10 +216,10 @@ main = do
     putStrLn "TRACE OF COUNTER EXAMPLES:"
     mapM (putStrLn . unlines . map ((++) "  " . show)) trcs
     putStr' "REPAIRING..."
-    (t, fixes) <- time $ repair cc rp
+    (t, fixes) <- time $ repair cc tp
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     putStrLn "REPAIRS:"
-    fbs <- mapM (getFixBinds cc) fixes
+    fbs <- mapM (fmap getFixBinds . runJustParseExpr cc ) fixes
     mapM (putStrLn . unlines . map ((++) "  ") . lines) $
        map (concatMap (prettyFix True) . snd . applyFixes mod) fbs
     putStrLn "SYNTHESIZING..."

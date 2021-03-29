@@ -5,23 +5,21 @@ import GHC
 import Bag
 import Synth.Types
 import Synth.Eval
-import Synth.Repair (runJustParseExpr)
 
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
 import Data.Maybe
 
-getFixBinds :: CompileConfig -> String -> IO (LHsBinds GhcPs)
-getFixBinds cc str =
-   do parsed <- runJustParseExpr cc str
-      -- We know this deconstruction is safe, because we made it ourselves!
-      let ExprWithTySig _ par _ = unLoc parsed
-          HsPar _ let' = unLoc par
-          HsLet _ bs _ = unLoc let'
-          HsValBinds _ vbs = unLoc bs
-          ValBinds _ lbs sigs = vbs
-      return lbs
+getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
+getFixBinds parsed =
+    -- We know this deconstruction is safe, because we made it ourselves!
+    let ExprWithTySig _ par _ = unLoc parsed
+        HsPar _ let' = unLoc par
+        HsLet _ bs _ = unLoc let'
+        HsValBinds _ vbs = unLoc bs
+        ValBinds _ lbs sigs = vbs
+    in lbs
 
 applyFixes :: ParsedModule -> LHsBinds GhcPs -> (ParsedModule, [RFix])
 applyFixes pm@ParsedModule{pm_parsed_source=(L lm (hm@HsModule{..}))} nbs =

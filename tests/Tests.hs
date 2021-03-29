@@ -7,9 +7,10 @@ import Test.Tasty.QuickCheck
 import Test.Tasty.ExpectedFailure
 
 import Synth.Repair ( repair, failingProps, propCounterExample
-                    , runJustParseExpr, getExprFitCands)
-import Synth.Eval ( CompileConfig(..), compileCheck, traceTarget
-                  , showUnsafe, moduleToProb)
+                    , getExprFitCands, translate)
+import Synth.Eval ( CompileConfig(..), compileParsedCheck, traceTarget
+                  , showUnsafe, moduleToProb, runJustParseExpr
+                  , buildTraceCorrel)
 import Synth.Flatten
 import Synth.Util
 import Synth.Sanctify
@@ -81,7 +82,7 @@ repairTests = testGroup "Repair" [
               expected = "((foldl (+) 0)) :: [Int] -> Int"
               rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-          fixes <- map trim <$> repair cc rp
+          fixes <- map trim <$> (translate cc rp >>= repair cc)
           expected `elem` fixes @? "Expected repair not found in fixes"
     , localOption (mkTimeout 20_000_000) $
         testCase "GetExprCands finds important candidates" $ do
@@ -109,7 +110,7 @@ repairTests = testGroup "Repair" [
                           , "EFC {gcd' a (b - a)}"
                           , "EFC {gcd' a}"
                           , "EFC {b - a}"]
-          expr_cands <- getExprFitCands cc wrong_prog
+          expr_cands <- runJustParseExpr cc wrong_prog >>= getExprFitCands cc
           map showUnsafe expr_cands @?= expected
     , localOption (mkTimeout 20_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
@@ -128,7 +129,7 @@ repairTests = testGroup "Repair" [
               context = []
               rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-          fixes <- map trim <$> repair cc rp
+          fixes <- map trim <$> (translate cc rp >>= repair cc)
           (length fixes > 0) @? "No fix found"
   ]
 
@@ -151,9 +152,10 @@ failingPropsTests = testGroup "Failing props" [
               context = []
               rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-          failed_props <- failingProps cc rp
+          tp <- translate cc rp
+          failed_props <- failingProps cc tp
           -- Only the first prop should be failing (due to an infinite loop)
-          failed_props @?= [head props]
+          (map showUnsafe failed_props) @?= [head props]
       , localOption (mkTimeout 10_000_000) $
           testCase "Only one failing prop" $ do
             let cc = CompConf {
@@ -169,8 +171,9 @@ failingPropsTests = testGroup "Failing props" [
                 expected = "((foldl (+) 0)) :: [Int] -> Int"
                 rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                            , r_prog=wrong_prog, r_props=props}
-            failed_props <- failingProps cc rp
-            failed_props @?= props
+            tp <- translate cc rp
+            failed_props <- failingProps cc tp
+            map showUnsafe failed_props @?= props
     ]
 
 counterExampleTests = testGroup "Counter Examples" [
@@ -187,9 +190,11 @@ counterExampleTests = testGroup "Counter Examples" [
                 expected = "((foldl (+) 0)) :: [Int] -> Int"
                 rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                            , r_prog=wrong_prog, r_props=props}
-            [failed_prop] <- failingProps cc rp
-            Just [counter_example] <- propCounterExample cc rp failed_prop
-            res <- compileCheck cc ("(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example)
+            tp <- translate cc rp
+            [failed_prop] <- failingProps cc tp
+            Just [counter_example] <- propCounterExample cc tp failed_prop
+            let expr = ("(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example)
+            res <- runJustParseExpr cc expr >>= compileParsedCheck cc
             case fromDynamic @Bool res of
               Just v -> not v @? "Counter Example is not a counter example!"
               Nothing -> error "Incorrect type!!"
@@ -206,10 +211,12 @@ counterExampleTests = testGroup "Counter Examples" [
                 context = []
                 rp = RProb { r_target = "", r_ctxt=context, r_ty=ty
                            , r_prog=wrong_prog, r_props=props}
-            [failed_prop] <- failingProps cc rp
-            Just counter_example_args <- propCounterExample cc rp failed_prop
+            tp <- translate cc rp
+            [failed_prop] <- failingProps cc tp
+            Just counter_example_args <- propCounterExample cc tp failed_prop
             let arg_str = unwords counter_example_args
-            res <- compileCheck cc ("(-) " ++ arg_str ++ " == (+) " ++ arg_str)
+                expr = ("(-) " ++ arg_str ++ " == (+) " ++ arg_str)
+            res <- runJustParseExpr cc expr >>= compileParsedCheck cc
             case fromDynamic @Bool res of
               Just v -> not v @? "Counter Example is not a counter example!"
               Nothing -> error "Incorrect type!!"
@@ -231,10 +238,11 @@ counterExampleTests = testGroup "Counter Examples" [
               context = []
               rp = RProb {r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-          [failed_prop] <- failingProps cc rp
+          tp <- translate cc rp
+          [failed_prop] <- failingProps cc tp
           -- Only the first prop should be failing (due to an infinite loop)
-          failed_prop @?= head props
-          Just counter_example_args <- propCounterExample cc rp failed_prop
+          (showUnsafe failed_prop) @?= head props
+          Just counter_example_args <- propCounterExample cc tp failed_prop
           null counter_example_args @? "The counter example should not have any arguments!"
   ]
 
@@ -253,10 +261,11 @@ traceTests = testGroup "Trace tests" [
                 expected = "((foldl (+) 0)) :: [Int] -> Int"
                 rp = RProb {r_target = "", r_ctxt=context, r_ty=ty
                           , r_prog=wrong_prog, r_props=props}
-            [failed_prop] <- failingProps cc rp
-            Just counter_example <- propCounterExample cc rp failed_prop
+            tp@EProb{..} <- translate cc rp
+            [failed_prop] <- failingProps cc tp
+            Just counter_example <- propCounterExample cc tp failed_prop
             Just (Node{subForest=[tree@Node{rootLabel=(tl, tname)}]})
-                 <- traceTarget cc wrong_prog failed_prop counter_example
+                 <- traceTarget cc e_prog failed_prop counter_example
             expr <- runJustParseExpr cc wrong_prog
             (getLoc expr) @?= mkInteractive tl
             (all (== 1) $ map snd $ concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!"
@@ -278,12 +287,14 @@ traceTests = testGroup "Trace tests" [
               context = []
               rp = RProb {r_target = "", r_ctxt=context, r_ty=ty
                          , r_prog=wrong_prog, r_props=props}
-          [failed_prop] <- failingProps cc rp
-          Just counter_example_args <- propCounterExample cc rp failed_prop
+          tp@EProb{..} <- translate cc rp
+          [failed_prop] <- failingProps cc tp
+          Just counter_example_args <- propCounterExample cc tp failed_prop
           -- We generate the trace
-          Just res <- traceTarget cc wrong_prog failed_prop counter_example_args
-          parsed <- runJustParseExpr cc wrong_prog
-          let eMap = Map.fromList $ map (\e -> (getLoc e, showUnsafe e)) $ flattenExpr parsed
+          let prog_at_ty = progAtTy e_prog e_ty
+          tcorrel <- buildTraceCorrel cc prog_at_ty
+          Just res <- traceTarget cc prog_at_ty failed_prop counter_example_args
+          let eMap = Map.fromList $ map (\e -> (getLoc e, showUnsafe e)) $ flattenExpr tcorrel
               trc = map (\(s,r) -> (s, eMap Map.!? (mkInteractive s), r, maximum $ map snd r)) $ flatten res
               isXbox (ExpBox _) = True
               isXBox _ = False
@@ -337,7 +348,7 @@ moduleTests = testGroup "Module tests" [
                                      , "+broken = foldl (+) 0"]]
 
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-        fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
+        fixes <- ( (translate cc' rp >>= repair cc')) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   , localOption (mkTimeout 30_000_000) $
@@ -364,7 +375,7 @@ moduleTests = testGroup "Module tests" [
                 , "gcd' a b | b == 0 = a"
                 , "gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)" ]]
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-        fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
+        fixes <- ( (translate cc' rp >>= repair cc')) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   , localOption (mkTimeout 30_000_000) $
@@ -380,7 +391,7 @@ moduleTests = testGroup "Module tests" [
                                     , "+theAnswer = 42"]]
 
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-        fixes <- (repair cc' rp) >>= mapM (getFixBinds cc)
+        fixes <- ( (translate cc' rp >>= repair cc')) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
         let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   ]
