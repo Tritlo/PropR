@@ -50,22 +50,20 @@ applyFixes pm@ParsedModule{pm_parsed_source=(L lm (hm@HsModule{..}))} nbs =
           nbMap :: Map RdrName (LHsBind GhcPs)
           nbMap = Map.fromList $ mapMaybe bToFunId $ bagToList nbs
 
-prettyFixColor, prettyFix:: RFix -> String
 
-prettyFixColor ((L orig d), (L _ d')) =
-    showUnsafe orig ++ "\n"
-    ++ unlines (toOut $ zip (lines $ showUnsafe d) (lines $ showUnsafe d'))
-  where toL sym = map (sym:) . lines . showUnsafe
-        toOut :: [(String, String)] -> [String]
-        toOut [] = []
-        toOut ((l,l'):ls) | l == l' = l:(toOut ls)
-        toOut ((l,l'):ls) =
-            (red ++ ('-':l)):(green ++ ('+':l') ++ nocolor):(toOut ls)
+-- Colorize a pretty printed fix
+colorizeDiff:: String -> String
+colorizeDiff= unlines . map color . lines
+  where color line@('-':_) = red ++ line ++ nocolor
+        color line@('+':_) = green ++ line ++ nocolor
+        color l = l
         red     = "\x1b[31m"
         green   = "\x1b[32m"
         nocolor = "\x1b[0m"
 
-prettyFix ((L orig d), (L _ d')) =
+-- Pretty print a fix by adding git like '+' and '-' to each line.
+ppDiff:: RFix -> String
+ppDiff ((L orig d), (L _ d')) =
     showUnsafe orig ++ "\n"
     ++ unlines (toOut $ zip (lines $ showUnsafe d) (lines $ showUnsafe d'))
   where toL sym = map (sym:) . lines . showUnsafe
