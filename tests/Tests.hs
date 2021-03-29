@@ -472,15 +472,21 @@ moduleTests =
               expected =
                 map
                   unlines
-                  [ [ "tests/BrokenModule.hs:8:1-20",
+                  [ [ "---tests/BrokenModule.hs",
+                      "+++tests/BrokenModule.hs",
+                      "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = sum"
                     ],
-                    [ "tests/BrokenModule.hs:8:1-20",
+                    [ "---tests/BrokenModule.hs",
+                      "+++tests/BrokenModule.hs",
+                      "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl add 0"
                     ],
-                    [ "tests/BrokenModule.hs:8:1-20",
+                    [ "---tests/BrokenModule.hs",
+                      "+++tests/BrokenModule.hs",
+                      "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl (+) 0"
                     ]
@@ -514,7 +520,9 @@ moduleTests =
               expected =
                 map
                   unlines
-                  [ [ "tests/BrokenGCD.hs:(17,1)-(21,28)",
+                  [ [ "---tests/BrokenGCD.hs",
+                      "+++tests/BrokenGCD.hs",
+                      "@@ -17,3 +17,3 @@ gcd' 0 b = gcd' 0 b",
                       "-gcd' 0 b = gcd' 0 b",
                       "+gcd' 0 b = b",
                       " gcd' a b | b == 0 = a",
@@ -538,7 +546,9 @@ moduleTests =
               expected =
                 map
                   unlines
-                  [ [ "tests/MagicConstant.hs:7:1-14",
+                  [ [ "---tests/MagicConstant.hs",
+                      "+++tests/MagicConstant.hs",
+                      "@@ -7,1 +7,1 @@ theAnswer = 17",
                       "-theAnswer = 17",
                       "+theAnswer = 42"
                     ]

@@ -30,7 +30,7 @@ $ cabal run ghc-synth -- tests/BrokenModule.hs
 
 to see it in action on the `foldl (-) 0` example. This produces the following:
 
-```
+```diff
 TARGET:
   `broken` in tests/BrokenModule.hs
 SCOPE:
@@ -51,7 +51,7 @@ IN CONTEXT:
 PARAMETERS:
   MAX HOLES: 2
   MAX DEPTH: 1
-PROGRAM TO REPAIR: 
+PROGRAM TO REPAIR:
 let
   broken :: [Int] -> Int
   broken = foldl (-) 0
@@ -61,35 +61,42 @@ FAILING PROPS:
 COUNTER EXAMPLES:
   [1]
 TRACE OF COUNTER EXAMPLES:
-  (RealSrcSpan SrcSpanMultiLine "FakeTarget38652-0.hs" 0 -1 4 10,Nothing,[(TopLevelBox ["fake_target"],1)],1)
-  (RealSrcSpan SrcSpanMultiLine "FakeTarget38652-0.hs" 1 1 4 10,Just "let\n  broken :: [Int] -> Int\n  broken = foldl (-) 0\nin broken",[(ExpBox False,1)],1)
-  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 3 23,Nothing,[(LocalBox ["fake_target","broken"],1)],1)
-  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 12 23,Just "foldl (-) 0",[(ExpBox False,1)],1)
-  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 18 21,Just "(-)",[(ExpBox False,1)],1)
-  (RealSrcSpan SrcSpanOneLine "FakeTarget38652-0.hs" 3 22 23,Just "0",[(ExpBox False,1)],1)
+  (RealSrcSpan SrcSpanMultiLine "FakeTarget85802-0.hs" 0 -3 4 10,Nothing,[(TopLevelBox ["fake_target"],1)],1)
+  (RealSrcSpan SrcSpanMultiLine "FakeTarget85802-0.hs" 1 1 4 10,Just "let\n  broken :: [Int] -> Int\n  broken = foldl (-) 0\nin broken",[(ExpBox False,1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget85802-0.hs" 3 3 23,Nothing,[(LocalBox ["fake_target","broken"],1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget85802-0.hs" 3 12 23,Just "foldl (-) 0",[(ExpBox False,1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget85802-0.hs" 3 18 21,Just "(-)",[(ExpBox False,1)],1)
+  (RealSrcSpan SrcSpanOneLine "FakeTarget85802-0.hs" 3 22 23,Just "0",[(ExpBox False,1)],1)
 
-REPAIRING...DONE! (6.03s)
+REPAIRING...DONE! (2.43s)
 REPAIRS:
-  tests/BrokenModule.hs:8:1-20
-  -broken = foldl (-) 0
-  +broken = sum
+---tests/BrokenModule.hs
++++tests/BrokenModule.hs
+@@ -8,1 +8,1 @@ broken = foldl (-) 0
+-broken = foldl (-) 0
++broken = sum
 
-  tests/BrokenModule.hs:8:1-20
-  -broken = foldl (-) 0
-  +broken = foldl add 0
+---tests/BrokenModule.hs
++++tests/BrokenModule.hs
+@@ -8,1 +8,1 @@ broken = foldl (-) 0
+-broken = foldl (-) 0
++broken = foldl add 0
 
-  tests/BrokenModule.hs:8:1-20
-  -broken = foldl (-) 0
-  +broken = foldl (+) 0
+---tests/BrokenModule.hs
++++tests/BrokenModule.hs
+@@ -8,1 +8,1 @@ broken = foldl (-) 0
+-broken = foldl (-) 0
++broken = foldl (+) 0
 
 SYNTHESIZING...
 GENERATING CANDIDATES...DONE!
 GENERATED 130 CANDIDATES!
 COMPILING CANDIDATE CHECKS...DONE!
 CHECKING 130 CANDIDATES...DONE!
-DONE! (4.88s)
+DONE! (6.52s)
 FOUND MATCH:
 sum
+
 ```
 
 Showing how it works.
@@ -102,13 +109,15 @@ $ cabal run ghc-synth -- tests/BrokenGCD.hs
 
 gives us:
 
-```
+```diff
 REPAIRS:
-  tests/BrokenGCD.hs:(17,1)-(21,28)
-  -gcd' 0 b = gcd' 0 b
-  +gcd' 0 b = b
-   gcd' a b | b == 0 = a
-   gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)
+---tests/BrokenGCD.hs
++++tests/BrokenGCD.hs
+@@ -17,3 +17,3 @@ gcd' 0 b = gcd' 0 b
+-gcd' 0 b = gcd' 0 b
++gcd' 0 b = b
+ gcd' a b | b == 0 = a
+ gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)
 ```
 
 Showing how we could fix the infinitely looping `gcd` program.

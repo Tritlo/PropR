@@ -248,7 +248,7 @@ main = do
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
   putStrLn "REPAIRS:"
   fbs <- mapM (fmap getFixBinds . runJustParseExpr cc) fixes
-  mapM_ ((putStrLn . unlines . map ("  " ++) . lines) . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
+  mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
   putStrLn "SYNTHESIZING..."
   memo <- newIORef Map.empty
   putStr' "GENERATING CANDIDATES..."

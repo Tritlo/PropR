@@ -5,10 +5,12 @@
 module Synth.Diff where
 
 import Bag
+import Control.Arrow
 import Control.Exception
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
+import FastString
 import GHC
 import Synth.Eval
 import Synth.Types
@@ -81,19 +83,44 @@ colorizeDiff = unlines . map color . lines
   where
     color line@('-' : _) = red ++ line ++ nocolor
     color line@('+' : _) = green ++ line ++ nocolor
+    color line@('!' : _) = orange ++ line ++ nocolor
+    color line@('@' : '@' : _) = cyan ++ line ++ nocolor
     color l = l
     red = "\x1b[31m"
     green = "\x1b[32m"
+    cyan = "\x1b[36m"
+
+    orange = "\x1b[93m"
     nocolor = "\x1b[0m"
 
 -- Pretty print a fix by adding git like '+' and '-' to each line.
 ppDiff :: RFix -> String
-ppDiff (L orig d, L _ d') =
-  showUnsafe orig ++ "\n"
-    ++ unlines (toOut $ zip (lines $ showUnsafe d) (lines $ showUnsafe d'))
+ppDiff (L o1 d, L o2 d') =
+  unlines
+    ( ("---" ++ toLoc o1) :
+      ("+++" ++ toLoc o2) :
+      range o1 o2 :
+      toOut diffs
+    )
   where
     toL sym = map (sym :) . lines . showUnsafe
+    diffs = zip (lines $ showUnsafe d) (lines $ showUnsafe d')
     toOut :: [(String, String)] -> [String]
     toOut [] = []
     toOut ((l, l') : ls) | l == l' = (' ' : l) : toOut ls
     toOut ((l, l') : ls) = ('-' : l) : ('+' : l') : toOut ls
+    toLoc (RealSrcSpan rs) = unpackFS $ srcSpanFile rs
+    toLoc (UnhelpfulSpan s) = unpackFS s
+    header = case lines $ showUnsafe d of
+      f : _ -> ' ' : if length f > 33 then take 30 f ++ "..." else f
+      _ -> ""
+    range (RealSrcSpan rs1) (RealSrcSpan rs2) =
+      "@@ " ++ '-' : show s1 ++ ',' : d ++ ' ' : '+' : show s2 ++ ',' : d ++ " @@" ++ header
+      where
+        d = show $ length diffs
+        s1 = srcSpanStartLine rs1
+        s2 = srcSpanStartLine rs2
+    -- Just a default
+    range _ _ = "@@ -" ++ d ++ " +" ++ d ++ " @@" ++ header
+      where
+        d = show $ length diffs
