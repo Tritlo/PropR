@@ -69,5 +69,5 @@ ppDiff ((L orig d), (L _ d')) =
   where toL sym = map (sym:) . lines . showUnsafe
         toOut :: [(String, String)] -> [String]
         toOut [] = []
-        toOut ((l,l'):ls) | l == l' = l:(toOut ls)
+        toOut ((l,l'):ls) | l == l' = (' ':l):(toOut ls)
         toOut ((l,l'):ls) = (('-':l)):(('+':l')):(toOut ls)

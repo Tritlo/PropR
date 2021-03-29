@@ -372,8 +372,8 @@ moduleTests = testGroup "Module tests" [
                   "tests/BrokenGCD.hs:(17,1)-(21,28)"
                 , "-gcd' 0 b = gcd' 0 b"
                 , "+gcd' 0 b = b"
-                , "gcd' a b | b == 0 = a"
-                , "gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)" ]]
+                , " gcd' a b | b == 0 = a"
+                , " gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)" ]]
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
         fixes <- ( (translate cc' rp >>= repair cc')) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
         let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod) fixes
