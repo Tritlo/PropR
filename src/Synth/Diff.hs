@@ -10,16 +10,27 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
 import Data.Maybe
+import Control.Exception
+
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
 getFixBinds parsed =
     -- We know this deconstruction is safe, because we made it ourselves!
-    let ExprWithTySig _ par _ = unLoc parsed
-        HsPar _ let' = unLoc par
-        HsLet _ bs _ = unLoc let'
-        HsValBinds _ vbs = unLoc bs
-        ValBinds _ lbs sigs = vbs
-    in lbs
+    -- but it never hurts to check
+    assert (check parsed) $
+        let ExprWithTySig _ par _ = unLoc parsed
+            HsPar _ let' = unLoc par
+            HsLet _ bs _ = unLoc let'
+            HsValBinds _ vbs = unLoc bs
+            ValBinds _ lbs _ = vbs
+        -- but it never hurts to check.
+        in  lbs
+  where check (L _ (ExprWithTySig _
+               (L _ (HsPar _
+                (L _ (HsLet _
+                 (L _ (HsValBinds _
+                        (ValBinds _ _ _))) _)))) _)) = True
+        check _ = False
 
 applyFixes :: ParsedModule -> LHsBinds GhcPs -> (ParsedModule, [RFix])
 applyFixes pm@ParsedModule{pm_parsed_source=(L lm (hm@HsModule{..}))} nbs =
