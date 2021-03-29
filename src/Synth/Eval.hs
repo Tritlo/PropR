@@ -275,6 +275,9 @@ moduleToProb cc@CompConf{..} mod_path mb_target = do
       return (cc', mod, probs)
 
 
+-- When we do the trace, we use a "fake_target" function. This build the
+-- corresponding expression, so we can correlate the trace information with
+-- the expression we're checking.
 buildTraceCorrel :: CompileConfig -> EExpr -> IO EExpr
 buildTraceCorrel cc expr = do
    let correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
@@ -288,6 +291,7 @@ buildTraceCorrel cc expr = do
                 GRHSs{grhssGRHSs= [(L _ (GRHS _ _ bod))] }})])}})] = bagToList bg
    return bod
 
+-- Run HPC to get the trace information.
 traceTarget :: CompileConfig -> EExpr -> EProp -> [RExpr]
               -> IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
 traceTarget cc expr@(L (RealSrcSpan realSpan) _)

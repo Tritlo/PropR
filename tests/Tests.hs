@@ -9,7 +9,8 @@ import Test.Tasty.ExpectedFailure
 import Synth.Repair ( repair, failingProps, propCounterExample
                     , getExprFitCands, translate)
 import Synth.Eval ( CompileConfig(..), compileParsedCheck, traceTarget
-                  , showUnsafe, moduleToProb, runJustParseExpr)
+                  , showUnsafe, moduleToProb, runJustParseExpr
+                  , buildTraceCorrel)
 import Synth.Flatten
 import Synth.Util
 import Synth.Sanctify
@@ -290,9 +291,10 @@ traceTests = testGroup "Trace tests" [
           [failed_prop] <- failingProps cc tp
           Just counter_example_args <- propCounterExample cc tp failed_prop
           -- We generate the trace
-          Just res <- traceTarget cc e_prog failed_prop counter_example_args
-          parsed <- runJustParseExpr cc wrong_prog
-          let eMap = Map.fromList $ map (\e -> (getLoc e, showUnsafe e)) $ flattenExpr parsed
+          let prog_at_ty = progAtTy e_prog e_ty
+          tcorrel <- buildTraceCorrel cc prog_at_ty
+          Just res <- traceTarget cc prog_at_ty failed_prop counter_example_args
+          let eMap = Map.fromList $ map (\e -> (getLoc e, showUnsafe e)) $ flattenExpr tcorrel
               trc = map (\(s,r) -> (s, eMap Map.!? (mkInteractive s), r, maximum $ map snd r)) $ flatten res
               isXbox (ExpBox _) = True
               isXBox _ = False
@@ -304,7 +306,6 @@ traceTests = testGroup "Trace tests" [
               loopEntry = find isLooper trc
 
           all isInEMapOrNotExpBox trc @? "All the expressions should be present in the trace!"
-          print trc
           isJust loopEntry @? "The loop causing expresssion should be in the trace"
           let Just (_,_,_,loops) = loopEntry
           loops >= 100_000 @? "There should have been a lot of invocations of the loop!"
