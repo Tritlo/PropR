@@ -190,9 +190,9 @@ buildCounterExampleCheck
   ( L
       loc
       fb@FunBind
-             { fun_id = fid,
-               fun_matches = fm@MG {mg_alts = (L lm malts)}
-             }
+        { fun_id = fid,
+          fun_matches = fm@MG {mg_alts = (L lm malts)}
+        }
     )
   EProb {..} = noLoc $ HsLet NoExtField ctxt check_prog
     where
@@ -235,11 +235,12 @@ buildCounterExampleCheck
                 (tt "IO")
                 ( noLoc $
                     HsParTy NoExtField $
-                      noLoc (
-                          HsAppTy
+                      noLoc
+                        ( HsAppTy
                             NoExtField
                             (tt "Maybe")
-                            (noLoc $ HsListTy NoExtField $ tt "String"))
+                            (noLoc $ HsListTy NoExtField $ tt "String")
+                        )
                 )
       check_prog :: LHsExpr GhcPs
       check_prog =
@@ -257,35 +258,35 @@ buildCounterExampleCheck
 
       other_case =
         noLoc $
-            Match
-              NoExtField
-              (FunRhs ffid Prefix NoSrcStrict)
-              [noLoc $ WildPat NoExtField]
-              ( GRHSs
-                  NoExtField
-                  [noLoc $ GRHS NoExtField [] nothing]
-                  elb
-              )
+          Match
+            NoExtField
+            (FunRhs ffid Prefix NoSrcStrict)
+            [noLoc $ WildPat NoExtField]
+            ( GRHSs
+                NoExtField
+                [noLoc $ GRHS NoExtField [] nothing]
+                elb
+            )
         where
           nothing = tfn dataName "Nothing"
       failure_case =
         noLoc $
-            Match
-              NoExtField
-              (FunRhs ffid Prefix NoSrcStrict)
-              [noLoc $ ConPatIn failure fcondets]
-              ( GRHSs
-                  NoExtField
-                  [ noLoc $
-                      GRHS NoExtField [] $
-                        noLoc $
-                          HsApp
-                            NoExtField
-                            (tfn dataName "Just")
-                            svar
-                  ]
-                  elb
-              )
+          Match
+            NoExtField
+            (FunRhs ffid Prefix NoSrcStrict)
+            [noLoc $ ConPatIn failure fcondets]
+            ( GRHSs
+                NoExtField
+                [ noLoc $
+                    GRHS NoExtField [] $
+                      noLoc $
+                        HsApp
+                          NoExtField
+                          (tfn dataName "Just")
+                          svar
+                ]
+                elb
+            )
         where
           svar :: LHsExpr GhcPs
           svar = noLoc $ HsVar NoExtField svarname
