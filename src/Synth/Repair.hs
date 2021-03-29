@@ -214,9 +214,7 @@ failingProps cc ep@EProb{..} = do
 
 repair :: CompileConfig -> EProblem -> IO [RExpr]
 repair cc tp@EProb{..} =
-   do let prog_at_ty =
-             noLoc $ ExprWithTySig NoExtField
-                (noLoc $ HsPar NoExtField e_prog) e_ty
+   do let prog_at_ty = progAtTy e_prog e_ty
       trace_correl <- buildTraceCorrel cc prog_at_ty
 
       let holey_exprs = sanctifyExpr trace_correl

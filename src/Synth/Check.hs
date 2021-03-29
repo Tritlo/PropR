@@ -75,9 +75,7 @@ buildSuccessCheck EProb {..} =
                              , unitBag expr_b
                              , unitBag pcb
                              ]
-        expr_b = baseFun (mkVarUnqual $ fsLit "expr__")
-                         (noLoc $ ExprWithTySig NoExtField
-                                     (noLoc $ HsPar NoExtField e_prog) e_ty)
+        expr_b = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy e_prog e_ty
         ctxt = (L bl (HsValBinds be nvb))
         prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
         prop_to_name (L _ (FunBind {fun_id = fid})) = Just fid
@@ -135,9 +133,7 @@ buildCounterExampleCheck
         nvb = (ValBinds vbe nvbs vsigs)
         nvbs = unionManyBags [unitBag qcb, vbs,
                               listToBag [propWithin, expr_b, failFun]]
-        expr_b = baseFun (mkVarUnqual $ fsLit "expr__")
-                         (noLoc $ ExprWithTySig NoExtField
-                           (noLoc $ HsPar NoExtField e_prog) e_ty)
+        expr_b = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy e_prog e_ty
         ctxt = (L bl (HsValBinds be nvb))
         propWithin = L loc fb {fun_matches = fm {mg_alts = (L lm malts')}}
 
@@ -160,9 +156,9 @@ buildCounterExampleCheck
                              (noLoc $ HsAppTy NoExtField (tt "Maybe")
                                (noLoc $ HsListTy NoExtField $ tt "String")))
         check_prog :: LHsExpr GhcPs
-        check_prog = noLoc $ HsPar NoExtField $ noLoc $ ExprWithTySig NoExtField
-                   (noLoc $ HsPar NoExtField
-                    (noLoc $ HsPar NoExtField $ propCheckExpr (tf "failureToMaybe") fid)) sq_ty
+        check_prog = noLoc $ HsPar NoExtField $
+                       progAtTy (noLoc $ HsPar NoExtField $
+                                   propCheckExpr (tf "failureToMaybe") fid) sq_ty
 
         ffid :: Located RdrName
         ffid = (noLoc $ mkVarUnqual $ fsLit "failureToMaybe")
