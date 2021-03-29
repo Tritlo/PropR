@@ -349,7 +349,7 @@ moduleTests = testGroup "Module tests" [
 
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
         fixes <- ( (translate cc' rp >>= repair cc')) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
-        let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
+        let fixDiffs = map (concatMap prettyFix . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   , localOption (mkTimeout 30_000_000) $
       testCase "Repair BrokenModule finds correct target" $ do
@@ -376,7 +376,7 @@ moduleTests = testGroup "Module tests" [
                 , "gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)" ]]
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
         fixes <- ( (translate cc' rp >>= repair cc')) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
-        let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
+        let fixDiffs = map (concatMap prettyFix . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   , localOption (mkTimeout 30_000_000) $
       testCase "Repair MagicConstant" $ do
@@ -392,7 +392,7 @@ moduleTests = testGroup "Module tests" [
 
         (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
         fixes <- ( (translate cc' rp >>= repair cc')) >>= mapM (fmap getFixBinds . runJustParseExpr cc)
-        let fixDiffs = map (concatMap (prettyFix False) . snd . applyFixes mod) fixes
+        let fixDiffs = map (concatMap prettyFix . snd . applyFixes mod) fixes
         fixDiffs @?= expected
   ]
 
