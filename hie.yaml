@@ -1,0 +1,10 @@
+cradle:
+  cabal:
+    - path: "./src/Synth"
+      component: "lib:synth"
+    - path: "./tests"
+      component: "lib:synth"
+    - path: "./src/Main.hs"
+      component: "exe:ghc-synth"
+    - path: "./tests/Tests.hs"
+      component: "test:test"
