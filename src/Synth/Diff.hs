@@ -29,17 +29,17 @@ getFixBinds parsed =
                (L _ (HsPar _
                 (L _ (HsLet _
                  (L _ (HsValBinds _
-                        (ValBinds _ _ _))) _)))) _)) = True
+                        ValBinds {})) _)))) _)) = True
         check _ = False
 
 applyFixes :: ParsedModule -> LHsBinds GhcPs -> (ParsedModule, [RFix])
-applyFixes pm@ParsedModule{pm_parsed_source=(L lm (hm@HsModule{..}))} nbs =
-    (pm {pm_parsed_source=(L lm (hm {hsmodDecls = decls'}) )}, swaps)
+applyFixes pm@ParsedModule{pm_parsed_source=(L lm hm@HsModule{..})} nbs =
+    (pm {pm_parsed_source=L lm (hm {hsmodDecls = decls'})}, swaps)
     where decls' = map swapDecl hsmodDecls
           swaps = mapMaybe swap hsmodDecls
           swap :: LHsDecl GhcPs -> Maybe RFix
           swap d@(L dl (ValD x FunBind{..}))
-            = case nbMap Map.!? (unLoc fun_id) of
+            = case nbMap Map.!? unLoc fun_id of
                 Just b -> Just (d, L dl (ValD x $ unLoc b))
                 _ -> Nothing
           swap _ = Nothing
@@ -63,11 +63,11 @@ colorizeDiff= unlines . map color . lines
 
 -- Pretty print a fix by adding git like '+' and '-' to each line.
 ppDiff:: RFix -> String
-ppDiff ((L orig d), (L _ d')) =
+ppDiff (L orig d, L _ d') =
     showUnsafe orig ++ "\n"
     ++ unlines (toOut $ zip (lines $ showUnsafe d) (lines $ showUnsafe d'))
   where toL sym = map (sym:) . lines . showUnsafe
         toOut :: [(String, String)] -> [String]
         toOut [] = []
-        toOut ((l,l'):ls) | l == l' = (' ':l):(toOut ls)
-        toOut ((l,l'):ls) = (('-':l)):(('+':l')):(toOut ls)
+        toOut ((l,l'):ls) | l == l' = (' ':l):toOut ls
+        toOut ((l,l'):ls) = ('-':l):('+':l'):toOut ls

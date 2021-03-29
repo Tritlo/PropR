@@ -23,9 +23,9 @@ hasDebug :: IO Bool
 hasDebug = ("-fdebug" `elem`) <$> getArgs
 
 -- Prints only when debug is enabled
-pr_debug :: String -> IO ()
-pr_debug str = do dbg <- hasDebug
-                  when dbg $ putStrLn str
+prDebug :: String -> IO ()
+prDebug str = do dbg <- hasDebug
+                 when dbg $ putStrLn str
 
 -- Prints a string, and then flushes, so that intermediate strings show up
 putStr' :: String -> IO ()
@@ -46,18 +46,18 @@ startsWith (p:ps) (s:ss) | p == s = startsWith ps ss
 startsWith _ _ = False
 
 prop_startsWith :: String -> String -> Bool
-prop_startsWith st rest = startsWith st (st ++ rest) == True
+prop_startsWith st rest = startsWith st (st ++ rest)
 
 contextLet :: [String] -> String -> String
 contextLet context l =
-   "let {" ++ (intercalate "; " $ concatMap lines context) ++ "} in " ++ l
+   "let {" ++ intercalate "; " (concatMap lines context) ++ "} in " ++ l
 
 mapFirst :: (a -> Maybe a) -> [a] -> Maybe [a]
 mapFirst = mapFirst' []
   where mapFirst' :: [a] -> (a -> Maybe a) -> [a] -> Maybe [a]
         mapFirst' sf _ [] = Nothing
         mapFirst' sf f (a:as) = case f a of
-                                 Just a' -> Just $ (reverse (a':sf)) ++ as
+                                 Just a' -> Just $ reverse (a':sf) ++ as
                                  _ -> mapFirst' (a:sf) f as
 
 -- Turns a list of booleans into an int
@@ -68,12 +68,12 @@ boolsToBit bs | length bs > size =
 boolsToBit bs =
       (foldl (.|.) zeroBits  .
       map (bit . fst) .
-      filter (\(_,x) -> x) .
+      filter snd .
       zip [0..]) bs
 
 -- Turns an int into a list of booleans
 bitToBools :: Int -> [Bool]
-bitToBools b =  map (testBit b) [0.. (finiteBitSize (0 :: Int)) -1]
+bitToBools b =  map (testBit b) [0.. finiteBitSize (0 :: Int) -1]
 
 -- We want to be able to make SrcSpans into the ones made by `justParseExpr`,
 -- which means we replace the actual filenames with "<interactive>""
@@ -92,7 +92,7 @@ oneAndRest :: [a] -> [(a, Int,  [a])]
 oneAndRest = oneAndRest' 0
   where oneAndRest' _ [] = []
         oneAndRest' n (x:xs) =
-           (x,n, xs):(map (\(y,n', ys) -> (y,n',x:ys)) $ oneAndRest' (n+1) xs)
+           (x,n, xs):map (\(y,n', ys) -> (y,n',x:ys)) (oneAndRest' (n+1) xs)
 
 prop_oneAndRest :: Ord a => [a] -> Bool
 prop_oneAndRest xs = prop_hasAll && prop_restIsThere && prop_fromCorrectPos
@@ -105,8 +105,8 @@ prop_oneAndRest xs = prop_hasAll && prop_restIsThere && prop_fromCorrectPos
 -- Inserts the given element at the given index in the list, or at the end
 insertAt :: Int -> a -> [a] -> [a]
 insertAt _ a [] = [a]
-insertAt 0 a as = (a:as)
-insertAt n a (x:xs) = x:(insertAt (n-1) a xs)
+insertAt 0 a as = a:as
+insertAt n a (x:xs) = x:insertAt (n-1) a xs
 
 
 -- Applies the given function to each element in the list and leaves the

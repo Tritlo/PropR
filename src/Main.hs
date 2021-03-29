@@ -2,8 +2,6 @@
 module Main where
 
 
-import Data.Maybe
-
 import System.Process
 import System.IO
 import System.Environment ( getArgs )
@@ -11,6 +9,7 @@ import System.Environment ( getArgs )
 import Data.Dynamic
 import Data.List
 import Data.Maybe
+import Control.Arrow
 
 import Text.ParserCombinators.ReadP
 
@@ -51,16 +50,16 @@ synthesizeSatisfying cc depth ioref context props ty = do
   let inp = (cc, depth, context, ty, props)
   sM <- readIORef ioref
   case sM Map.!? inp of
-    Just res -> pr_debug ("Found " ++ (show inp) ++ "!") >> return res
+    Just res -> prDebug ("Found " ++ show inp ++ "!") >> return res
     Nothing -> do
-      pr_debug $ "Synthesizing " ++ (show inp)
+      prDebug $ "Synthesizing " ++ show inp
       mono_ty <- monomorphiseType cc ty
       Left r <- compileAtType cc (contextLet context "_") ty
       case r of
         ((vals,refs):_) -> do
           let rHoles = map readHole refs
-          rHVs <- sequence $ map recur rHoles
-          let cands = ((map showHF vals) ++ (map wrap $ concat rHVs))
+          rHVs <- mapM recur rHoles
+          let cands = map showHF vals ++ map wrap (concat rHVs)
               lv = length cands
           res <- if null props then return cands else do
              -- This ends the "GENERATING CANDIDATES..." message.
@@ -88,13 +87,13 @@ synthesizeSatisfying cc depth ioref context props ty = do
                  --        Nothing -> genCandTys cc' bcat cands
                  to_check <- zip cands <$> compileParsedChecks cc' to_check_exprs
                  putStrLn "DONE!"
-                 putStr' ("CHECKING " ++ (show lv) ++ " CANDIDATES...")
+                 putStr' ("CHECKING " ++ show lv ++ " CANDIDATES...")
                  fits <- mapM
                    (\(i,(v,c)) ->
-                      do pr_debug ((show i) ++ "/"++ (show lv) ++ ": " ++ v)
+                      do prDebug (show i ++ "/"++ show lv ++ ": " ++ v)
                          (v,) . (Right True ==) <$> runCheck c) $ zip [1..] to_check
                  putStrLn "DONE!"
-                 pr_debug $ (show inp) ++ " fits done!"
+                 prDebug $ show inp ++ " fits done!"
                  let res = map fst $ filter snd fits
                  return res
           atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
@@ -109,13 +108,13 @@ synthesizeSatisfying cc depth ioref context props ty = do
     recur :: (String, [String]) -> IO [String]
     recur (e, []) = return [e]
     recur (e, holes) = do
-      pr_debug $ "Synthesizing for " ++ show holes
+      prDebug $ "Synthesizing for " ++ show holes
       holeFs <- mapM (synthesizeSatisfying cc' (depth-1) ioref context []) holes
-      pr_debug $ (show holes) ++ " Done!"
+      prDebug $ show holes ++ " Done!"
       -- We synthesize for each of the holes, and then produce ALL COMBINATIONS
       return $
        if any null holeFs then []
-       else map ((e ++ " ") ++) $ map unwords $ combinations holeFs
+       else map (((e ++ " ") ++) . unwords) (combinations holeFs)
       where combinations :: [[String]] -> [[String]]
             combinations [] = [[]]
             -- List monad magic
@@ -130,7 +129,7 @@ data SynthFlags = SFlgs { synth_holes :: Int
 
 
 getFlags :: IO SynthFlags
-getFlags = do args <- Map.fromList . (map (break (== '='))) <$> getArgs
+getFlags = do args <- Map.fromList . map (break (== '=')) <$> getArgs
               let synth_holes = case args Map.!? "-fholes" of
                                     Just r | not (null r) -> read (tail r)
                                     Nothing -> 2
@@ -161,10 +160,10 @@ compConf = CompConf { importStmts = imports
 
 showTime :: Integer -> String
 showTime time = if res > 1000
-                then (printf "%.2f" ((fromIntegral res * 1e-3) :: Double)) ++ "s"
+                then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
                 else show res ++ "ms"
   where res :: Integer
-        res = (floor $ (fromIntegral time) * 1e-9)
+        res = floor $ fromIntegral time * 1e-9
 
 time :: IO a -> IO (Integer, a)
 time act = do start <- getCPUTime
@@ -192,18 +191,18 @@ main = do
     putStrLn "IN CONTEXT:"
     mapM_ (putStrLn . ("  " ++)) r_ctxt
     putStrLn "PARAMETERS:"
-    putStrLn $ "  MAX HOLES: "  ++ (show synth_holes)
-    putStrLn $ "  MAX DEPTH: "  ++ (show synth_depth)
+    putStrLn $ "  MAX HOLES: "  ++ show synth_holes
+    putStrLn $ "  MAX DEPTH: "  ++ show synth_depth
     putStrLn "PROGRAM TO REPAIR: "
     putStrLn r_prog
     putStrLn "FAILING PROPS:"
     failing_props <- failingProps cc tp
-    mapM (putStrLn . ("  " ++) . showUnsafe) failing_props
+    mapM_ (putStrLn . ("  " ++) . showUnsafe) failing_props
     putStrLn "COUNTER EXAMPLES:"
     counter_examples <- mapM (propCounterExample cc tp) failing_props
-    mapM (putStrLn . (++) "  " . (\t -> if (t == "") then "<none>" else t) . unwords) $ catMaybes counter_examples
+    mapM_ (putStrLn . (++) "  " . (\t -> if t == "" then "<none>" else t) . unwords) $ catMaybes counter_examples
     eMap <-
-       (Map.fromList . map (\e -> (getLoc e, showUnsafe e))  . flattenExpr) <$>
+       Map.fromList . map (getLoc &&& showUnsafe)  . flattenExpr <$>
           runJustParseExpr cc r_prog
 
     let hasCE (p, Just ce) = Just (p, ce)
@@ -211,19 +210,18 @@ main = do
     reses <- mapM (uncurry $ traceTarget cc e_prog)
                  $ mapMaybe hasCE $ zip failing_props counter_examples
     let trcs = map (map (\(s,r) ->
-                             (s, eMap Map.!? (mkInteractive s),
+                             (s, eMap Map.!? mkInteractive s,
                               r, maximum $ map snd r)) . flatten) $ catMaybes reses
     putStrLn "TRACE OF COUNTER EXAMPLES:"
-    mapM (putStrLn . unlines . map ((++) "  " . show)) trcs
+    mapM_ (putStrLn . unlines . map ((++) "  " . show)) trcs
     putStr' "REPAIRING..."
     (t, fixes) <- time $ repair cc tp
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
     putStrLn "REPAIRS:"
     fbs <- mapM (fmap getFixBinds . runJustParseExpr cc ) fixes
-    mapM (putStrLn . unlines . map ((++) "  ") . lines) $
-       map (concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
+    mapM_ ((putStrLn . unlines . map ("  " ++) . lines) . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
     putStrLn "SYNTHESIZING..."
-    memo <- newIORef (Map.empty)
+    memo <- newIORef Map.empty
     putStr' "GENERATING CANDIDATES..."
     (t, r) <- time $ synthesizeSatisfying cc synth_depth memo r_ctxt r_props r_ty
     putStrLn $ "DONE! (" ++ showTime t ++ ")"
@@ -231,7 +229,7 @@ main = do
         [] -> putStrLn "NO MATCH FOUND!"
         [xs] -> do putStrLn "FOUND MATCH:"
                    putStrLn xs
-        xs -> do putStrLn $ "FOUND " ++ (show  $ length xs) ++" MATCHES:"
+        xs -> do putStrLn $ "FOUND " ++ show (length xs) ++" MATCHES:"
                  mapM_ putStrLn xs
 
 

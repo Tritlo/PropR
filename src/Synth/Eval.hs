@@ -68,10 +68,8 @@ import Trace.Hpc.Mix
 import Trace.Hpc.Util
 
 import Data.Tree
-import Data.Maybe (listToMaybe)
-import Control.Monad (join)
-import Data.List (find)
 import qualified Data.Set as Set
+import qualified Data.Bifunctor
 -- Configuration and GHC setup
 
 holeFlags = [ Opt_ShowHoleConstraints
@@ -84,7 +82,7 @@ setFlags = [Opt_Hpc]
 
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
-        (flip (foldl gopt_set) setFlags) $
+        flip (foldl gopt_set) setFlags $
           (foldl gopt_unset sflags (Opt_OmitYields:holeFlags)) {
                maxValidHoleFits = Nothing,
                maxRefHoleFits = Nothing,
@@ -119,13 +117,13 @@ initGhcCtxt cc = initGhcCtxt' cc []
 -- expression fits, as well as adding any additional imports.
 initGhcCtxt' :: CompileConfig -> [ExprFitCand] -> Ghc (IORef [(TypedHole, [HoleFit])])
 initGhcCtxt' CompConf{..} local_exprs = do
-   flags <- (config hole_lvl) <$> getSessionDynFlags
+   flags <- config hole_lvl <$> getSessionDynFlags
      --`dopt_set` Opt_D_dump_json
    -- First we have to add "base" to scope
    plugRef <- liftIO $ newIORef []
-   let flags' = flags { packageFlags = (packageFlags flags)
-                                    ++ (map toPkg packages)
-                      , staticPlugins = sPlug:(staticPlugins flags) }
+   let flags' = flags { packageFlags = packageFlags flags
+                                    ++ map toPkg packages
+                      , staticPlugins = sPlug:staticPlugins flags }
        sPlug = StaticPlugin $ PluginWithArgs { paArguments = []
                                              , paPlugin = synthPlug local_exprs plugRef}
    toLink <- setSessionDynFlags flags'
@@ -156,7 +154,7 @@ type CompileRes = Either [ValsAndRefs] Dynamic
 -- By integrating with a hole fit plugin, we can extract the fits (with all
 -- the types and everything directly, instead of having to parse the error
 -- message)
-getHoleFitsFromError :: IORef ([(TypedHole, [HoleFit])])
+getHoleFitsFromError :: IORef [(TypedHole, [HoleFit])]
                      -> SourceError -> Ghc (Either [ValsAndRefs] b)
 getHoleFitsFromError plugRef err = do
     flags <- getSessionDynFlags
@@ -165,25 +163,25 @@ getHoleFitsFromError plugRef err = do
     res <- liftIO $ readIORef plugRef
     when (null res) (printException err)
     let gs = groupBy (sameHole `on` fst) res
-        allFitsOfHole ((th, f):rest) = (th, concat $ f:(map snd rest))
-        valsAndRefs = map (partition part . snd) $ map allFitsOfHole gs
+        allFitsOfHole ((th, f):rest) = (th, concat $ f:map snd rest)
+        valsAndRefs = map ((partition part . snd) . allFitsOfHole) gs
     return $ Left valsAndRefs
   where part (RawHoleFit _) = True
-        part (HoleFit {..}) = hfRefLvl <= 0
+        part HoleFit {..} = hfRefLvl <= 0
         sameHole :: TypedHole -> TypedHole -> Bool
-        sameHole (TyH {tyHCt = Just (CHoleCan {cc_hole = h1})})
-                 (TyH {tyHCt = Just (CHoleCan {cc_hole = h2})}) =
-                 (holeOcc h1) == (holeOcc h2)
+        sameHole TyH {tyHCt = Just CHoleCan {cc_hole = h1}}
+                 TyH {tyHCt = Just CHoleCan {cc_hole = h2}} =
+                 holeOcc h1 == holeOcc h2
         sameHole _ _ = False
 
 monomorphiseType :: CompileConfig -> RType -> IO (Maybe RType)
-monomorphiseType cc ty = do
+monomorphiseType cc ty =
    runGhc (Just libdir) $
-       do _ <- initGhcCtxt cc
-          flags <- getSessionDynFlags
-          let pp = showSDoc flags . ppr
-          handleSourceError (const $ return Nothing)
-            ((Just . pp . mono) <$> (exprType TM_Default ("undefined :: " ++ ty)))
+    do _ <- initGhcCtxt cc
+       flags <- getSessionDynFlags
+       let pp = showSDoc flags . ppr
+       handleSourceError (const $ return Nothing)
+         (Just . pp . mono <$> exprType TM_Default ("undefined :: " ++ ty))
 
   where mono ty = substTyWith tvs (replicate (length tvs) unitTy) base_ty
           where (tvs, base_ty) = splitForAllTys ty
@@ -195,7 +193,7 @@ evalOrHoleFits cc str = do
    plugRef <- initGhcCtxt cc
    -- Then we can actually run the program!
    handleSourceError (getHoleFitsFromError plugRef)
-                     (dynCompileExpr str >>= (return . Right))
+                     (Right <$> dynCompileExpr str)
 
 moduleToProb :: CompileConfig -> FilePath -> Maybe String
              -> IO ( CompileConfig, ParsedModule, [RProblem])
@@ -207,17 +205,17 @@ moduleToProb cc@CompConf{..} mod_path mb_target = do
       _ <- load LoadAllTargets
       let mname = mkModuleName $ dropExtension $ takeFileName mod_path
       mod@ParsedModule {..} <- getModSummary mname >>= parseModule
-      let (L _ (HsModule {..})) = pm_parsed_source
+      let (L _ HsModule {..}) = pm_parsed_source
           cc' = cc {importStmts = importStmts ++ imps'}
             where imps' = map showUnsafe hsmodImports
           ctxt = map showUnsafe hsmodDecls
           props = filter isProp hsmodDecls
-            where isProp (L _ (ValD _ (FunBind{..}))) =
+            where isProp (L _ (ValD _ FunBind{..})) =
                      ((==) "prop" . take 4 . occNameString . occName . unLoc) fun_id
                   isProp _ = False
 
           fix_targets = Set.toList $ fun_ids `Set.intersection` prop_vars
-             where funId (L _ (ValD _ (FunBind{..}))) = Just (unLoc fun_id)
+             where funId (L _ (ValD _ FunBind{..})) = Just (unLoc fun_id)
                    funId _ = Nothing
                    fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
                    mbVar (L _ (HsVar _ v)) = Just (unLoc v)
@@ -236,19 +234,19 @@ moduleToProb cc@CompConf{..} mod_path mb_target = do
                _ -> Nothing
             where
               fix_target = showUnsafe t_name
-              isTDef (L _ (SigD _ (TypeSig _ ids _))) = t_name `elem` (map unLoc ids)
-              isTDef (L _ (ValD _ (FunBind{..}))) = t_name == unLoc fun_id
+              isTDef (L _ (SigD _ (TypeSig _ ids _))) = t_name `elem` map unLoc ids
+              isTDef (L _ (ValD _ FunBind{..})) = t_name == unLoc fun_id
               isTDef _ = False
               -- We get the type of the program
               getTType (L _ (SigD _ ts@(TypeSig _ ids sig))) |
-                 t_name `elem` (map unLoc ids) = Just ts
+                 t_name `elem` map unLoc ids = Just ts
               getTType _ = Nothing
               -- takes prop :: t ==> prop' :: target_type -> t since our
               -- previous assumptions relied on the properties to take in the
               -- function being fixed  as the first argument.
               wrapProp pdef = unwords (p':fix_target:rest)
                  where (p:rest) = words $ showUnsafe pdef
-                       p' = "prop'" ++ (drop 4 p)
+                       p' = "prop'" ++ drop 4 p
               wrapped_props = map wrapProp props
               prog_binds :: LHsBindsLR GhcPs GhcPs
               prog_binds = listToBag $ mapMaybe f $ filter isTDef hsmodDecls
@@ -285,10 +283,10 @@ buildTraceCorrel cc expr = do
           (noLoc $ HsLet NoExtField (noLoc $ HsValBinds NoExtField
                (ValBinds NoExtField (unitBag correl) [])) hole) :: LHsExpr GhcPs))
    let (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _)) = pcorrel
-       [L _ (FunBind{fun_matches=
+       [L _ FunBind{fun_matches=
           MG{mg_alts=
-             (L _ [L _ (Match{m_grhss=
-                GRHSs{grhssGRHSs= [(L _ (GRHS _ _ bod))] }})])}})] = bagToList bg
+             (L _ [L _ Match{m_grhss=
+                GRHSs{grhssGRHSs= [L _ (GRHS _ _ bod)] }}])}}] = bagToList bg
    return bod
 
 -- Run HPC to get the trace information.
@@ -310,12 +308,12 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _)
           tixFilePath = exeName ++ ".tix"
           mixFilePath = tempDir
 
-      pr_debug modTxt
+      prDebug modTxt
       -- Note: we do not need to dump the text of the module into the file, it
       -- only needs to exist. Otherwise we would have to write something like
       -- `hPutStr handle modTxt`
       hClose handle
-      liftIO $ mapM pr_debug $ lines modTxt
+      liftIO $ mapM prDebug $ lines modTxt
       runGhc (Just libdir) $
         do plugRef <- initGhcCtxt cc
            -- We set the module as the main module, which makes GHC generate
@@ -368,8 +366,8 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _)
                      -- We throw away any extra functions in the file, such as
                      -- the properties and the main function, and only look at
                      -- the ticks for our expression
-                     [n@(Node{rootLabel=(root,_)})] <- filter isTarget . concatMap toDom <$> mapM rm mods
-                     return $ Just (fmap (\(k,v) -> (toFakeSpan tf root k, v)) n)
+                     [n@Node{rootLabel=(root,_)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
+                     return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
                    _ -> return Nothing
            removeTarget tid
            liftIO $ removeDirectoryRecursive tempDir
@@ -377,7 +375,7 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _)
  where toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
        toDom (TixModule _ _ _ ts, Mix _ _ _ _ es)
          = createMixEntryDom $ zipWith (\ t (pos,bl) -> (pos, (bl, t))) ts es
-       isTarget (Node {rootLabel = (root, [(TopLevelBox ["fake_target"], _)])}) =
+       isTarget Node {rootLabel = (root, [(TopLevelBox ["fake_target"], _)])} =
           True
        isTarget _ = False
        -- We convert the HpcPos to the equivalent span we would get if we'd
@@ -386,8 +384,8 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _)
        toFakeSpan tf root sp = mkSrcSpan start end
          where fname = fsLit $ takeFileName tf
                (rsl, rsc, rel, rec) = fromHpcPos root
-               eloff = rel - (srcSpanEndLine realSpan)
-               ecoff = rec - (srcSpanEndCol realSpan)
+               eloff = rel - srcSpanEndLine realSpan
+               ecoff = rec - srcSpanEndCol realSpan
                (sl, sc, el, ec) = fromHpcPos sp
                -- We add two spaces before every line in the source.
                start = mkSrcLoc fname (sl-eloff) (sc-ecoff-1)
@@ -433,7 +431,7 @@ compileParsedChecks :: HasCallStack => CompileConfig -> [EExpr] -> IO [CompileRe
 compileParsedChecks cc exprs = runGhc (Just libdir) $ do
     _ <- initGhcCtxt (cc {hole_lvl = 0})
     mapM (\exp -> handleSourceError (reportError exp)
-          $ fmap Right $ dynCompileParsedExpr exp ) exprs
+          $ Right <$> dynCompileParsedExpr exp ) exprs
 
 -- Adapted from dynCompileExpr in InteractiveEval
 dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic
@@ -474,7 +472,7 @@ runCheck (Right dval) =
   -- Bool will be the same (unless *base* was compiled differently, *UGGH*).
   case fromDynamic @(IO [Bool]) dval of
       Nothing ->
-        do pr_debug "wrong type!!"
+        do prDebug "wrong type!!"
            return (Right False)
       Just res ->
         -- We need to forkProcess here, since we might be evaulating
@@ -507,13 +505,12 @@ runCheck (Right dval) =
                  -- We are limited to a maximum of 8 here, since the POSIX exit
                  -- code is only 8 bits.
                 else ExitFailure $ if length res <= 8
-                                   then (complement $ boolsToBit res)
+                                   then complement $ boolsToBit res
                                    else -1
 
 compile :: CompileConfig -> RType -> IO CompileRes
-compile cc str = do
-   r <- runGhc (Just libdir) $ evalOrHoleFits cc str
-   return r
+compile cc str =
+   runGhc (Just libdir) $ evalOrHoleFits cc str
 
 compileAtType :: CompileConfig -> RExpr -> RType -> IO CompileRes
 compileAtType cc str ty = compile cc ("((" ++ str ++ ") :: " ++ ty ++ ")")

@@ -25,8 +25,8 @@ synthPlug local_exprs plugRef =
         hfPluginInit = newTcRef (0 :: Int)
         , hfPluginStop = \_ -> return ()
         , hfPluginRun = \iref -> HoleFitPlugin {
-              candPlugin = (\_ c -> return c)
-            , fitPlugin = (\h f -> do
+              candPlugin = \_ c -> return c
+            , fitPlugin = \h f -> do
                  -- Bump the number of times this plugin has been called, used
                  -- to make sure we only check expression fits once.
                  num_calls <- readTcRef iref
@@ -48,11 +48,11 @@ synthPlug local_exprs plugRef =
                                       checkExprCand :: ExprFitCand -> TcM Bool
                                       checkExprCand EFC{efc_ty=Nothing} = return False
                                       checkExprCand EFC{efc_ty=Just e_ty, efc_wc = rcts} = fst <$>
-                                        (withoutUnification fvs $ tcCheckHoleFit h {tyHRelevantCts=cts} hole_ty e_ty)
+                                        withoutUnification fvs (tcCheckHoleFit h {tyHRelevantCts=cts} hole_ty e_ty)
                                         where fvs = tyCoFVsOfTypes [hole_ty, e_ty]
-                                              cts = (tyHRelevantCts h) `unionBags`rcts
+                                              cts = tyHRelevantCts h `unionBags`rcts
                                   map efc_cand <$> filterM checkExprCand in_scope_exprs
                             _ -> return []
-                 let fits = (map (RawHoleFit . ppr) exprs) ++ f
+                 let fits = map (RawHoleFit . ppr) exprs ++ f
                  liftIO $ modifyIORef plugRef ((h,fits):)
-                 return fits)}}}
+                 return fits}}}
