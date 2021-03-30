@@ -112,9 +112,19 @@ output p = do
 data CompileConfig = CompConf
   { importStmts :: [String],
     packages :: [String],
-    hole_lvl :: Int
+    hole_lvl :: Int,
+    genIndividuals :: Int
   }
   deriving (Show, Eq, Ord)
+
+defaultConf :: CompileConfig
+defaultConf =
+  CompConf
+    { hole_lvl = 0,
+      packages = ["base", "process", "QuickCheck"],
+      importStmts = ["import Prelude"],
+      genIndividuals = 5
+    }
 
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming True [])

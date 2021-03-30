@@ -18,6 +18,7 @@ import Synth.Eval
   ( CompileConfig (..),
     buildTraceCorrel,
     compileParsedCheck,
+    defaultConf,
     moduleToProb,
     runJustParseExpr,
     showUnsafe,
@@ -96,7 +97,7 @@ repairTests =
       localOption (mkTimeout 10_000_000) $
         testCase "Repair `foldl (-) 0`" $ do
           let cc =
-                CompConf
+                defaultConf
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -124,12 +125,7 @@ repairTests =
           expected `elem` map (trim . showUnsafe) fixProgs @? "Expected repair not found in fixes",
       localOption (mkTimeout 20_000_000) $
         testCase "GetExprCands finds important candidates" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               wrong_prog =
                 unlines
                   [ "let { gcd' 0 b = gcd' 0 b",
@@ -158,12 +154,7 @@ repairTests =
           map showUnsafe expr_cands @?= expected,
       localOption (mkTimeout 20_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               props =
                 [ "prop_1 f = f 0 55 == 55",
                   "prop_2 f = f 1071 1029 == 21"
@@ -194,12 +185,7 @@ failingPropsTests =
     "Failing props"
     [ localOption (mkTimeout 15_000_000) $
         testCase "Failing props for gcd" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -229,7 +215,7 @@ failingPropsTests =
       localOption (mkTimeout 10_000_000) $
         testCase "Only one failing prop" $ do
           let cc =
-                CompConf
+                defaultConf
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -262,7 +248,7 @@ counterExampleTests =
     [ localOption (mkTimeout 10_000_000) $
         testCase "Only one counter example" $ do
           let cc =
-                CompConf
+                defaultConf
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -291,7 +277,7 @@ counterExampleTests =
       localOption (mkTimeout 10_000_000) $
         testCase "Multiple examples" $ do
           let cc =
-                CompConf
+                defaultConf
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -319,12 +305,7 @@ counterExampleTests =
             Nothing -> error "Incorrect type!!",
       localOption (mkTimeout 15_000_000) $
         testCase "No args loop fail" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -360,12 +341,7 @@ traceTests =
     "Trace tests"
     [ localOption (mkTimeout 10_000_000) $
         testCase "Trace foldl" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
-                  }
+          let cc = defaultConf
               ty = "[Int] -> Int"
               wrong_prog = "(foldl (-) 0)"
               props = ["prop_isSum f xs = f xs == sum xs"]
@@ -389,12 +365,7 @@ traceTests =
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
       localOption (mkTimeout 30_000_000) $
         testCase "Trace finds loop" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -447,12 +418,7 @@ sanctifyTests =
     "Sanctify tests"
     [ localOption (mkTimeout 1_000_000) $
         testCase "Sanctify foldl program" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               toFix = "tests/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
@@ -461,12 +427,7 @@ sanctifyTests =
           length (sanctifyExpr e_prog) @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               toFix = "tests/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
@@ -481,12 +442,7 @@ moduleTests =
     "Module tests"
     [ localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule With Diff" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               toFix = "tests/BrokenModule.hs"
               repair_target = Just "broken"
               expected =
@@ -519,23 +475,13 @@ moduleTests =
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               toFix = "tests/BrokenModule.hs"
           (_, _, [EProb {..}]) <- moduleToProb cc toFix Nothing
           showUnsafe e_target @?= "broken",
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenGCD" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               toFix = "tests/BrokenGCD.hs"
               repair_target = Just "gcd'"
               expected =
@@ -557,12 +503,7 @@ moduleTests =
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair MagicConstant" $ do
-          let cc =
-                CompConf
-                  { hole_lvl = 0,
-                    packages = ["base", "process", "QuickCheck"],
-                    importStmts = ["import Prelude"]
-                  }
+          let cc = defaultConf
               toFix = "tests/MagicConstant.hs"
               repair_target = Nothing
               expected =
