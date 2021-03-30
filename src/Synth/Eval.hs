@@ -209,14 +209,6 @@ monomorphiseType cc ty =
       where
         (tvs, base_ty) = splitForAllTys ty
 
-evalOrHoleFits :: CompileConfig -> RExpr -> Ghc CompileRes
-evalOrHoleFits cc str = do
-  plugRef <- initGhcCtxt cc
-  -- Then we can actually run the program!
-  handleSourceError
-    (getHoleFitsFromError plugRef)
-    (Right <$> dynCompileExpr str)
-
 moduleToProb ::
   CompileConfig ->
   FilePath ->
@@ -596,8 +588,12 @@ runCheck (Right dval) =
                   else -1
 
 compile :: CompileConfig -> RType -> IO CompileRes
-compile cc str =
-  runGhc (Just libdir) $ evalOrHoleFits cc str
+compile cc str = runGhc (Just libdir) $ do
+  plugRef <- initGhcCtxt cc
+  -- Then we can actually run the program!
+  handleSourceError
+    (getHoleFitsFromError plugRef)
+    (Right <$> dynCompileExpr str)
 
 compileAtType :: CompileConfig -> RExpr -> RType -> IO CompileRes
 compileAtType cc str ty = compile cc ("((" ++ str ++ ") :: " ++ ty ++ ")")
