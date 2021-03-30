@@ -299,19 +299,14 @@ repair cc tp@EProb {..} =
       _ -> return holey_exprs
 
     -- We add the context by replacing a hole in a let.
-    let holeyContext = noLoc $ HsLet NoExtField e_ctxt hole
-        undefContext = noLoc $ HsLet NoExtField e_ctxt $ noLoc $ HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
+    let inContext = noLoc . HsLet NoExtField e_ctxt
+        holeyContext = inContext hole
+        undefContext = inContext $ noLoc $ HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
 
     -- We find expressions that can be used as candidates in the program
     expr_cands <- getExprFitCands cc undefContext
     let addContext = fromJust . fillHole holeyContext . unLoc
-    fits <-
-      mapM
-        ( \(_, e) ->
-            (e,)
-              <$> getHoleFits cc expr_cands (addContext e)
-        )
-        holey_exprs
+    fits <- mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) holey_exprs
     -- We process the fits ourselves, since we might have some expression
     -- fits
     let processFit :: HoleFit -> IO (HsExpr GhcPs)
