@@ -418,13 +418,11 @@ traceTests =
           Just counter_example_args <- propCounterExample cc tp failed_prop
           -- We generate the trace
           let prog_at_ty = progAtTy e_prog e_ty
-          (_, tcorrel) <- buildTraceCorrel cc prog_at_ty
+          tcorrel <- buildTraceCorrel cc prog_at_ty
           Just res <- traceTarget cc prog_at_ty failed_prop counter_example_args
           let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
               chain l = tcorrel Map.!? l >>= (eMap Map.!?)
-              trc =
-                map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $
-                  flatten res
+              trc = map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $ flatten res
               isXbox (ExpBox _) = True
               isXBox _ = False
               isInEMapOrNotExpBox (Just _, _, _) = True

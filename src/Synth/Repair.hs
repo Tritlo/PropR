@@ -259,7 +259,7 @@ repair cc tp@EProb {..} =
   do
     let prog_at_ty = progAtTy e_prog e_ty
         holey_exprs = sanctifyExpr prog_at_ty
-    (_, trace_correl) <- buildTraceCorrel cc prog_at_ty
+    trace_correl <- buildTraceCorrel cc prog_at_ty
 
     prDebug $ showUnsafe prog_at_ty
     prDebug $ showUnsafe holey_exprs
