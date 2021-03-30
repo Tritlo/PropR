@@ -11,7 +11,8 @@ import Data.List (find)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
 import Data.Tree
-import GhcPlugins (getLoc)
+import Data.Tuple (swap)
+import GhcPlugins (GenLocated (L), getLoc, unLoc)
 import Synth.Diff
 import Synth.Eval
   ( CompileConfig (..),
@@ -417,22 +418,25 @@ traceTests =
           Just counter_example_args <- propCounterExample cc tp failed_prop
           -- We generate the trace
           let prog_at_ty = progAtTy e_prog e_ty
-          tcorrel <- buildTraceCorrel cc prog_at_ty
+          (_, tcorrel) <- buildTraceCorrel cc prog_at_ty
           Just res <- traceTarget cc prog_at_ty failed_prop counter_example_args
-          let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr tcorrel
-              trc = map (\(s, r) -> (s, eMap Map.!? mkInteractive s, r, maximum $ map snd r)) $ flatten res
+          let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
+              chain l = tcorrel Map.!? l >>= (eMap Map.!?)
+              trc =
+                map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $
+                  flatten res
               isXbox (ExpBox _) = True
               isXBox _ = False
-              isInEMapOrNotExpBox (_, Just _, _, _) = True
-              isInEMapOrNotExpBox (_, _, r, _) = not (any (isXBox . fst) r)
-              isLooper (_, Just "gcd' 0 b", _, _) = True
+              isInEMapOrNotExpBox (Just _, _, _) = True
+              isInEMapOrNotExpBox (_, r, _) = not (any (isXBox . fst) r)
+              isLooper (Just "gcd' 0 b", _, _) = True
               isLooper _ = False
 
               loopEntry = find isLooper trc
 
           all isInEMapOrNotExpBox trc @? "All the expressions should be present in the trace!"
           isJust loopEntry @? "The loop causing expresssion should be in the trace"
-          let Just (_, _, _, loops) = loopEntry
+          let Just (_, _, loops) = loopEntry
           loops >= 100_000 @? "There should have been a lot of invocations of the loop!"
     ]
 

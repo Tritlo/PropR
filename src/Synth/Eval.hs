@@ -23,6 +23,7 @@ import Data.Either
 import Data.Function (on)
 import Data.IORef
 import Data.List
+import qualified Data.Map as Map
 import Data.Maybe
 import qualified Data.Set as Set
 import Data.Time.Clock
@@ -315,9 +316,11 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     return (cc', mod, probs)
 
 -- When we do the trace, we use a "fake_target" function. This build the
--- corresponding expression, so we can correlate the trace information with
--- the expression we're checking.
-buildTraceCorrel :: CompileConfig -> EExpr -> IO EExpr
+-- corresponding expression, and a Map from the traced expression and to the
+-- original so we can correlate the trace information with the expression we're
+-- checking, and the base for that expression (used when there  is no location
+-- information available).
+buildTraceCorrel :: CompileConfig -> EExpr -> IO (SrcSpan, Map.Map SrcSpan SrcSpan)
 buildTraceCorrel cc expr = do
   let correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
   pcorrel <-
@@ -357,7 +360,13 @@ buildTraceCorrel cc expr = do
                   }
             }
         ] = bagToList bg
-  return bod
+  let fb = flattenExpr bod
+      fr = flattenExpr expr
+      mp =
+        Map.fromList $
+          filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e) $
+            zipWith (\b e -> (getLoc b, getLoc e)) fb fr
+  return (getLoc bod, mp)
 
 -- Run HPC to get the trace information.
 traceTarget ::
@@ -479,7 +488,7 @@ traceTarget
           -- GHC Srcs end one after the end
           end = mkSrcLoc fname (el - eloff) (ec - ecoff)
 traceTarget cc e@(L _ xp) fp fa = do
-  trace_correl@(L tl _) <- buildTraceCorrel cc e
+  (tl, _) <- buildTraceCorrel cc e
   traceTarget cc (L tl xp) fp fa
 
 exprToModule :: CompileConfig -> String -> LHsBind GhcPs -> RProp -> [RExpr] -> RExpr

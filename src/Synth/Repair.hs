@@ -1,6 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
+
 module Synth.Repair where
 
 import Bag
@@ -17,6 +18,7 @@ import qualified CoreUtils
 import Data.Dynamic (fromDyn)
 import Data.Either
 import Data.List (intercalate, sortOn)
+import qualified Data.Map as Map
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -256,9 +258,9 @@ repair :: CompileConfig -> EProblem -> IO [RExpr]
 repair cc tp@EProb {..} =
   do
     let prog_at_ty = progAtTy e_prog e_ty
-    trace_correl <- buildTraceCorrel cc prog_at_ty
+        holey_exprs = sanctifyExpr prog_at_ty
+    (_, trace_correl) <- buildTraceCorrel cc prog_at_ty
 
-    let holey_exprs = sanctifyExpr trace_correl
     prDebug $ showUnsafe prog_at_ty
     prDebug $ showUnsafe holey_exprs
 
@@ -286,8 +288,8 @@ repair cc tp@EProb {..} =
               let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
                   invokes = map only_max $ flatten res
                   non_zero = filter (\(src, n) -> n > 0) invokes
-                  non_zero_src = Set.fromList $ map fst non_zero
-                  non_zero_holes = filter (\(l, e) -> isGoodSrcSpan l && l `Set.member` non_zero_src) holey_exprs
+                  non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+                  non_zero_holes = filter (\(l, e) -> l `Set.member` non_zero_src) holey_exprs
               prDebug "Invokes:"
               prDebug $ showUnsafe invokes
               prDebug "Non-zero holes:"
