@@ -338,118 +338,114 @@ traceTarget ::
   EProp ->
   [RExpr] ->
   IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
-traceTarget
-  cc
-  expr@(L (RealSrcSpan realSpan) _)
-  failing_prop
-  failing_args = do
-    let tempDir = "./fake_targets"
-    createDirectoryIfMissing False tempDir
-    (tf, handle) <- openTempFile tempDir "FakeTarget.hs"
-    -- We generate the name of the module from the temporary file
-    let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
-        correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-        modTxt = exprToModule cc mname correl (showUnsafe failing_prop) failing_args
-        strBuff = stringToStringBuffer modTxt
-        m_name = mkModuleName mname
-        mod = IIModule m_name
-        exeName = dropExtension tf
-        tixFilePath = exeName ++ ".tix"
-        mixFilePath = tempDir
+traceTarget cc expr@(L (RealSrcSpan realSpan) _) failing_prop failing_args = do
+  let tempDir = "./fake_targets"
+  createDirectoryIfMissing False tempDir
+  (tf, handle) <- openTempFile tempDir "FakeTarget.hs"
+  -- We generate the name of the module from the temporary file
+  let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
+      correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
+      modTxt = exprToModule cc mname correl (showUnsafe failing_prop) failing_args
+      strBuff = stringToStringBuffer modTxt
+      m_name = mkModuleName mname
+      mod = IIModule m_name
+      exeName = dropExtension tf
+      tixFilePath = exeName ++ ".tix"
+      mixFilePath = tempDir
 
-    prDebug modTxt
-    -- Note: we do not need to dump the text of the module into the file, it
-    -- only needs to exist. Otherwise we would have to write something like
-    -- `hPutStr handle modTxt`
-    hClose handle
-    liftIO $ mapM prDebug $ lines modTxt
-    runGhc (Just libdir) $
-      do
-        plugRef <- initGhcCtxt cc
-        -- We set the module as the main module, which makes GHC generate
-        -- the executable.
-        dynFlags <- getSessionDynFlags
-        setSessionDynFlags $
-          dynFlags
-            { mainModIs = mkMainModule $ fsLit mname,
-              hpcDir = "./fake_targets"
-            }
-        now <- liftIO getCurrentTime
-        let tid = TargetFile tf Nothing
-            target = Target tid True $ Just (strBuff, now)
+  prDebug modTxt
+  -- Note: we do not need to dump the text of the module into the file, it
+  -- only needs to exist. Otherwise we would have to write something like
+  -- `hPutStr handle modTxt`
+  hClose handle
+  liftIO $ mapM prDebug $ lines modTxt
+  runGhc (Just libdir) $
+    do
+      plugRef <- initGhcCtxt cc
+      -- We set the module as the main module, which makes GHC generate
+      -- the executable.
+      dynFlags <- getSessionDynFlags
+      setSessionDynFlags $
+        dynFlags
+          { mainModIs = mkMainModule $ fsLit mname,
+            hpcDir = "./fake_targets"
+          }
+      now <- liftIO getCurrentTime
+      let tid = TargetFile tf Nothing
+          target = Target tid True $ Just (strBuff, now)
 
-        -- Adding and loading the target causes the compilation to kick
-        -- off and compiles the file.
-        addTarget target
-        _ <- load LoadAllTargets
-        -- We should for here in case it doesn't terminate, and modify
-        -- the run function so that it use the trace reflect functionality
-        -- to timeout and dump the tix file if possible.
-        res <- liftIO $
-          do
-            (_, _, _, ph) <-
-              createProcess
-                (proc exeName [])
-                  { env = Just [("HPCTIXFILE", tixFilePath)],
-                    -- We ignore the output
-                    std_out = CreatePipe
-                  }
-            ec <- timeout timeoutVal $ waitForProcess ph
+      -- Adding and loading the target causes the compilation to kick
+      -- off and compiles the file.
+      addTarget target
+      _ <- load LoadAllTargets
+      -- We should for here in case it doesn't terminate, and modify
+      -- the run function so that it use the trace reflect functionality
+      -- to timeout and dump the tix file if possible.
+      res <- liftIO $
+        do
+          (_, _, _, ph) <-
+            createProcess
+              (proc exeName [])
+                { env = Just [("HPCTIXFILE", tixFilePath)],
+                  -- We ignore the output
+                  std_out = CreatePipe
+                }
+          ec <- timeout timeoutVal $ waitForProcess ph
 
-            let -- If it doesn't respond to signals, we can't do anything
-                -- other than terminate
-                loop ec 0 = terminateProcess ph
-                loop ec n = when (isNothing ec) $ do
-                  -- If it's taking too long, it's probably stuck in a loop.
-                  -- By sending the right signal though, it will dump the tix
-                  -- file before dying.
-                  pid <- getPid ph
-                  case pid of
-                    Just pid ->
-                      do
-                        signalProcess keyboardSignal pid
-                        ec2 <- timeout timeoutVal $ waitForProcess ph
-                        loop ec2 (n -1)
-                    _ ->
-                      -- It finished in the brief time between calls, so we're good.
-                      return ()
-            -- We give it 3 tries
-            loop ec 3
+          let -- If it doesn't respond to signals, we can't do anything
+              -- other than terminate
+              loop ec 0 = terminateProcess ph
+              loop ec n = when (isNothing ec) $ do
+                -- If it's taking too long, it's probably stuck in a loop.
+                -- By sending the right signal though, it will dump the tix
+                -- file before dying.
+                pid <- getPid ph
+                case pid of
+                  Just pid ->
+                    do
+                      signalProcess keyboardSignal pid
+                      ec2 <- timeout timeoutVal $ waitForProcess ph
+                      loop ec2 (n -1)
+                  _ ->
+                    -- It finished in the brief time between calls, so we're good.
+                    return ()
+          -- We give it 3 tries
+          loop ec 3
 
-            tix <- readTix tixFilePath
-            let rm m = (m,) <$> readMix [mixFilePath] (Right m)
-            case tix of
-              Just (Tix mods) -> do
-                -- We throw away any extra functions in the file, such as
-                -- the properties and the main function, and only look at
-                -- the ticks for our expression
-                [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
-                return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
-              _ -> return Nothing
-        removeTarget tid
-        liftIO $ removeDirectoryRecursive tempDir
-        return res
-    where
-      toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
-      toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
-        createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
-      isTarget Node {rootLabel = (root, [(TopLevelBox ["fake_target"], _)])} =
-        True
-      isTarget _ = False
-      -- We convert the HpcPos to the equivalent span we would get if we'd
-      -- parsed and compiled the expression directly.
-      toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
-      toFakeSpan tf root sp = mkSrcSpan start end
-        where
-          fname = fsLit $ takeFileName tf
-          (rsl, rsc, rel, rec) = fromHpcPos root
-          eloff = rel - srcSpanEndLine realSpan
-          ecoff = rec - srcSpanEndCol realSpan
-          (sl, sc, el, ec) = fromHpcPos sp
-          -- We add two spaces before every line in the source.
-          start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
-          -- GHC Srcs end one after the end
-          end = mkSrcLoc fname (el - eloff) (ec - ecoff)
+          tix <- readTix tixFilePath
+          let rm m = (m,) <$> readMix [mixFilePath] (Right m)
+          case tix of
+            Just (Tix mods) -> do
+              -- We throw away any extra functions in the file, such as
+              -- the properties and the main function, and only look at
+              -- the ticks for our expression
+              [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
+              return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
+            _ -> return Nothing
+      removeTarget tid
+      liftIO $ removeDirectoryRecursive tempDir
+      return res
+  where
+    toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
+    toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
+      createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
+    isTarget Node {rootLabel = (root, [(TopLevelBox ["fake_target"], _)])} =
+      True
+    isTarget _ = False
+    -- We convert the HpcPos to the equivalent span we would get if we'd
+    -- parsed and compiled the expression directly.
+    toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
+    toFakeSpan tf root sp = mkSrcSpan start end
+      where
+        fname = fsLit $ takeFileName tf
+        (rsl, rsc, rel, rec) = fromHpcPos root
+        eloff = rel - srcSpanEndLine realSpan
+        ecoff = rec - srcSpanEndCol realSpan
+        (sl, sc, el, ec) = fromHpcPos sp
+        -- We add two spaces before every line in the source.
+        start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
+        -- GHC Srcs end one after the end
+        end = mkSrcLoc fname (el - eloff) (ec - ecoff)
 traceTarget cc e@(L _ xp) fp fa = do
   tl <- fakeBaseLoc cc e
   traceTarget cc (L tl xp) fp fa

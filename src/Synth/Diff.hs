@@ -28,34 +28,7 @@ getFixBinds parsed =
      in -- but it never hurts to check.
         lbs
   where
-    check
-      ( L
-          _
-          ( ExprWithTySig
-              _
-              ( L
-                  _
-                  ( HsPar
-                      _
-                      ( L
-                          _
-                          ( HsLet
-                              _
-                              ( L
-                                  _
-                                  ( HsValBinds
-                                      _
-                                      ValBinds {}
-                                    )
-                                )
-                              _
-                            )
-                        )
-                    )
-                )
-              _
-            )
-        ) = True
+    check (L _ (ExprWithTySig _ (L _ (HsPar _ (L _ (HsLet _ (L _ (HsValBinds _ ValBinds {})) _)))) _)) = True
     check _ = False
 
 applyFixes :: ParsedModule -> LHsBinds GhcPs -> (ParsedModule, [RFix])

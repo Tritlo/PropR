@@ -69,13 +69,7 @@ boolsToBit bs
     error $ "Only works for lists of length <= " ++ show size
   where
     size = finiteBitSize (0 :: Int)
-boolsToBit bs =
-  ( foldl (.|.) zeroBits
-      . map (bit . fst)
-      . filter snd
-      . zip [0 ..]
-  )
-    bs
+boolsToBit bs = (foldl (.|.) zeroBits . map (bit . fst) . filter snd . zip [0 ..]) bs
 
 -- Turns an int into a list of booleans
 bitToBools :: Int -> [Bool]
