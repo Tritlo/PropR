@@ -287,30 +287,25 @@ repair cc tp@EProb {..} =
         -- We find the ones with counter-examples and pick the shortest one
         ps_w_ce =
           sortOn (length . snd) $ mapMaybe hasCE $ zip failing_props counter_examples
-    holey_exprs <- case ps_w_ce of
-      (p, ce) : _ ->
-        -- We run the trace to find which expressions are touched in the
-        -- counter example
-        do
-          trc <- traceTarget cc prog_at_ty p ce
-          case trc of
-            -- We then remove suggested holes that are unlikely to help
-            -- (naively for now in the sense that we remove only holes
-            -- which did not get evaluated at all, so they are definitely
-            -- not going to matter).
-            Just res -> do
-              let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
-                  invokes = map only_max $ flatten res
-                  non_zero = filter (\(src, n) -> n > 0) invokes
-                  non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-                  non_zero_holes = filter (\(l, e) -> l `Set.member` non_zero_src) holey_exprs
-              prDebug "Invokes:"
-              prDebug $ showUnsafe invokes
-              prDebug "Non-zero holes:"
-              prDebug $ showUnsafe non_zero_holes
-              return non_zero_holes
-            _ -> return holey_exprs
-      _ -> return holey_exprs
+    let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
+        toInvokes res = Map.fromList $ map only_max $ flatten res
+    invokes <-
+      Map.toList
+        . Map.unionsWith (+)
+        . map toInvokes
+        . catMaybes
+        <$> mapM (uncurry $ traceTarget cc prog_at_ty) ps_w_ce
+    -- We then remove suggested holes that are unlikely to help (naively for now
+    -- in the sense that we remove only holes which did not get evaluated at all,
+    -- so they are definitely not going to matter).
+    let non_zero = filter (\(src, n) -> n > 0) invokes
+        non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+        non_zero_holes :: [(SrcSpan, LHsExpr GhcPs)]
+        non_zero_holes = filter (\(l, e) -> l `Set.member` non_zero_src) holey_exprs
+    prDebug "Invokes:"
+    prDebug $ showUnsafe invokes
+    prDebug "Non-zero holes:"
+    prDebug $ showUnsafe non_zero_holes
 
     -- We add the context by replacing a hole in a let.
     let inContext = noLoc . HsLet NoExtField e_ctxt
@@ -320,7 +315,7 @@ repair cc tp@EProb {..} =
     -- We find expressions that can be used as candidates in the program
     expr_cands <- getExprFitCands cc undefContext
     let addContext = snd . fromJust . fillHole holeyContext . unLoc
-    fits <- mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) holey_exprs
+    fits <- mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
     -- We process the fits ourselves, since we might have some expression
     -- fits
     let processFit :: HoleFit -> IO (HsExpr GhcPs)
