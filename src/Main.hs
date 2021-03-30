@@ -20,6 +20,7 @@ import Synth.Diff
 import Synth.Eval
 import Synth.Flatten
 import Synth.Repair
+import Synth.Replace (replaceExpr)
 import Synth.Types
 import Synth.Util
 import System.CPUTime
@@ -247,7 +248,8 @@ main = do
   (t, fixes) <- time $ repair cc tp
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
   putStrLn "REPAIRS:"
-  let fbs = map getFixBinds fixes
+  let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+      fbs = map getFixBinds newProgs
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
   putStrLn "SYNTHESIZING..."
   memo <- newIORef Map.empty

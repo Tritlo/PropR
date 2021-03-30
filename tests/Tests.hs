@@ -32,6 +32,7 @@ import Synth.Repair
     repair,
     translate,
   )
+import Synth.Replace (replaceExpr)
 import Synth.Sanctify
 import Synth.Types
 import Synth.Util
@@ -117,8 +118,10 @@ repairTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
-          fixes <- map (trim . showUnsafe) <$> (translate cc rp >>= repair cc)
-          expected `elem` fixes @? "Expected repair not found in fixes",
+          tp@EProb {..} <- translate cc rp
+          fixes <- repair cc tp
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+          expected `elem` map (trim . showUnsafe) fixProgs @? "Expected repair not found in fixes",
       localOption (mkTimeout 20_000_000) $
         testCase "GetExprCands finds important candidates" $ do
           let cc =
@@ -512,8 +515,10 @@ moduleTests =
                   ]
 
           (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          fixes <- translate cc' rp >>= repair cc'
-          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixes
+          tp@EProb {..} <- translate cc' rp
+          fixes <- repair cc' tp
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+              fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
@@ -549,8 +554,10 @@ moduleTests =
                     ]
                   ]
           (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          fixes <- translate cc' rp >>= repair cc'
-          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixes
+          tp@EProb {..} <- translate cc' rp
+          fixes <- repair cc' tp
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+              fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair MagicConstant" $ do
@@ -574,8 +581,10 @@ moduleTests =
                   ]
 
           (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          fixes <- translate cc' rp >>= repair cc'
-          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixes
+          tp@EProb {..} <- translate cc' rp
+          fixes <- repair cc' tp
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+              fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected
     ]
 

@@ -3,6 +3,7 @@
 module Synth.Types where
 
 import Constraint
+import Data.Map (Map)
 import GHC
 import Outputable
 import qualified Outputable as O
@@ -34,6 +35,9 @@ type EContext = LHsLocalBinds GhcPs
 type EType = LHsSigWcType GhcPs
 
 type EExpr = LHsExpr GhcPs
+
+-- A fix is a list of replacements and their locations
+type EFix = Map SrcSpan (HsExpr GhcPs)
 
 data EProblem = EProb
   { e_props :: [EProp],

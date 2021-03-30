@@ -267,7 +267,7 @@ failingProps cc ep@EProb {..} = do
               (ps1, ps2) = splitAt (length e_props `div` 2) e_props
           concat <$> mapM fp [ps1, ps2]
 
-repair :: CompileConfig -> EProblem -> IO [EExpr]
+repair :: CompileConfig -> EProblem -> IO [EFix]
 repair cc tp@EProb {..} =
   do
     let prog_at_ty = progAtTy e_prog e_ty
@@ -348,6 +348,6 @@ repair cc tp@EProb {..} =
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
     compiled_checks <- zip repls <$> compileParsedChecks cc' checks
     ran <- mapM (\(rep, c) -> (rep,) <$> runCheck c) compiled_checks
-    let succesful = filter (\(_, r) -> r == Right True) ran
+    let successful = filter (\(_, r) -> r == Right True) ran
 
-    return $ map (snd . fst) succesful
+    return $ map (Map.fromList . fst . fst) successful
