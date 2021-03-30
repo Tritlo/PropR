@@ -318,55 +318,22 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
 -- When we do the trace, we use a "fake_target" function. This build the
 -- corresponding expression, and a Map from the traced expression and to the
 -- original so we can correlate the trace information with the expression we're
--- checking, and the base for that expression (used when there  is no location
--- information available).
+-- checking.
 buildTraceCorrel :: CompileConfig -> EExpr -> IO (SrcSpan, Map.Map SrcSpan SrcSpan)
 buildTraceCorrel cc expr = do
   let correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-  pcorrel <-
-    runJustParseExpr
-      cc
-      ( showUnsafe
-          ( ( noLoc $
-                HsLet
-                  NoExtField
-                  ( noLoc $
-                      HsValBinds
-                        NoExtField
-                        (ValBinds NoExtField (unitBag correl) [])
-                  )
-                  hole
-            ) ::
-              LHsExpr GhcPs
-          )
-      )
+      correl_ctxt = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag correl) [])
+      correl_expr = (noLoc $ HsLet NoExtField correl_ctxt hole) :: LHsExpr GhcPs
+  pcorrel <- runJustParseExpr cc $ showUnsafe correl_expr
   let (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _)) = pcorrel
-      [ L
-          _
-          FunBind
-            { fun_matches =
-                MG
-                  { mg_alts =
-                      ( L
-                          _
-                          [ L
-                              _
-                              Match
-                                { m_grhss =
-                                    GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}
-                                }
-                            ]
-                        )
-                  }
-            }
-        ] = bagToList bg
-  let fb = flattenExpr bod
-      fr = flattenExpr expr
-      mp =
-        Map.fromList $
-          filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e) $
-            zipWith (\b e -> (getLoc b, getLoc e)) fb fr
-  return (getLoc bod, mp)
+      [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] = bagToList bg
+      [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] = alts
+  return
+    ( getLoc bod,
+      Map.fromList $
+        filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e) $
+          zipWith (\b e -> (getLoc b, getLoc e)) (flattenExpr bod) (flattenExpr expr)
+    )
 
 -- Run HPC to get the trace information.
 traceTarget ::
