@@ -116,7 +116,7 @@ repairTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
-          fixes <- map trim <$> (translate cc rp >>= repair cc)
+          fixes <- map (trim . showUnsafe) <$> (translate cc rp >>= repair cc)
           expected `elem` fixes @? "Expected repair not found in fixes",
       localOption (mkTimeout 20_000_000) $
         testCase "GetExprCands finds important candidates" $ do
@@ -181,7 +181,7 @@ repairTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
-          fixes <- map trim <$> (translate cc rp >>= repair cc)
+          fixes <- map (trim . showUnsafe) <$> (translate cc rp >>= repair cc)
           not (null fixes) @? "No fix found"
     ]
 
@@ -495,8 +495,8 @@ moduleTests =
                   ]
 
           (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          fixes <- (translate cc' rp >>= repair cc') >>= mapM (fmap getFixBinds . runJustParseExpr cc)
-          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod) fixes
+          fixes <- translate cc' rp >>= repair cc'
+          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixes
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
@@ -532,8 +532,8 @@ moduleTests =
                     ]
                   ]
           (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          fixes <- (translate cc' rp >>= repair cc') >>= mapM (fmap getFixBinds . runJustParseExpr cc)
-          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod) fixes
+          fixes <- translate cc' rp >>= repair cc'
+          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixes
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair MagicConstant" $ do
@@ -557,8 +557,8 @@ moduleTests =
                   ]
 
           (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          fixes <- (translate cc' rp >>= repair cc') >>= mapM (fmap getFixBinds . runJustParseExpr cc)
-          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod) fixes
+          fixes <- translate cc' rp >>= repair cc'
+          let fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixes
           fixDiffs @?= expected
     ]
 

@@ -247,7 +247,7 @@ main = do
   (t, fixes) <- time $ repair cc tp
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
   putStrLn "REPAIRS:"
-  fbs <- mapM (fmap getFixBinds . runJustParseExpr cc) fixes
+  let fbs = map getFixBinds fixes
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
   putStrLn "SYNTHESIZING..."
   memo <- newIORef Map.empty
