@@ -53,6 +53,7 @@ import GhcPlugins
   )
 import RnExpr
 import Synth.Check
+import Synth.Diff (colorizeDiff, ppFix)
 import Synth.Eval
 import Synth.Fill
 import Synth.Flatten
@@ -349,5 +350,8 @@ repair cc tp@EProb {..} =
     compiled_checks <- zip repls <$> compileParsedChecks cc' checks
     ran <- mapM (\(rep, c) -> (rep,) <$> runCheck c) compiled_checks
     let successful = filter (\(_, r) -> r == Right True) ran
-
-    return $ map (Map.fromList . fst . fst) successful
+        fixes = map (Map.fromList . fst . fst) successful
+    prDebug "FIXES:"
+    mapM_ (prDebug . showUnsafe) fixes
+    mapM_ (prDebug . colorizeDiff . ppFix prog_at_ty) fixes
+    return fixes

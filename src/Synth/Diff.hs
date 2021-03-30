@@ -12,7 +12,9 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import FastString
 import GHC
+import GhcPlugins (Outputable)
 import Synth.Eval
+import Synth.Replace (replaceExpr)
 import Synth.Types
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
@@ -66,8 +68,11 @@ colorizeDiff = unlines . map color . lines
     orange = "\x1b[93m"
     nocolor = "\x1b[0m"
 
+ppFix :: LHsExpr GhcPs -> EFix -> String
+ppFix expr fixes = curry ppDiff expr $ replaceExpr fixes expr
+
 -- Pretty print a fix by adding git like '+' and '-' to each line.
-ppDiff :: RFix -> String
+ppDiff :: Outputable e => (Located e, Located e) -> String
 ppDiff (L o1 d, L o2 d') =
   unlines
     ( ("---" ++ toLoc o1) :
