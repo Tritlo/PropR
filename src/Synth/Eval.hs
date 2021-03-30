@@ -199,14 +199,11 @@ getHoleFitsFromError plugRef err = do
 
 monomorphiseType :: CompileConfig -> RType -> IO (Maybe RType)
 monomorphiseType cc ty =
-  runGhc (Just libdir) $
-    do
-      _ <- initGhcCtxt cc
-      flags <- getSessionDynFlags
-      let pp = showSDoc flags . ppr
-      handleSourceError
-        (const $ return Nothing)
-        (Just . pp . mono <$> exprType TM_Default ("undefined :: " ++ ty))
+  runGhc (Just libdir) $ do
+    _ <- initGhcCtxt cc
+    flags <- getSessionDynFlags
+    let pp = showSDoc flags . ppr
+    nothingOnError (pp . mono <$> exprType TM_Default ("undefined :: " ++ ty))
   where
     mono ty = substTyWith tvs (replicate (length tvs) unitTy) base_ty
       where
@@ -492,23 +489,25 @@ reportError p e = do
   printException e
   error "UNEXPECTED EXCEPTION"
 
+-- Tries an action, returning Nothing in case of error
+nothingOnError :: GhcMonad m => m a -> m (Maybe a)
+nothingOnError act = handleSourceError (const $ return Nothing) (Just <$> act)
+
+reportOnError :: (GhcMonad m, Outputable t) => (t -> m a) -> t -> m a
+reportOnError act a = handleSourceError (reportError a) (act a)
+
 -- When we want to compile only one parsed check
 compileParsedCheck :: HasCallStack => CompileConfig -> EExpr -> IO Dynamic
 compileParsedCheck cc expr = runGhc (Just libdir) $ do
   _ <- initGhcCtxt (cc {hole_lvl = 0})
-  handleSourceError (reportError expr) $ dynCompileParsedExpr expr
+  dynCompileParsedExpr `reportOnError` expr
 
 -- Since initialization has some overhead, we have a special case for compiling
 -- multiple checks at once.
 compileParsedChecks :: HasCallStack => CompileConfig -> [EExpr] -> IO [CompileRes]
 compileParsedChecks cc exprs = runGhc (Just libdir) $ do
   _ <- initGhcCtxt (cc {hole_lvl = 0})
-  mapM
-    ( \exp ->
-        handleSourceError (reportError exp) $
-          Right <$> dynCompileParsedExpr exp
-    )
-    exprs
+  mapM (\exp -> ((Right <$>) . dynCompileParsedExpr) `reportOnError` exp) exprs
 
 -- Adapted from dynCompileExpr in InteractiveEval
 dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic
@@ -528,9 +527,8 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
   catMaybes
     <$> mapM
       ( \c ->
-          handleSourceError (const $ return Nothing) $
-            Just . flip bcat c . showSDoc flags . ppr
-              <$> exprType TM_Default c
+          nothingOnError $
+            flip bcat c . showSDoc flags . ppr <$> exprType TM_Default c
       )
       cands
 
