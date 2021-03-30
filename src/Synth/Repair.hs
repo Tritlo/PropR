@@ -15,6 +15,7 @@ import Constraint
   )
 import Control.Monad (filterM, when)
 import qualified CoreUtils
+import Data.Bifunctor
 import Data.Dynamic (fromDyn)
 import Data.Either
 import Data.List (intercalate, sortOn)
@@ -110,10 +111,15 @@ justTcExpr cc parsed = do
 getExprTy :: HscEnv -> LHsExpr GhcTc -> IO (Maybe Type)
 getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env expr
 
-replacements :: LHsExpr GhcPs -> [[HsExpr GhcPs]] -> [LHsExpr GhcPs]
-replacements e [] = [e]
-replacements e (first_hole_fit : rest) =
-  mapMaybe (fillHole e) first_hole_fit >>= (`replacements` rest)
+replacements :: LHsExpr GhcPs -> [[HsExpr GhcPs]] -> [([SrcSpan], LHsExpr GhcPs)]
+replacements r [] = [([], r)]
+replacements e (first_hole_fit : rest) = concat rest_fit_res
+  where
+    res = map (\(l, e) -> ([l], e)) (mapMaybe (fillHole e) first_hole_fit)
+    (first_fit_locs, first_fit_res) = unzip res
+    rest_fit_res = zipWith addL first_fit_locs $ map (`replacements` rest) first_fit_res
+    addL :: [SrcSpan] -> [([SrcSpan], LHsExpr GhcPs)] -> [([SrcSpan], LHsExpr GhcPs)]
+    addL srcs reses = map (first (srcs ++)) reses
 
 -- Translate from the old String based version to the new LHsExpr version.
 translate :: CompileConfig -> RProblem -> IO EProblem
@@ -305,7 +311,7 @@ repair cc tp@EProb {..} =
 
     -- We find expressions that can be used as candidates in the program
     expr_cands <- getExprFitCands cc undefContext
-    let addContext = fromJust . fillHole holeyContext . unLoc
+    let addContext = snd . fromJust . fillHole holeyContext . unLoc
     fits <- mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) holey_exprs
     -- We process the fits ourselves, since we might have some expression
     -- fits
@@ -326,11 +332,15 @@ repair cc tp@EProb {..} =
     let repls = processed_fits >>= uncurry replacements
         -- We do it properly
         bcatC = buildSuccessCheck tp {e_prog = hole}
-        checks = map (fromJust . fillHole bcatC . unLoc) repls
+        (locs, checks) =
+          unzip $ map (\(l, e) -> (l, snd $ fromJust $ fillHole bcatC $ unLoc e)) repls
+
     prDebug "Fix candidates:"
     mapM_ (prDebug . showUnsafe) checks
     prDebug "Those were all of them!"
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
     compiled_checks <- zip repls <$> compileParsedChecks cc' checks
-    ran <- mapM (\(f, c) -> (f,) <$> runCheck c) compiled_checks
-    return $ map fst $ filter (\(f, r) -> r == Right True) ran
+    ran <- mapM (\(rep, c) -> (rep,) <$> runCheck c) compiled_checks
+    let succesful = filter (\(_, r) -> r == Right True) ran
+
+    return $ map (snd . fst) succesful

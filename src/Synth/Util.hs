@@ -53,13 +53,13 @@ contextLet :: [String] -> String -> String
 contextLet context l =
   "let {" ++ intercalate "; " (concatMap lines context) ++ "} in " ++ l
 
-mapFirst :: (a -> Maybe a) -> [a] -> Maybe [a]
+mapFirst :: (a -> Maybe (b, a)) -> [a] -> Maybe (b, [a])
 mapFirst = mapFirst' []
   where
-    mapFirst' :: [a] -> (a -> Maybe a) -> [a] -> Maybe [a]
+    mapFirst' :: [a] -> (a -> Maybe (b, a)) -> [a] -> Maybe (b, [a])
     mapFirst' sf _ [] = Nothing
     mapFirst' sf f (a : as) = case f a of
-      Just a' -> Just $ reverse (a' : sf) ++ as
+      Just (b, a') -> Just (b, reverse (a' : sf) ++ as)
       _ -> mapFirst' (a : sf) f as
 
 -- Turns a list of booleans into an int
