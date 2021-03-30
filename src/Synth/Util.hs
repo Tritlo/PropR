@@ -5,6 +5,7 @@ import Data.Bits
 import Data.Char (isSpace)
 import Data.List (intercalate, sort)
 import GHC
+import GhcPlugins (fsLit, mkVarUnqual)
 import SrcLoc
 import Synth.Types
 import System.Environment (getArgs)
@@ -13,6 +14,9 @@ import System.IO
 progAtTy :: EExpr -> EType -> EExpr
 progAtTy e_prog e_ty =
   noLoc $ ExprWithTySig NoExtField (noLoc $ HsPar NoExtField e_prog) e_ty
+
+undefVar :: HsExpr GhcPs
+undefVar = HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
 
 -- Removes whitespace before and after a string
 trim :: String -> String

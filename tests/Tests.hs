@@ -9,7 +9,7 @@ import Data.Bits (finiteBitSize)
 import Data.Dynamic (fromDynamic)
 import Data.List (find)
 import qualified Data.Map as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, mapMaybe)
 import Data.Tree
 import Data.Tuple (swap)
 import GhcPlugins (GenLocated (L), getLoc, unLoc)
@@ -23,6 +23,7 @@ import Synth.Eval
     showUnsafe,
     traceTarget,
   )
+import Synth.Fill (fillHole)
 import Synth.Flatten
 import Synth.Repair
   ( failingProps,
@@ -455,7 +456,23 @@ sanctifyTests =
           expr <- runJustParseExpr cc' r_prog
           -- There are 7 ways to replace parts of the broken function in BrokenModule
           -- with holes:
-          length (sanctifyExpr expr) @?= 7
+          length (sanctifyExpr expr) @?= 7,
+      localOption (mkTimeout 1_000_000) $
+        testCase "Fill foldl program" $ do
+          let cc =
+                CompConf
+                  { hole_lvl = 0,
+                    packages = ["base", "process", "QuickCheck"],
+                    importStmts = ["import Prelude"]
+                  }
+              toFix = "tests/BrokenModule.hs"
+              repair_target = Just "broken"
+          (cc', _, [RProb {..}]) <- moduleToProb cc toFix repair_target
+          expr <- runJustParseExpr cc' r_prog
+          let (holes, holey) = unzip $ sanctifyExpr expr
+              filled = mapMaybe (`fillHole` undefVar) holey
+          length filled @?= 7
+          all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]
 
 moduleTests =

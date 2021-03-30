@@ -111,14 +111,21 @@ justTcExpr cc parsed = do
 getExprTy :: HscEnv -> LHsExpr GhcTc -> IO (Maybe Type)
 getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env expr
 
-replacements :: LHsExpr GhcPs -> [[HsExpr GhcPs]] -> [([SrcSpan], LHsExpr GhcPs)]
+replacements :: LHsExpr GhcPs -> [[HsExpr GhcPs]] -> [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
 replacements r [] = [([], r)]
 replacements e (first_hole_fit : rest) = concat rest_fit_res
   where
-    res = map (\(l, e) -> ([l], e)) (mapMaybe (fillHole e) first_hole_fit)
-    (first_fit_locs, first_fit_res) = unzip res
-    rest_fit_res = zipWith addL first_fit_locs $ map (`replacements` rest) first_fit_res
-    addL :: [SrcSpan] -> [([SrcSpan], LHsExpr GhcPs)] -> [([SrcSpan], LHsExpr GhcPs)]
+    -- mapMaybe', but keep the result
+    mapMaybe' :: (a -> Maybe b) -> [a] -> [(a, b)]
+    mapMaybe' _ [] = []
+    mapMaybe' f (a : as) = (case f a of Just b -> ((a, b) :); _ -> id) $ mapMaybe' f as
+    res = map (\(e, (l, r)) -> ([(l, e)], r)) (mapMaybe' (fillHole e) first_hole_fit)
+    (first_fit_locs_and_e, first_fit_res) = unzip res
+    rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
+    addL ::
+      [(SrcSpan, HsExpr GhcPs)] ->
+      [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)] ->
+      [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
     addL srcs reses = map (first (srcs ++)) reses
 
 -- Translate from the old String based version to the new LHsExpr version.
@@ -307,7 +314,7 @@ repair cc tp@EProb {..} =
     -- We add the context by replacing a hole in a let.
     let inContext = noLoc . HsLet NoExtField e_ctxt
         holeyContext = inContext hole
-        undefContext = inContext $ noLoc $ HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
+        undefContext = inContext $ noLoc undefVar
 
     -- We find expressions that can be used as candidates in the program
     expr_cands <- getExprFitCands cc undefContext
