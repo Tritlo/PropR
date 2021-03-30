@@ -317,22 +317,12 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
 
 -- Create a fake base loc for a trace.
 fakeBaseLoc :: CompileConfig -> EExpr -> IO SrcSpan
-fakeBaseLoc cc expr = do
-  let correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-      correl_ctxt = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag correl) [])
-      correl_expr = (noLoc $ HsLet NoExtField correl_ctxt hole) :: LHsExpr GhcPs
-  pcorrel <- runJustParseExpr cc $ showUnsafe correl_expr
-  let (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _)) = pcorrel
-      [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] = bagToList bg
-      [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] = alts
-  return $ getLoc bod
+fakeBaseLoc = fmap (getLoc <$>) . buildTraceCorrelExpr
 
 -- When we do the trace, we use a "fake_target" function. This build the
--- corresponding expression, and a Map from the traced expression and to the
--- original so we can correlate the trace information with the expression we're
--- checking.
-buildTraceCorrel :: CompileConfig -> EExpr -> IO (Map.Map SrcSpan SrcSpan)
-buildTraceCorrel cc expr = do
+-- corresponding expression,
+buildTraceCorrelExpr :: CompileConfig -> EExpr -> IO (LHsExpr GhcPs)
+buildTraceCorrelExpr cc expr = do
   let correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
       correl_ctxt = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag correl) [])
       correl_expr = (noLoc $ HsLet NoExtField correl_ctxt hole) :: LHsExpr GhcPs
@@ -340,11 +330,17 @@ buildTraceCorrel cc expr = do
   let (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _)) = pcorrel
       [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] = bagToList bg
       [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] = alts
-  return
-    ( Map.fromList $
-        filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e) $
-          zipWith (\b e -> (getLoc b, getLoc e)) (flattenExpr bod) (flattenExpr expr)
-    )
+  return bod
+
+-- We build a Map from the traced expression and to the  original so we can
+-- correlate the trace information with the expression we're checking.
+buildTraceCorrel :: CompileConfig -> EExpr -> IO (Map.Map SrcSpan SrcSpan)
+buildTraceCorrel cc expr =
+  Map.fromList
+    . filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e)
+    . flip (zipWith (\b e -> (getLoc b, getLoc e))) (flattenExpr expr)
+    . flattenExpr
+    <$> buildTraceCorrelExpr cc expr
 
 -- Run HPC to get the trace information.
 traceTarget ::
