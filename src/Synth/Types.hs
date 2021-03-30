@@ -42,7 +42,7 @@ type EFix = Map SrcSpan (HsExpr GhcPs)
 data EProblem = EProb
   { e_props :: [EProp],
     e_ctxt :: EContext,
-    e_target :: String,
+    e_target :: RdrName,
     e_ty :: EType,
     e_prog :: EExpr
   }

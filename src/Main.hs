@@ -197,8 +197,8 @@ main = do
   let cc = compConf {hole_lvl = synth_holes}
   [toFix] <- filter (not . (==) "-f" . take 2) <$> getArgs
   (cc, mod, probs) <- moduleToProb cc toFix repair_target
-  let (rp@RProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
-  tp@EProb {..} <- translate cc rp
+  let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
+      rp@RProb {..} = detranslate tp
   putStrLn "TARGET:"
   putStrLn ("  `" ++ r_target ++ "` in " ++ toFix)
   putStrLn "SCOPE:"
@@ -213,7 +213,7 @@ main = do
   putStrLn $ "  MAX HOLES: " ++ show synth_holes
   putStrLn $ "  MAX DEPTH: " ++ show synth_depth
   putStrLn "PROGRAM TO REPAIR: "
-  putStrLn r_prog
+  putStrLn $ showUnsafe e_prog
   putStrLn "FAILING PROPS:"
   failing_props <- failingProps cc tp
   mapM_ (putStrLn . ("  " ++) . showUnsafe) failing_props
@@ -251,6 +251,7 @@ main = do
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
       fbs = map getFixBinds newProgs
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
+  error "ABORT BEFORE SYNTHESIS"
   putStrLn "SYNTHESIZING..."
   memo <- newIORef Map.empty
   putStr' "GENERATING CANDIDATES..."

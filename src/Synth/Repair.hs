@@ -29,7 +29,8 @@ import FV
 import GHC
 import GHC.Paths (libdir)
 import GhcPlugins
-  ( HscEnv (hsc_IC),
+  ( HasCallStack,
+    HscEnv (hsc_IC),
     InteractiveContext (ic_default),
     OccName (..),
     PluginWithArgs (..),
@@ -130,7 +131,7 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
     addL srcs reses = map (first (srcs ++)) reses
 
 -- Translate from the old String based version to the new LHsExpr version.
-translate :: CompileConfig -> RProblem -> IO EProblem
+translate :: HasCallStack => CompileConfig -> RProblem -> IO EProblem
 translate cc RProb {..} = runGhc (Just libdir) $ do
   _ <- initGhcCtxt cc
   e_prog <- parseExprNoInit r_prog
@@ -140,8 +141,18 @@ translate cc RProb {..} = runGhc (Just libdir) $ do
   let plt = "let {" ++ (intercalate "; " . concatMap lines $ r_props) ++ "} in undefined"
   ~(L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ lbs _))) _)) <- parseExprNoInit plt
   let e_props = bagToList lbs
-      e_target = r_target
+      e_target = mkVarUnqual $ fsLit r_target
   return (EProb {..})
+
+detranslate :: HasCallStack => EProblem -> RProblem
+detranslate EProb {..} =
+  let r_prog = showUnsafe e_prog
+      r_ty = showUnsafe e_ty
+      r_props = map showUnsafe e_props
+      r_target = showUnsafe e_target
+      (L _ (HsValBinds _ (ValBinds _ bs sigs))) = e_ctxt
+      r_ctxt = map showUnsafe sigs ++ map showUnsafe (bagToList bs)
+   in RProb {..}
 
 -- Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.

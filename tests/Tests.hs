@@ -455,11 +455,10 @@ sanctifyTests =
                   }
               toFix = "tests/BrokenModule.hs"
               repair_target = Just "broken"
-          (cc', _, [RProb {..}]) <- moduleToProb cc toFix repair_target
-          expr <- runJustParseExpr cc' r_prog
+          (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
           -- There are 7 ways to replace parts of the broken function in BrokenModule
           -- with holes:
-          length (sanctifyExpr expr) @?= 7,
+          length (sanctifyExpr e_prog) @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
           let cc =
@@ -470,9 +469,8 @@ sanctifyTests =
                   }
               toFix = "tests/BrokenModule.hs"
               repair_target = Just "broken"
-          (cc', _, [RProb {..}]) <- moduleToProb cc toFix repair_target
-          expr <- runJustParseExpr cc' r_prog
-          let (holes, holey) = unzip $ sanctifyExpr expr
+          (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
+          let (holes, holey) = unzip $ sanctifyExpr e_prog
               filled = mapMaybe (`fillHole` undefVar) holey
           length filled @?= 7
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
@@ -514,8 +512,7 @@ moduleTests =
                     ]
                   ]
 
-          (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          tp@EProb {..} <- translate cc' rp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
           fixes <- repair cc' tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
@@ -529,8 +526,8 @@ moduleTests =
                     importStmts = ["import Prelude"]
                   }
               toFix = "tests/BrokenModule.hs"
-          (_, _, [RProb {..}]) <- moduleToProb cc toFix Nothing
-          r_target @?= "broken",
+          (_, _, [EProb {..}]) <- moduleToProb cc toFix Nothing
+          showUnsafe e_target @?= "broken",
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenGCD" $ do
           let cc =
@@ -553,8 +550,7 @@ moduleTests =
                       " gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)"
                     ]
                   ]
-          (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          tp@EProb {..} <- translate cc' rp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
           fixes <- repair cc' tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
@@ -580,8 +576,7 @@ moduleTests =
                     ]
                   ]
 
-          (cc', mod, [rp]) <- moduleToProb cc toFix repair_target
-          tp@EProb {..} <- translate cc' rp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
           fixes <- repair cc' tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
