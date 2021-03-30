@@ -28,6 +28,12 @@ replaceExpr repls (L loc (OpApp x c t e)) =
   L loc $ OpApp x (re c) (re t) (re e)
   where
     re = replaceExpr repls
+replaceExpr repls (L loc (ExplicitTuple x args b)) =
+  L loc $ ExplicitTuple x (map reArg args) b
+  where
+    re = replaceExpr repls
+    reArg (L l (Present x e)) = L l (Present x (re e))
+    reArg a = a
 replaceExpr _ e = e
 
 replaceExprLocalBinds :: Map SrcSpan (HsExpr GhcPs) -> LHsLocalBinds GhcPs -> LHsLocalBinds GhcPs

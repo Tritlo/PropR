@@ -5,6 +5,7 @@
 module Synth.Flatten where
 
 import Bag
+import Data.Maybe (mapMaybe)
 import GHC
 import GhcPlugins (Outputable, ppr, showSDocUnsafe)
 import Synth.Util
@@ -26,6 +27,11 @@ flattenExpr e@((L loc (OpApp _ c t el))) =
   e : concatMap flattenExpr [c, t, el]
 flattenExpr e@(L loc (HsWrap x w l)) =
   e : flattenExpr (L loc l)
+flattenExpr e@(L loc (ExplicitTuple _ args _)) =
+  e : concatMap flattenExpr (mapMaybe flattenTupArg args)
+  where
+    flattenTupArg (L _ (Present _ e)) = Just e
+    flattenTupArg _ = Nothing
 flattenExpr e = [e]
 
 flattenLocalBinds :: OutputableBndrId pass => LHsLocalBinds (GhcPass pass) -> [LHsExpr (GhcPass pass)]

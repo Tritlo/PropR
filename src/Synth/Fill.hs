@@ -44,6 +44,14 @@ fillHole (L loc (OpApp x c t e)) fit =
       _ -> case fillHole e fit of
         Just (rl, r) -> Just (rl, L loc (OpApp x c t r))
         Nothing -> Nothing
+fillHole (L loc (ExplicitTuple x args b)) fit =
+  case mapFirst fillTupArg args of
+    Just (rl, r) -> Just (rl, L loc (ExplicitTuple x r b))
+    _ -> Nothing
+  where
+    fillTupArg :: LHsTupArg GhcPs -> Maybe (SrcSpan, LHsTupArg GhcPs)
+    fillTupArg (L l (Present p e)) = L l . Present p <$$> fillHole e fit
+    fillTupArg _ = Nothing
 fillHole e _ = Nothing
 
 fillHoleLocalBinds :: LHsLocalBinds GhcPs -> HsExpr GhcPs -> Maybe (SrcSpan, LHsLocalBinds GhcPs)

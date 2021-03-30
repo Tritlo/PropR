@@ -60,16 +60,23 @@ sanctifyExpr (L loc (HsLet x b e)) =
   (baseHole loc :) $
     map (\(l', b') -> (l', L loc $ HsLet x b' e)) (sanctifyLocalBinds b)
       ++ map (\(l', e') -> (l', L loc $ HsLet x b e')) (sanctifyExpr e)
-sanctifyExpr ((L loc (HsIf x se c t e))) =
+sanctifyExpr (L loc (HsIf x se c t e)) =
   (baseHole loc :) $
     map (\(l', c') -> (l', L loc (HsIf x se c' t e))) (sanctifyExpr c)
       ++ map (\(l', t') -> (l', L loc (HsIf x se c t' e))) (sanctifyExpr t)
       ++ map (\(l', e') -> (l', L loc (HsIf x se c t e'))) (sanctifyExpr e)
-sanctifyExpr ((L loc (OpApp x c t e))) =
+sanctifyExpr (L loc (OpApp x c t e)) =
   (baseHole loc :) $
     map (\(l', c') -> (l', L loc (OpApp x c' t e))) (sanctifyExpr c)
       ++ map (\(l', t') -> (l', L loc (OpApp x c t' e))) (sanctifyExpr t)
       ++ map (\(l', e') -> (l', L loc (OpApp x c t e'))) (sanctifyExpr e)
+sanctifyExpr (L loc (ExplicitTuple x args b)) =
+  (baseHole loc :) $ map (\(l', a') -> (l', L loc (ExplicitTuple x a' b))) $ sanctifyTupArgs args
+  where
+    sanctifyTupArgs = concatMap sanctifyOneArg . oneAndRest
+    sanctifyOneArg (a, i, as) = map (\(l, a') -> (l, insertAt i a' as)) $ sanctifyArg a
+    sanctifyArg (L l (Present x e)) = map (second (L l . Present x)) $ sanctifyExpr e
+    sanctifyArg e = []
 sanctifyExpr (L l _) = [baseHole l]
 
 sanctifyLocalBinds :: LHsLocalBinds GhcPs -> [(SrcSpan, LHsLocalBinds GhcPs)]
