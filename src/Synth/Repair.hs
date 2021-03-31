@@ -299,10 +299,10 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
-    failing_props <- repTime $ case mb_failing_props of
+    failing_props <- collectStats $ case mb_failing_props of
       Just bools -> return $ map snd $ filter (not . fst) $ zip bools e_props
       _ -> failingProps cc tp
-    counter_examples <- repTime $ mapM (propCounterExample cc tp) failing_props
+    counter_examples <- collectStats $ mapM (propCounterExample cc tp) failing_props
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
         -- We find the ones with counter-examples and pick the shortest one
@@ -311,7 +311,7 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
     let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
         toInvokes res = Map.fromList $ map only_max $ flatten res
     invokes <-
-      repTime $
+      collectStats $
         Map.toList
           . Map.unionsWith (+)
           . map toInvokes
@@ -338,7 +338,7 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
     -- TODO: This can be shared across attempts
     expr_cands <- getExprFitCands cc undefContext
     let addContext = snd . fromJust . fillHole holeyContext . unLoc
-    fits <- repTime $ mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
+    fits <- collectStats $ mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
     -- We process the fits ourselves, since we might have some expression
     -- fits
     let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
@@ -366,5 +366,5 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
     mapM_ (logOut DEBUG) checks
     logStr DEBUG "Those were all of them!"
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-    compiled_checks <- repTime $ zip repls <$> compileParsedChecks cc' checks
-    repTime $ mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks
+    compiled_checks <- collectStats $ collectStats $ zip repls <$> compileParsedChecks cc' checks
+    collectStats $ mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks

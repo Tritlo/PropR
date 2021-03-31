@@ -232,6 +232,8 @@ main = do
   putStrLn "REPAIRING..."
   (t, fixes) <- time $ genRepair cc tp
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
+  logStr AUDIT "STATS:"
+  reportStats
   putStrLn "REPAIRS:"
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
       fbs = map getFixBinds newProgs

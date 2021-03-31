@@ -1,3 +1,5 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Synth.Util where
 
 import Control.Exception (assert)
@@ -5,9 +7,11 @@ import Control.Monad (when)
 import Data.Bifunctor (second)
 import Data.Bits
 import Data.Char (isSpace, toUpper)
+import Data.IORef
 import Data.List (intercalate, sort)
 import qualified Data.Map as Map
 import GHC
+import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
 import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
@@ -184,9 +188,26 @@ time act = do
   done <- getCPUTime
   return (done - start, r)
 
-repTime :: HasCallStack => IO a -> IO a
-repTime act =
+statsRef :: IORef (Map.Map (String, Int) Integer)
+{-# NOINLINE statsRef #-}
+statsRef = unsafePerformIO $ newIORef Map.empty
+
+collectStats :: HasCallStack => IO a -> IO a
+collectStats a =
   do
-    (t, r) <- time act
-    withFrozenCallStack $ logStr WARN (showTime t)
+    (t, r) <- time a
+    let ((_, GHS.SrcLoc {..}) : _) = getCallStack callStack
+    modifyIORef statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
+    withFrozenCallStack $ logStr AUDIT (showTime t)
     return r
+
+reportStats :: IO ()
+reportStats =
+  do
+    res <- Map.toList <$> readIORef statsRef
+    mapM_
+      ( logStr AUDIT
+          . \((f, l), t) ->
+            "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
+      )
+      res

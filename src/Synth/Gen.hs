@@ -75,7 +75,7 @@ selection gc indivs = pruneGeneration gc de_duped
 
 genRepair :: CompileConfig -> EProblem -> IO [EFix]
 genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
-  first_attempt <- repTime $ repairAttempt cc prob Nothing
+  first_attempt <- collectStats $ repairAttempt cc prob Nothing
   if not $ null $ successful first_attempt
     then return (map fst $ successful first_attempt)
     else do
@@ -84,7 +84,7 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
             let n_prog = replaceExpr fix prog_at_ty
             -- TODO: Find all failing props even when more than 8!
             map (\(f, r) -> (f `mergeFixes` fix, r))
-              <$> repTime (repairAttempt cc prob {e_prog = n_prog} (Just res))
+              <$> collectStats (repairAttempt cc prob {e_prog = n_prog} (Just res))
           loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO [EFix]
           loop gen round
             | not (null $ successful gen) =
@@ -102,7 +102,7 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
             logStr INFO $ "IMPROVEMENT: " ++ show (nga - ga)
             logStr AUDIT "GENERATION"
             mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) new_gen
-            (t, new_attempt) <- time $ concat <$> mapM runGen new_gen
+            (t, new_attempt) <- collectStats $ time $ concat <$> mapM runGen new_gen
             logStr INFO $ "ROUND TIME: " ++ showTime t
             loop new_attempt (rounds + 1)
       loop first_attempt 1
