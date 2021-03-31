@@ -21,7 +21,6 @@ import Synth.Eval
     defaultConf,
     moduleToProb,
     runJustParseExpr,
-    showUnsafe,
     traceTarget,
   )
 import Synth.Fill (fillHole)
