@@ -75,7 +75,7 @@ selection gc indivs = pruneGeneration gc de_duped
 
 genRepair :: CompileConfig -> EProblem -> IO [EFix]
 genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
-  first_attempt <- repairAttempt cc prob Nothing
+  first_attempt <- repTime $ repairAttempt cc prob Nothing
   if not $ null $ successful first_attempt
     then return (map fst $ successful first_attempt)
     else do
@@ -84,22 +84,24 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
             let n_prog = replaceExpr fix prog_at_ty
             -- TODO: Find all failing props even when more than 8!
             map (\(f, r) -> (f `mergeFixes` fix, r))
-              <$> repairAttempt cc prob {e_prog = n_prog} (Just res)
+              <$> repTime (repairAttempt cc prob {e_prog = n_prog} (Just res))
           loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO [EFix]
-          loop gen _
+          loop gen round
             | not (null $ successful gen) =
-              return $ deDupOn Map.keys $ map fst $ successful gen
+              do
+                logStr INFO $ "Repair found after " ++ show round ++ " rounds!"
+                return $ deDupOn Map.keys $ map fst $ successful gen
           loop _ rounds | rounds >= genRounds = return []
           loop attempt rounds = do
             let gen = individuals attempt
                 new_gen = selection gc gen
                 ga = avg $ map fitness gen
                 nga = avg $ map fitness new_gen
-            logStr INFO ""
             logStr INFO $ "GENERATION " ++ show rounds
             logStr INFO $ "AVERAGE FITNESS: " ++ show nga
-            logStr INFO $ "IMPROVEMENT " ++ show (nga - ga)
-            new_attempt <- concat <$> mapM runGen new_gen
+            logStr INFO $ "IMPROVEMENT: " ++ show (nga - ga)
+            (t, new_attempt) <- time $ concat <$> mapM runGen new_gen
+            logStr INFO $ "ROUND TIME: " ++ showTime t
             loop new_attempt (rounds + 1)
       loop first_attempt 1
 

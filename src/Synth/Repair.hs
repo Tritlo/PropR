@@ -296,12 +296,6 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
 
     logOut DEBUG prog_at_ty
     logOut DEBUG holey_exprs
-    let repTime :: HasCallStack => IO a -> IO a
-        repTime act =
-          do
-            (t, r) <- time act
-            withFrozenCallStack $ logStr WARN (showTime t)
-            return r
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
@@ -341,7 +335,8 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
         undefContext = inContext $ noLoc undefVar
 
     -- We find expressions that can be used as candidates in the program
-    expr_cands <- repTime $ getExprFitCands cc undefContext
+    -- TODO: This can be shared across attempts
+    expr_cands <- getExprFitCands cc undefContext
     let addContext = snd . fromJust . fillHole holeyContext . unLoc
     fits <- repTime $ mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
     -- We process the fits ourselves, since we might have some expression
@@ -359,9 +354,8 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
           unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
 
     processed_fits <-
-      repTime $
-        runGhc (Just libdir) $
-          initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
+      runGhc (Just libdir) $
+        initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
     let repls = processed_fits >>= uncurry replacements
         -- We do it properly
         bcatC = buildSuccessCheck tp {e_prog = hole}

@@ -182,3 +182,10 @@ time act = do
   r <- act
   done <- getCPUTime
   return (done - start, r)
+
+repTime :: HasCallStack => IO a -> IO a
+repTime act =
+  do
+    (t, r) <- time act
+    withFrozenCallStack $ logStr WARN (showTime t)
+    return r
