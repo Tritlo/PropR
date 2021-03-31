@@ -335,8 +335,7 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
         undefContext = inContext $ noLoc undefVar
 
     -- We find expressions that can be used as candidates in the program
-    -- TODO: This can be shared across attempts
-    expr_cands <- getExprFitCands cc undefContext
+    expr_cands <- collectStats $ getExprFitCands cc undefContext
     let addContext = snd . fromJust . fillHole holeyContext . unLoc
     fits <- collectStats $ mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
     -- We process the fits ourselves, since we might have some expression
@@ -366,5 +365,5 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
     mapM_ (logOut DEBUG) checks
     logStr DEBUG "Those were all of them!"
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-    compiled_checks <- collectStats $ collectStats $ zip repls <$> compileParsedChecks cc' checks
+    compiled_checks <- collectStats $ zip repls <$> compileParsedChecks cc' checks
     collectStats $ mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks

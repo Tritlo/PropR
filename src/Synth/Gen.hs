@@ -98,10 +98,12 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
                 ga = avg $ map fitness gen
                 nga = avg $ map fitness new_gen
             logStr INFO $ "GENERATION " ++ show rounds
-            logStr INFO $ "AVERAGE FITNESS: " ++ show nga
+            logStr INFO $ "AVERAGE FITNESS: " ++ show ga
             logStr INFO $ "IMPROVEMENT: " ++ show (nga - ga)
-            logStr AUDIT "GENERATION"
-            mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) new_gen
+            logStr AUDIT "PREV GEN"
+            mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) gen
+            logStr AUDIT "NEXT GEN"
+            mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) gen
             (t, new_attempt) <- collectStats $ time $ concat <$> mapM runGen new_gen
             logStr INFO $ "ROUND TIME: " ++ showTime t
             loop new_attempt (rounds + 1)

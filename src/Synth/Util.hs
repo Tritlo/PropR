@@ -4,11 +4,13 @@ module Synth.Util where
 
 import Control.Exception (assert)
 import Control.Monad (when)
+import Control.Monad.IO.Class
 import Data.Bifunctor (second)
 import Data.Bits
 import Data.Char (isSpace, toUpper)
+import Data.Function (on)
 import Data.IORef
-import Data.List (intercalate, sort)
+import Data.List (groupBy, intercalate, sort)
 import qualified Data.Map as Map
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
@@ -181,33 +183,30 @@ showTime time =
     res :: Integer
     res = floor $ fromIntegral time * 1e-9
 
-time :: IO a -> IO (Integer, a)
+time :: MonadIO m => m a -> m (Integer, a)
 time act = do
-  start <- getCPUTime
+  start <- liftIO getCPUTime
   r <- act
-  done <- getCPUTime
+  done <- liftIO getCPUTime
   return (done - start, r)
 
 statsRef :: IORef (Map.Map (String, Int) Integer)
 {-# NOINLINE statsRef #-}
 statsRef = unsafePerformIO $ newIORef Map.empty
 
-collectStats :: HasCallStack => IO a -> IO a
+collectStats :: (MonadIO m, HasCallStack) => m a -> m a
 collectStats a =
   do
     (t, r) <- time a
     let ((_, GHS.SrcLoc {..}) : _) = getCallStack callStack
-    modifyIORef statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
-    withFrozenCallStack $ logStr AUDIT (showTime t)
+    liftIO $ modifyIORef statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
+    withFrozenCallStack $ liftIO $ logStr AUDIT (showTime t)
     return r
 
-reportStats :: IO ()
-reportStats =
+reportStats :: MonadIO m => m ()
+reportStats = liftIO $
   do
+    logStr AUDIT "SUMMARY"
     res <- Map.toList <$> readIORef statsRef
-    mapM_
-      ( logStr AUDIT
-          . \((f, l), t) ->
-            "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
-      )
-      res
+    let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
+    mapM_ (logStr AUDIT . pp) res
