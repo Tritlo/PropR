@@ -19,6 +19,7 @@ import Synth.Check
 import Synth.Diff
 import Synth.Eval
 import Synth.Flatten
+import Synth.Gen
 import Synth.Repair
 import Synth.Replace (replaceExpr)
 import Synth.Types
@@ -169,7 +170,7 @@ imports =
 
 compConf :: CompileConfig
 compConf =
-  CompConf
+  defaultConf
     { importStmts = imports,
       packages = pkgs,
       hole_lvl = 0
@@ -245,7 +246,7 @@ main = do
   putStrLn "TRACE OF COUNTER EXAMPLES:"
   mapM_ (putStrLn . unlines . map ((++) "  " . show)) trcs
   putStr' "REPAIRING..."
-  (t, fixes) <- time $ repair cc tp
+  (t, fixes) <- time $ genRepair cc tp
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
   putStrLn "REPAIRS:"
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes

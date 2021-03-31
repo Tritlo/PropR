@@ -26,6 +26,7 @@ import Synth.Eval
   )
 import Synth.Fill (fillHole)
 import Synth.Flatten
+import Synth.Gen (genRepair)
 import Synth.Repair
   ( failingProps,
     getExprFitCands,

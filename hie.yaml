@@ -8,3 +8,5 @@ cradle:
       component: "exe:ghc-synth"
     - path: "./tests/Tests.hs"
       component: "test:test"
+    - path: "./tests/SlowTests.hs"
+      component: "test:slow-test"

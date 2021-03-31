@@ -1,2 +1,3 @@
 dist*/
+fake_targets/
 cabal.project.local

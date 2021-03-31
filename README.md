@@ -1,7 +1,9 @@
 [![Haskell CI](https://github.com/Tritlo/ghc-synth/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/ghc-synth/actions/workflows/haskell.yml)
 
-Program repair using GHC
+HenProg: Genetic Program repair using GHC 🐣
 ===================
+
+Inspired by GenProg.
 
 Works, but is pretty slow at the moment, even when doing the synthesis and
 testing in parallel, but it works! Requires QuickCheck to be installed globally,

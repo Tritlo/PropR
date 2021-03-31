@@ -280,7 +280,10 @@ failingProps cc ep@EProb {..} = do
           concat <$> mapM fp [ps1, ps2]
 
 repair :: CompileConfig -> EProblem -> IO [EFix]
-repair cc tp@EProb {..} =
+repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob
+
+repairAttempt :: CompileConfig -> EProblem -> IO [(EFix, Either [Bool] Bool)]
+repairAttempt cc tp@EProb {..} =
   do
     let prog_at_ty = progAtTy e_prog e_ty
         holey_exprs = sanctifyExpr prog_at_ty
@@ -354,10 +357,4 @@ repair cc tp@EProb {..} =
     prDebug "Those were all of them!"
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
     compiled_checks <- zip repls <$> compileParsedChecks cc' checks
-    ran <- mapM (\(rep, c) -> (rep,) <$> runCheck c) compiled_checks
-    let successful = filter (\(_, r) -> r == Right True) ran
-        fixes = map (Map.fromList . fst . fst) successful
-    prDebug "FIXES:"
-    mapM_ (prDebug . showUnsafe) fixes
-    mapM_ (prDebug . colorizeDiff . ppFix prog_at_ty) fixes
-    return fixes
+    mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks

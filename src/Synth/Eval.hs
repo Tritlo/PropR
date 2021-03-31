@@ -113,7 +113,13 @@ data CompileConfig = CompConf
   { importStmts :: [String],
     packages :: [String],
     hole_lvl :: Int,
-    genIndividuals :: Int
+    genConf :: GenConf
+  }
+  deriving (Show, Eq, Ord)
+
+data GenConf = GenConf
+  { genIndividuals :: Int,
+    genRounds :: Int
   }
   deriving (Show, Eq, Ord)
 
@@ -123,7 +129,7 @@ defaultConf =
     { hole_lvl = 0,
       packages = ["base", "process", "QuickCheck"],
       importStmts = ["import Prelude"],
-      genIndividuals = 5
+      genConf = GenConf {genIndividuals = 4, genRounds = 5}
     }
 
 toPkg :: String -> PackageFlag
@@ -452,7 +458,6 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _) failing_prop failing_args = do
               return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
             _ -> return Nothing
       removeTarget tid
-      liftIO $ removeDirectoryRecursive tempDir
       return res
   where
     toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
