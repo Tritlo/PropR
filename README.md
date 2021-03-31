@@ -1,4 +1,4 @@
-[![Haskell CI](https://github.com/Tritlo/ghc-synth/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/ghc-synth/actions/workflows/haskell.yml)
+[![Haskell CI](https://github.com/Tritlo/HenProg/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/HenProg/actions/workflows/haskell.yml)
 
 HenProg: Genetic Program repair using GHC 🐣
 ===================
