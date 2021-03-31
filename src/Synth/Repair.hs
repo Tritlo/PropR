@@ -356,7 +356,7 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
               | isExternalName n = Orig (nameModule n) (nameOccName n)
               | otherwise = Unqual (nameOccName n)
         processFit (RawHoleFit sd) =
-          unLoc . parenthesizeHsExpr appPrec <$> justParseExpr cc (showUnsafe sd)
+          unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
 
     processed_fits <-
       repTime $
