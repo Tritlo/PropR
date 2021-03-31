@@ -27,7 +27,7 @@ To run the program, ensure that `QuickCheck` is installed by running
 `$ cabal install --lib QuickCheck `. You can then run
 
 ```
-$ cabal run ghc-synth -- tests/BrokenModule.hs
+$ cabal run henprog -- tests/BrokenModule.hs
 ```
 
 to see it in action on the `foldl (-) 0` example. This produces the following:
@@ -106,7 +106,7 @@ Showing how it works.
 For the `BrokenGCD` module, we get an interesting result:
 
 ```
-$ cabal run ghc-synth -- tests/BrokenGCD.hs
+$ cabal run henprog -- tests/BrokenGCD.hs
 ```
 
 gives us:

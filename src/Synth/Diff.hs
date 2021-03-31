@@ -56,6 +56,8 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nbs =
 colorizeDiff :: String -> String
 colorizeDiff = unlines . map color . lines
   where
+    color line@('+' : '+' : '+' : _) = line
+    color line@('-' : '-' : '-' : _) = line
     color line@('-' : _) = red ++ line ++ nocolor
     color line@('+' : _) = green ++ line ++ nocolor
     color line@('!' : _) = orange ++ line ++ nocolor

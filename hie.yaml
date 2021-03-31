@@ -5,7 +5,7 @@ cradle:
     - path: "./tests"
       component: "lib:synth"
     - path: "./src/Main.hs"
-      component: "exe:ghc-synth"
+      component: "exe:henprog"
     - path: "./tests/Tests.hs"
       component: "test:test"
     - path: "./tests/SlowTests.hs"
