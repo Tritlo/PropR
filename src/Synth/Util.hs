@@ -65,18 +65,17 @@ split a as =
     (t, r) = break (a ==) as
 
 logStr :: HasCallStack => LogLevel -> String -> IO ()
-logStr olvl str =
-  do
-    lvl <- logLevel
-    when (olvl >= lvl) $ do
-      let (loc : _) = map snd $ getCallStack callStack
-          sfile = split '/' $ GHS.srcLocFile loc
-          (i, l) = assert (not (null sfile) && not (any null sfile)) (init sfile, last sfile)
-          sfileRes = intercalate "/" (map (take 1) i ++ [l])
-          sline = show (GHS.srcLocStartLine loc)
-      showLoc <- ("--log-loc" `elem`) <$> getArgs
-      let locO = if showLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
-      putStrLn $ locO ++ show olvl ++ ": " ++ str
+logStr olvl str = do
+  lvl <- logLevel
+  when (olvl >= lvl) $ do
+    let (loc : _) = map snd $ getCallStack callStack
+        sfile = split '/' $ GHS.srcLocFile loc
+        (i, l) = assert (not (null sfile) && not (any null sfile)) (init sfile, last sfile)
+        sfileRes = intercalate "/" (map (take 1) i ++ [l])
+        sline = show (GHS.srcLocStartLine loc)
+    showLoc <- ("--log-loc" `elem`) <$> getArgs
+    let locO = if showLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
+    putStrLn $ locO ++ show olvl ++ ": " ++ str
 
 logOut :: (HasCallStack, Outputable p) => LogLevel -> p -> IO ()
 logOut olvl = withFrozenCallStack . logStr olvl . showUnsafe
@@ -195,18 +194,16 @@ statsRef :: IORef (Map.Map (String, Int) Integer)
 statsRef = unsafePerformIO $ newIORef Map.empty
 
 collectStats :: (MonadIO m, HasCallStack) => m a -> m a
-collectStats a =
-  do
-    (t, r) <- time a
-    let ((_, GHS.SrcLoc {..}) : _) = getCallStack callStack
-    liftIO $ modifyIORef statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
-    withFrozenCallStack $ liftIO $ logStr AUDIT (showTime t)
-    return r
+collectStats a = do
+  (t, r) <- time a
+  let ((_, GHS.SrcLoc {..}) : _) = getCallStack callStack
+  liftIO $ modifyIORef statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
+  withFrozenCallStack $ liftIO $ logStr AUDIT (showTime t)
+  return r
 
 reportStats :: MonadIO m => m ()
-reportStats = liftIO $
-  do
-    logStr AUDIT "SUMMARY"
-    res <- Map.toList <$> readIORef statsRef
-    let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
-    mapM_ (logStr AUDIT . pp) res
+reportStats = liftIO $ do
+  logStr AUDIT "SUMMARY"
+  res <- Map.toList <$> readIORef statsRef
+  let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
+  mapM_ (logStr AUDIT . pp) res

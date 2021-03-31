@@ -11,19 +11,7 @@ import Synth.Util
 
 -- The baseHole, available anywhere you could put an expression
 baseHole :: SrcSpan -> (SrcSpan, LHsExpr GhcPs)
-baseHole loc =
-  ( loc,
-    L
-      loc
-      ( HsUnboundVar
-          noExtField
-          ( TrueExprHole
-              ( mkVarOcc $
-                  "_" ++ locToStr loc
-              )
-          )
-      )
-  )
+baseHole loc = (loc, L loc (HsUnboundVar noExtField (TrueExprHole (mkVarOcc $ "_" ++ locToStr loc))))
 
 -- LocToStr helps us ensure that the holes we insert have unique names.
 locToStr :: SrcSpan -> String

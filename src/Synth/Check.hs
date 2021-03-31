@@ -51,17 +51,7 @@ checkImports = ["import Test.QuickCheck"]
 
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
 baseFun nm val =
-  noLoc $
-    FunBind
-      NoExtField
-      (noLoc nm)
-      ( MG
-          NoExtField
-          (noLoc [base_case])
-          Generated
-      )
-      idHsWrapper
-      []
+  noLoc $ FunBind NoExtField (noLoc nm) (MG NoExtField (noLoc [base_case]) Generated) idHsWrapper []
   where
     base_case =
       noLoc $

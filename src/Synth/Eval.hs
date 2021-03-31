@@ -394,71 +394,69 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _) failing_prop failing_args = do
   -- `hPutStr handle modTxt`
   hClose handle
   liftIO $ mapM (logStr DEBUG) $ lines modTxt
-  runGhc (Just libdir) $
-    do
-      plugRef <- initGhcCtxt cc
-      -- We set the module as the main module, which makes GHC generate
-      -- the executable.
-      dynFlags <- getSessionDynFlags
-      setSessionDynFlags $
-        dynFlags
-          { mainModIs = mkMainModule $ fsLit mname,
-            hpcDir = "./fake_targets"
-          }
-      now <- liftIO getCurrentTime
-      let tid = TargetFile tf Nothing
-          target = Target tid True $ Just (strBuff, now)
+  runGhc (Just libdir) $ do
+    plugRef <- initGhcCtxt cc
+    -- We set the module as the main module, which makes GHC generate
+    -- the executable.
+    dynFlags <- getSessionDynFlags
+    setSessionDynFlags $
+      dynFlags
+        { mainModIs = mkMainModule $ fsLit mname,
+          hpcDir = "./fake_targets"
+        }
+    now <- liftIO getCurrentTime
+    let tid = TargetFile tf Nothing
+        target = Target tid True $ Just (strBuff, now)
 
-      -- Adding and loading the target causes the compilation to kick
-      -- off and compiles the file.
-      addTarget target
-      _ <- load LoadAllTargets
-      -- We should for here in case it doesn't terminate, and modify
-      -- the run function so that it use the trace reflect functionality
-      -- to timeout and dump the tix file if possible.
-      res <- liftIO $
-        do
-          (_, _, _, ph) <-
-            createProcess
-              (proc exeName [])
-                { env = Just [("HPCTIXFILE", tixFilePath)],
-                  -- We ignore the output
-                  std_out = CreatePipe
-                }
-          ec <- timeout timeoutVal $ waitForProcess ph
+    -- Adding and loading the target causes the compilation to kick
+    -- off and compiles the file.
+    addTarget target
+    _ <- load LoadAllTargets
+    -- We should for here in case it doesn't terminate, and modify
+    -- the run function so that it use the trace reflect functionality
+    -- to timeout and dump the tix file if possible.
+    res <- liftIO $ do
+      (_, _, _, ph) <-
+        createProcess
+          (proc exeName [])
+            { env = Just [("HPCTIXFILE", tixFilePath)],
+              -- We ignore the output
+              std_out = CreatePipe
+            }
+      ec <- timeout timeoutVal $ waitForProcess ph
 
-          let -- If it doesn't respond to signals, we can't do anything
-              -- other than terminate
-              loop ec 0 = terminateProcess ph
-              loop ec n = when (isNothing ec) $ do
-                -- If it's taking too long, it's probably stuck in a loop.
-                -- By sending the right signal though, it will dump the tix
-                -- file before dying.
-                pid <- getPid ph
-                case pid of
-                  Just pid ->
-                    do
-                      signalProcess keyboardSignal pid
-                      ec2 <- timeout timeoutVal $ waitForProcess ph
-                      loop ec2 (n -1)
-                  _ ->
-                    -- It finished in the brief time between calls, so we're good.
-                    return ()
-          -- We give it 3 tries
-          loop ec 3
+      let -- If it doesn't respond to signals, we can't do anything
+          -- other than terminate
+          loop ec 0 = terminateProcess ph
+          loop ec n = when (isNothing ec) $ do
+            -- If it's taking too long, it's probably stuck in a loop.
+            -- By sending the right signal though, it will dump the tix
+            -- file before dying.
+            pid <- getPid ph
+            case pid of
+              Just pid ->
+                do
+                  signalProcess keyboardSignal pid
+                  ec2 <- timeout timeoutVal $ waitForProcess ph
+                  loop ec2 (n -1)
+              _ ->
+                -- It finished in the brief time between calls, so we're good.
+                return ()
+      -- We give it 3 tries
+      loop ec 3
 
-          tix <- readTix tixFilePath
-          let rm m = (m,) <$> readMix [mixFilePath] (Right m)
-          case tix of
-            Just (Tix mods) -> do
-              -- We throw away any extra functions in the file, such as
-              -- the properties and the main function, and only look at
-              -- the ticks for our expression
-              [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
-              return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
-            _ -> return Nothing
-      removeTarget tid
-      return res
+      tix <- readTix tixFilePath
+      let rm m = (m,) <$> readMix [mixFilePath] (Right m)
+      case tix of
+        Just (Tix mods) -> do
+          -- We throw away any extra functions in the file, such as
+          -- the properties and the main function, and only look at
+          -- the ticks for our expression
+          [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
+          return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
+        _ -> return Nothing
+    removeTarget tid
+    return res
   where
     toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
     toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
@@ -487,8 +485,7 @@ traceTarget cc e@(L _ xp) fp fa = do
 exprToModule :: CompileConfig -> String -> LHsBind GhcPs -> RProp -> [RExpr] -> RExpr
 exprToModule CompConf {..} mname expr failing_prop failing_args =
   unlines $
-    [ "module " ++ mname ++ " where"
-    ]
+    ["module " ++ mname ++ " where"]
       ++ importStmts
       ++ checkImports
       ++ lines failing_prop
@@ -569,50 +566,45 @@ runCheck (Right dval) =
   -- with different flags. Ugh. So we do it this way, since *hopefully*
   -- Bool will be the same (unless *base* was compiled differently, *UGGH*).
   case fromDynamic @(IO [Bool]) dval of
-    Nothing ->
-      do
-        logStr WARN "wrong type!!"
-        return (Right False)
-    Just res ->
+    Nothing -> do
+      logStr WARN "wrong type!!"
+      return (Right False)
+    Just res -> do
       -- We need to forkProcess here, since we might be evaulating
       -- non-yielding infinte expressions (like `last (repeat head)`), and
       -- since they never yield, we can't do forkIO and then stop that thread.
       -- If we could ensure *every library* was compiled with -fno-omit-yields
       -- we could use lightweight threads, but that is a very big restriction,
       -- especially if we want to later embed this into a plugin.
-      do
-        pid <- forkProcess (proc res)
-        res <- timeout timeoutVal (getProcessStatus True False pid)
-        case res of
-          Just (Just (Exited ExitSuccess)) -> return $ Right True
-          Nothing -> do
-            signalProcess killProcess pid
-            return $ Right False
-          Just (Just (Exited (ExitFailure x)))
-            | x < 0 ->
-              -- If we have more than 8 props, we cannot tell
-              -- which ones failed from the exit code.
-              return $ Right False
-          Just (Just (Exited (ExitFailure x))) ->
-            return (Left $ take 8 $ bitToBools $ complement x)
-          -- Anything else and we have no way to tell what went wrong.
-          _ -> return $ Right False
+      pid <- forkProcess (proc res)
+      res <- timeout timeoutVal (getProcessStatus True False pid)
+      case res of
+        Just (Just (Exited ExitSuccess)) -> return $ Right True
+        Nothing -> do
+          signalProcess killProcess pid
+          return $ Right False
+        -- If we have more than 8 props, we cannot tell
+        -- which ones failed from the exit code.
+        Just (Just (Exited (ExitFailure x))) | x < 0 -> return $ Right False
+        Just (Just (Exited (ExitFailure x))) ->
+          return (Left $ take 8 $ bitToBools $ complement x)
+        -- Anything else and we have no way to tell what went wrong.
+        _ -> return $ Right False
   where
-    proc action =
-      do
-        res <- action
-        exitImmediately $
-          if and res
-            then ExitSuccess
-            else -- We complement here, since ExitFailure 0 (i.e.
-            -- all tests failed) is turned into ExitSuccess.
-            -- We are limited to a maximum of 8 here, since the POSIX exit
-            -- code is only 8 bits.
+    proc action = do
+      res <- action
+      exitImmediately $
+        if and res
+          then ExitSuccess
+          else -- We complement here, since ExitFailure 0 (i.e.
+          -- all tests failed) is turned into ExitSuccess.
+          -- We are limited to a maximum of 8 here, since the POSIX exit
+          -- code is only 8 bits.
 
-              ExitFailure $
-                if length res <= 8
-                  then complement $ boolsToBit res
-                  else -1
+            ExitFailure $
+              if length res <= 8
+                then complement $ boolsToBit res
+                else -1
 
 compile :: CompileConfig -> RType -> IO CompileRes
 compile cc str = runGhc (Just libdir) $ do
