@@ -100,6 +100,8 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
             logStr INFO $ "GENERATION " ++ show rounds
             logStr INFO $ "AVERAGE FITNESS: " ++ show nga
             logStr INFO $ "IMPROVEMENT: " ++ show (nga - ga)
+            logStr AUDIT "GENERATION"
+            mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) new_gen
             (t, new_attempt) <- time $ concat <$> mapM runGen new_gen
             logStr INFO $ "ROUND TIME: " ++ showTime t
             loop new_attempt (rounds + 1)

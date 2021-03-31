@@ -35,6 +35,7 @@ hasDebug = ("-fdebug" `elem`) <$> getArgs
 
 data LogLevel
   = DEBUG
+  | AUDIT
   | INFO
   | WARN
   | ERROR
