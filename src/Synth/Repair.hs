@@ -272,14 +272,13 @@ failingProps cc ep@EProb {..} = do
           concat <$> mapM fp [ps1, ps2]
 
 repair :: CompileConfig -> EProblem -> IO [EFix]
-repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob Nothing
+repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob
 
 repairAttempt ::
   CompileConfig ->
   EProblem ->
-  Maybe [Bool] ->
   IO [(EFix, Either [Bool] Bool)]
-repairAttempt cc tp@EProb {..} mb_failing_props = do
+repairAttempt cc tp@EProb {..} = do
   let prog_at_ty = progAtTy e_prog e_ty
       holey_exprs = sanctifyExpr prog_at_ty
   trace_correl <- buildTraceCorrel cc prog_at_ty
@@ -289,9 +288,7 @@ repairAttempt cc tp@EProb {..} mb_failing_props = do
 
   -- We can use the failing_props and the counter_examples to filter
   -- out locations that we know won't matter.
-  failing_props <- collectStats $ case mb_failing_props of
-    Just bools -> return $ map snd $ filter (not . fst) $ zip bools e_props
-    _ -> failingProps cc tp
+  failing_props <- collectStats $ failingProps cc tp
   counter_examples <- collectStats $ mapM (propCounterExample cc tp) failing_props
   let hasCE (p, Just ce) = Just (p, ce)
       hasCE _ = Nothing
