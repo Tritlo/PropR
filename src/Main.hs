@@ -229,7 +229,7 @@ main = do
           $ catMaybes reses
   putStrLn "TRACE OF COUNTER EXAMPLES:"
   mapM_ (putStrLn . unlines . map ((++) "  " . show)) trcs
-  putStr' "REPAIRING..."
+  putStrLn "REPAIRING..."
   (t, fixes) <- time $ genRepair cc tp
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
   putStrLn "REPAIRS:"

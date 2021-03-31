@@ -1,5 +1,6 @@
 module Synth.Util where
 
+import Control.Exception (assert)
 import Control.Monad (when)
 import Data.Bifunctor (second)
 import Data.Bits
@@ -7,7 +8,9 @@ import Data.Char (isSpace, toUpper)
 import Data.List (intercalate, sort)
 import qualified Data.Map as Map
 import GHC
-import GhcPlugins (Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
+import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
+import qualified GHC.Stack as GHS
+import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
 import SrcLoc
 import Synth.Types
 import System.CPUTime
@@ -45,14 +48,31 @@ logLevel = do
     Just lvl -> read lvl
     _ -> ERROR
 
-logStr :: LogLevel -> String -> IO ()
+split :: Eq a => a -> [a] -> [[a]]
+split a [] = []
+split a as =
+  t : case r of
+    [] -> []
+    _ : rs -> split a rs
+  where
+    (t, r) = break (a ==) as
+
+logStr :: HasCallStack => LogLevel -> String -> IO ()
 logStr olvl str =
   do
     lvl <- logLevel
-    when (olvl >= lvl) $ putStrLn str
+    when (olvl >= lvl) $ do
+      let (loc : _) = map snd $ getCallStack callStack
+          sfile = split '/' $ GHS.srcLocFile loc
+          (i, l) = assert (not (null sfile) && not (any null sfile)) (init sfile, last sfile)
+          sfileRes = intercalate "/" (map (take 1) i ++ [l])
+          sline = show (GHS.srcLocStartLine loc)
+      showLoc <- ("--log-loc" `elem`) <$> getArgs
+      let locO = if showLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
+      putStrLn $ locO ++ show olvl ++ ": " ++ str
 
-logOut :: Outputable p => LogLevel -> p -> IO ()
-logOut olvl = logStr olvl . showUnsafe
+logOut :: (HasCallStack, Outputable p) => LogLevel -> p -> IO ()
+logOut olvl = withFrozenCallStack . logStr olvl . showUnsafe
 
 showUnsafe :: Outputable p => p -> String
 showUnsafe = showSDocUnsafe . ppr

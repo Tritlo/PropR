@@ -28,6 +28,7 @@ import Desugar
 import FV
 import GHC
 import GHC.Paths (libdir)
+import GHC.Stack
 import GhcPlugins
   ( HasCallStack,
     HscEnv (hsc_IC),
@@ -295,13 +296,19 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
 
     logOut DEBUG prog_at_ty
     logOut DEBUG holey_exprs
+    let repTime :: HasCallStack => IO a -> IO a
+        repTime act =
+          do
+            (t, r) <- time act
+            withFrozenCallStack $ logStr WARN (showTime t)
+            return r
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
-    (t, failing_props) <- time $ case mb_failing_props of
+    failing_props <- repTime $ case mb_failing_props of
       Just bools -> return $ map snd $ filter (not . fst) $ zip bools e_props
       _ -> failingProps cc tp
-    counter_examples <- mapM (propCounterExample cc tp) failing_props
+    counter_examples <- repTime $ mapM (propCounterExample cc tp) failing_props
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
         -- We find the ones with counter-examples and pick the shortest one
@@ -310,11 +317,12 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
     let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
         toInvokes res = Map.fromList $ map only_max $ flatten res
     invokes <-
-      Map.toList
-        . Map.unionsWith (+)
-        . map toInvokes
-        . catMaybes
-        <$> mapM (uncurry $ traceTarget cc prog_at_ty) ps_w_ce
+      repTime $
+        Map.toList
+          . Map.unionsWith (+)
+          . map toInvokes
+          . catMaybes
+          <$> mapM (uncurry $ traceTarget cc prog_at_ty) ps_w_ce
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
@@ -333,12 +341,12 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
         undefContext = inContext $ noLoc undefVar
 
     -- We find expressions that can be used as candidates in the program
-    expr_cands <- getExprFitCands cc undefContext
+    expr_cands <- repTime $ getExprFitCands cc undefContext
     let addContext = snd . fromJust . fillHole holeyContext . unLoc
-    fits <- mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
+    fits <- repTime $ mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
     -- We process the fits ourselves, since we might have some expression
     -- fits
-    let processFit :: HoleFit -> IO (HsExpr GhcPs)
+    let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
         processFit hf@HoleFit {..} =
           return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
           where
@@ -348,10 +356,12 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
               | isExternalName n = Orig (nameModule n) (nameOccName n)
               | otherwise = Unqual (nameOccName n)
         processFit (RawHoleFit sd) =
-          unLoc . parenthesizeHsExpr appPrec
-            <$> runJustParseExpr cc (showUnsafe sd)
+          unLoc . parenthesizeHsExpr appPrec <$> justParseExpr cc (showUnsafe sd)
 
-    processed_fits <- mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
+    processed_fits <-
+      repTime $
+        runGhc (Just libdir) $
+          initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
     let repls = processed_fits >>= uncurry replacements
         -- We do it properly
         bcatC = buildSuccessCheck tp {e_prog = hole}
@@ -362,5 +372,5 @@ repairAttempt cc tp@EProb {..} mb_failing_props =
     mapM_ (logOut DEBUG) checks
     logStr DEBUG "Those were all of them!"
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-    compiled_checks <- zip repls <$> compileParsedChecks cc' checks
-    mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks
+    compiled_checks <- repTime $ zip repls <$> compileParsedChecks cc' checks
+    repTime $ mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks
