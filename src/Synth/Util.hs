@@ -1,15 +1,19 @@
 module Synth.Util where
 
 import Control.Monad (when)
+import Data.Bifunctor (second)
 import Data.Bits
-import Data.Char (isSpace)
+import Data.Char (isSpace, toUpper)
 import Data.List (intercalate, sort)
+import qualified Data.Map as Map
 import GHC
-import GhcPlugins (fsLit, mkVarUnqual)
+import GhcPlugins (Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
 import SrcLoc
 import Synth.Types
+import System.CPUTime
 import System.Environment (getArgs)
 import System.IO
+import Text.Printf (printf)
 
 progAtTy :: EExpr -> EType -> EExpr
 progAtTy e_prog e_ty =
@@ -26,11 +30,32 @@ trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 hasDebug :: IO Bool
 hasDebug = ("-fdebug" `elem`) <$> getArgs
 
--- Prints only when debug is enabled
-prDebug :: String -> IO ()
-prDebug str = do
-  dbg <- hasDebug
-  when dbg $ putStrLn str
+data LogLevel
+  = DEBUG
+  | INFO
+  | WARN
+  | ERROR
+  | FATAL
+  deriving (Eq, Ord, Read, Show)
+
+logLevel :: IO LogLevel
+logLevel = do
+  args <- Map.fromList . map (second (map toUpper . drop 1) . break (== '=')) <$> getArgs
+  return $ case args Map.!? "--log" of
+    Just lvl -> read lvl
+    _ -> ERROR
+
+logStr :: LogLevel -> String -> IO ()
+logStr olvl str =
+  do
+    lvl <- logLevel
+    when (olvl >= lvl) $ putStrLn str
+
+logOut :: Outputable p => LogLevel -> p -> IO ()
+logOut olvl = logStr olvl . showUnsafe
+
+showUnsafe :: Outputable p => p -> String
+showUnsafe = showSDocUnsafe . ppr
 
 -- Prints a string, and then flushes, so that intermediate strings show up
 putStr' :: String -> IO ()
@@ -121,3 +146,19 @@ applToEach :: (a -> [(l, a)]) -> [a] -> [(l, [a])]
 applToEach f as = concatMap applToOne $ oneAndRest as
   where
     applToOne (g, i, r) = map (\(l', g') -> (l', insertAt i g' r)) (f g)
+
+showTime :: Integer -> String
+showTime time =
+  if res > 1000
+    then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
+    else show res ++ "ms"
+  where
+    res :: Integer
+    res = floor $ fromIntegral time * 1e-9
+
+time :: IO a -> IO (Integer, a)
+time act = do
+  start <- getCPUTime
+  r <- act
+  done <- getCPUTime
+  return (done - start, r)

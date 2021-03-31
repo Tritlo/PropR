@@ -51,9 +51,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
   let inp = (cc, depth, context, ty, props)
   sM <- readIORef ioref
   case sM Map.!? inp of
-    Just res -> prDebug ("Found " ++ show inp ++ "!") >> return res
+    Just res -> logStr INFO ("Found " ++ show inp ++ "!") >> return res
     Nothing -> do
-      prDebug $ "Synthesizing " ++ show inp
+      logStr INFO $ "Synthesizing " ++ show inp
       mono_ty <- monomorphiseType cc ty
       Left r <- compileAtType cc (contextLet context "_") ty
       case r of
@@ -100,12 +100,12 @@ synthesizeSatisfying cc depth ioref context props ty = do
                       mapM
                         ( \(i, (v, c)) ->
                             do
-                              prDebug (show i ++ "/" ++ show lv ++ ": " ++ v)
+                              logStr INFO (show i ++ "/" ++ show lv ++ ": " ++ v)
                               (v,) . (Right True ==) <$> runCheck c
                         )
                         $ zip [1 ..] to_check
                     putStrLn "DONE!"
-                    prDebug $ show inp ++ " fits done!"
+                    logStr INFO $ show inp ++ " fits done!"
                     let res = map fst $ filter snd fits
                     return res
           atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
@@ -120,9 +120,9 @@ synthesizeSatisfying cc depth ioref context props ty = do
     recur :: (String, [String]) -> IO [String]
     recur (e, []) = return [e]
     recur (e, holes) = do
-      prDebug $ "Synthesizing for " ++ show holes
+      logStr INFO $ "Synthesizing for " ++ show holes
       holeFs <- mapM (synthesizeSatisfying cc' (depth -1) ioref context []) holes
-      prDebug $ show holes ++ " Done!"
+      logStr INFO $ show holes ++ " Done!"
       -- We synthesize for each of the holes, and then produce ALL COMBINATIONS
       return $
         if any null holeFs
@@ -176,27 +176,11 @@ compConf =
       hole_lvl = 0
     }
 
-showTime :: Integer -> String
-showTime time =
-  if res > 1000
-    then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
-    else show res ++ "ms"
-  where
-    res :: Integer
-    res = floor $ fromIntegral time * 1e-9
-
-time :: IO a -> IO (Integer, a)
-time act = do
-  start <- getCPUTime
-  r <- act
-  done <- getCPUTime
-  return (done - start, r)
-
 main :: IO ()
 main = do
   SFlgs {..} <- getFlags
   let cc = compConf {hole_lvl = synth_holes}
-  [toFix] <- filter (not . (==) "-f" . take 2) <$> getArgs
+  [toFix] <- filter (not . (==) "-" . take 1) <$> getArgs
   (cc, mod, probs) <- moduleToProb cc toFix repair_target
   let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
       rp@RProb {..} = detranslate tp

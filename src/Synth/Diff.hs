@@ -16,6 +16,7 @@ import GhcPlugins (Outputable)
 import Synth.Eval
 import Synth.Replace (replaceExpr)
 import Synth.Types
+import Synth.Util (showUnsafe)
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
 getFixBinds parsed =

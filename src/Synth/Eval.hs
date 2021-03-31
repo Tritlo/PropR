@@ -388,12 +388,12 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _) failing_prop failing_args = do
       tixFilePath = exeName ++ ".tix"
       mixFilePath = tempDir
 
-  prDebug modTxt
+  logStr DEBUG modTxt
   -- Note: we do not need to dump the text of the module into the file, it
   -- only needs to exist. Otherwise we would have to write something like
   -- `hPutStr handle modTxt`
   hClose handle
-  liftIO $ mapM prDebug $ lines modTxt
+  liftIO $ mapM (logStr DEBUG) $ lines modTxt
   runGhc (Just libdir) $
     do
       plugRef <- initGhcCtxt cc
@@ -554,9 +554,6 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
       )
       cands
 
-showUnsafe :: Outputable p => p -> String
-showUnsafe = showSDocUnsafe . ppr
-
 timeoutVal :: Int
 timeoutVal = 1_000_000
 
@@ -574,7 +571,7 @@ runCheck (Right dval) =
   case fromDynamic @(IO [Bool]) dval of
     Nothing ->
       do
-        prDebug "wrong type!!"
+        logStr WARN "wrong type!!"
         return (Right False)
     Just res ->
       -- We need to forkProcess here, since we might be evaulating

@@ -280,21 +280,27 @@ failingProps cc ep@EProb {..} = do
           concat <$> mapM fp [ps1, ps2]
 
 repair :: CompileConfig -> EProblem -> IO [EFix]
-repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob
+repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob Nothing
 
-repairAttempt :: CompileConfig -> EProblem -> IO [(EFix, Either [Bool] Bool)]
-repairAttempt cc tp@EProb {..} =
+repairAttempt ::
+  CompileConfig ->
+  EProblem ->
+  Maybe [Bool] ->
+  IO [(EFix, Either [Bool] Bool)]
+repairAttempt cc tp@EProb {..} mb_failing_props =
   do
     let prog_at_ty = progAtTy e_prog e_ty
         holey_exprs = sanctifyExpr prog_at_ty
     trace_correl <- buildTraceCorrel cc prog_at_ty
 
-    prDebug $ showUnsafe prog_at_ty
-    prDebug $ showUnsafe holey_exprs
+    logOut DEBUG prog_at_ty
+    logOut DEBUG holey_exprs
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
-    failing_props <- failingProps cc tp
+    (t, failing_props) <- time $ case mb_failing_props of
+      Just bools -> return $ map snd $ filter (not . fst) $ zip bools e_props
+      _ -> failingProps cc tp
     counter_examples <- mapM (propCounterExample cc tp) failing_props
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
@@ -316,10 +322,10 @@ repairAttempt cc tp@EProb {..} =
         non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
         non_zero_holes :: [(SrcSpan, LHsExpr GhcPs)]
         non_zero_holes = filter (\(l, e) -> l `Set.member` non_zero_src) holey_exprs
-    prDebug "Invokes:"
-    prDebug $ showUnsafe invokes
-    prDebug "Non-zero holes:"
-    prDebug $ showUnsafe non_zero_holes
+    logStr DEBUG "Invokes:"
+    logOut DEBUG invokes
+    logStr DEBUG "Non-zero holes:"
+    logOut DEBUG non_zero_holes
 
     -- We add the context by replacing a hole in a let.
     let inContext = noLoc . HsLet NoExtField e_ctxt
@@ -352,9 +358,9 @@ repairAttempt cc tp@EProb {..} =
         (locs, checks) =
           unzip $ map (\(l, e) -> (l, snd $ fromJust $ fillHole bcatC $ unLoc e)) repls
 
-    prDebug "Fix candidates:"
-    mapM_ (prDebug . showUnsafe) checks
-    prDebug "Those were all of them!"
+    logStr DEBUG "Fix candidates:"
+    mapM_ (logOut DEBUG) checks
+    logStr DEBUG "Those were all of them!"
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
     compiled_checks <- zip repls <$> compileParsedChecks cc' checks
     mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks
