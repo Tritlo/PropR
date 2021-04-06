@@ -57,9 +57,7 @@ import RnExpr
 import Synth.Check
 import Synth.Diff (colorizeDiff, ppFix)
 import Synth.Eval
-import Synth.Fill
-import Synth.Flatten
-import Synth.Sanctify
+import Synth.Traversals
 import Synth.Types
 import Synth.Util
 import TcExpr
@@ -121,7 +119,7 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
     mapMaybe' :: (a -> Maybe b) -> [a] -> [(a, b)]
     mapMaybe' _ [] = []
     mapMaybe' f (a : as) = (case f a of Just b -> ((a, b) :); _ -> id) $ mapMaybe' f as
-    res = map (\(e, (l, r)) -> ([(l, e)], r)) (mapMaybe' (fillHole e) first_hole_fit)
+    res = map (\(e, (l, r)) -> ([(l, e)], r)) (mapMaybe' (`fillHole` e) first_hole_fit)
     (first_fit_locs_and_e, first_fit_res) = unzip res
     rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
     addL ::
@@ -323,7 +321,7 @@ repairAttempt cc tp@EProb {..} = do
 
   -- We find expressions that can be used as candidates in the program
   expr_cands <- collectStats $ getExprFitCands cc undefContext
-  let addContext = snd . fromJust . fillHole holeyContext . unLoc
+  let addContext = snd . fromJust . flip fillHole holeyContext . unLoc
   fits <- collectStats $ mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
   -- We process the fits ourselves, since we might have some expression
   -- fits
@@ -346,7 +344,7 @@ repairAttempt cc tp@EProb {..} = do
       -- We do it properly
       bcatC = buildSuccessCheck tp {e_prog = hole}
       (locs, checks) =
-        unzip $ map (\(l, e) -> (l, snd $ fromJust $ fillHole bcatC $ unLoc e)) repls
+        unzip $ map (\(l, e) -> (l, snd $ fromJust $ flip fillHole bcatC $ unLoc e)) repls
 
   logStr DEBUG "Fix candidates:"
   mapM_ (logOut DEBUG) checks

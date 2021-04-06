@@ -14,7 +14,7 @@ import FastString
 import GHC
 import GhcPlugins (Outputable)
 import Synth.Eval
-import Synth.Replace (replaceExpr)
+import Synth.Traversals
 import Synth.Types
 import Synth.Util (showUnsafe)
 

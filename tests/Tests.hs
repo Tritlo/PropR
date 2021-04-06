@@ -23,8 +23,6 @@ import Synth.Eval
     runJustParseExpr,
     traceTarget,
   )
-import Synth.Fill (fillHole)
-import Synth.Flatten
 import Synth.Gen (genRepair)
 import Synth.Repair
   ( failingProps,
@@ -33,8 +31,7 @@ import Synth.Repair
     repair,
     translate,
   )
-import Synth.Replace (replaceExpr)
-import Synth.Sanctify
+import Synth.Traversals
 import Synth.Types
 import Synth.Util
 import Test.Tasty
@@ -68,15 +65,6 @@ prop_insertAt n a as = abs n < length as ==> insertAt n' a as !! n' == a
   where
     n' = n `mod` length as
 
-prop_applToEach :: Int -> [a] -> Property
-prop_applToEach n xs =
-  n >= 0 ==> length app == n * lxs
-    && length (concatMap snd app) == n * lxs * lxs
-  where
-    tl = zip [0 ..] . replicate n
-    lxs = length xs
-    app = applToEach tl xs
-
 utilTests :: TestTree
 utilTests =
   testProperties
@@ -84,9 +72,7 @@ utilTests =
     [ ("dropPrefix", property prop_dropsPrefix),
       ("startsWith", property prop_startsWith),
       ("boolToBitsInverse", property prop_BoolToBitsInverse),
-      ("oneAndRest", property (prop_oneAndRest @Integer)),
-      ("insertAt", property (prop_insertAt @Integer)),
-      ("applToEach", property (prop_applToEach @Integer))
+      ("insertAt", property (prop_insertAt @Integer))
     ]
 
 repairTests =
@@ -136,10 +122,13 @@ repairTests =
                   ]
               expected =
                 [ "EFC {\"hello, world!\"}",
+                  "EFC {0}",
                   "EFC {gcd' 0 b}",
                   "EFC {gcd' 0}",
                   "EFC {0}",
+                  "EFC {0}",
                   "EFC {b == 0}",
+                  "EFC {0}",
                   "EFC {0}",
                   "EFC {if (a > b) then gcd' (a - b) b else gcd' a (b - a)}",
                   "EFC {a > b}",
@@ -432,7 +421,7 @@ sanctifyTests =
               repair_target = Just "broken"
           (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
           let (holes, holey) = unzip $ sanctifyExpr e_prog
-              filled = mapMaybe (`fillHole` undefVar) holey
+              filled = mapMaybe (fillHole undefVar) holey
           length filled @?= 7
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]
@@ -479,7 +468,7 @@ moduleTests =
               toFix = "tests/BrokenModule.hs"
           (_, _, [EProb {..}]) <- moduleToProb cc toFix Nothing
           showUnsafe e_target @?= "broken",
-      localOption (mkTimeout 30_000_000) $
+      localOption (mkTimeout 90_000_000) $
         testCase "Repair BrokenGCD" $ do
           let cc = defaultConf
               toFix = "tests/BrokenGCD.hs"

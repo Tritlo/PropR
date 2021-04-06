@@ -58,8 +58,8 @@ import Outputable hiding (char)
 import PrelNames (mkMainModule, toDynName)
 import StringBuffer
 import Synth.Check
-import Synth.Flatten
 import Synth.Plugin
+import Synth.Traversals
 import Synth.Types
 import Synth.Util
 import System.Directory
@@ -253,8 +253,11 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
           where
             fromSigD (L l (SigD _ s)) = Just (L l s)
             fromSigD _ = Nothing
+
+        toCtxt :: [LHsBind GhcPs] -> LHsLocalBinds GhcPs
+        toCtxt vals = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag vals) sigs)
         ctxt :: LHsLocalBinds GhcPs
-        ctxt = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag valDs) sigs)
+        ctxt = toCtxt valDs
 
         props :: [LHsBind GhcPs]
         props = mapMaybe fromPropD hsmodDecls
@@ -272,7 +275,10 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
             mbVar (L _ (HsVar _ v)) = Just $ unLoc v
             mbVar _ = Nothing
-            prop_vars = Set.fromList $ mapMaybe mbVar $ concatMap flattenBind props
+            prop_vars =
+              Set.fromList $
+                mapMaybe mbVar $
+                  flattenExpr (noLoc $ HsLet NoExtField (toCtxt props) (tf "undefined"))
 
         getTarget :: RdrName -> Maybe EProblem
         getTarget t_name =
@@ -552,7 +558,7 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
       cands
 
 timeoutVal :: Int
-timeoutVal = 1_000_000
+timeoutVal = fromIntegral qcTime
 
 -- Right True means that all the properties hold, while Right False mean that
 -- There is some error or infinite loop.

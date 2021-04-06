@@ -1,3 +1,4 @@
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
@@ -45,7 +46,8 @@ qcArgsExpr shrinks =
         "maxShrinks"
         (HsLit NoExtField (HsInt NoExtField $ IL NoSourceText False shrinks))
 
-qcTime = 1000000
+qcTime :: Integer
+qcTime = 1_000_000
 
 checkImports = ["import Test.QuickCheck"]
 

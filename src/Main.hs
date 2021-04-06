@@ -18,10 +18,9 @@ import GhcPlugins (GenLocated (..), getLoc, unLoc)
 import Synth.Check
 import Synth.Diff
 import Synth.Eval
-import Synth.Flatten
 import Synth.Gen
 import Synth.Repair
-import Synth.Replace (replaceExpr)
+import Synth.Traversals
 import Synth.Types
 import Synth.Util
 import System.CPUTime

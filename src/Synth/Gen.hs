@@ -11,7 +11,7 @@ import qualified Data.Set as Set
 import GhcPlugins (isSubspanOf)
 import Synth.Eval
 import Synth.Repair
-import Synth.Replace
+import Synth.Traversals
 import Synth.Types
 import Synth.Util
 

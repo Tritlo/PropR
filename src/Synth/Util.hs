@@ -108,15 +108,6 @@ contextLet :: [String] -> String -> String
 contextLet context l =
   "let {" ++ intercalate "; " (concatMap lines context) ++ "} in " ++ l
 
-mapFirst :: (a -> Maybe (b, a)) -> [a] -> Maybe (b, [a])
-mapFirst = mapFirst' []
-  where
-    mapFirst' :: [a] -> (a -> Maybe (b, a)) -> [a] -> Maybe (b, [a])
-    mapFirst' sf _ [] = Nothing
-    mapFirst' sf f (a : as) = case f a of
-      Just (b, a') -> Just (b, reverse (a' : sf) ++ as)
-      _ -> mapFirst' (a : sf) f as
-
 -- Turns a list of booleans into an int
 boolsToBit :: [Bool] -> Int
 boolsToBit bs
@@ -142,36 +133,11 @@ mkInteractive (RealSrcSpan rs) = RealSrcSpan $ mkRealSrcSpan ns ne
     ne = mkRealSrcLoc ic (srcLocLine rse) (srcLocCol rse)
 mkInteractive (UnhelpfulSpan _) = interactiveSrcSpan
 
--- Every possible split of a list, and where we took the element from.
-oneAndRest :: [a] -> [(a, Int, [a])]
-oneAndRest = oneAndRest' 0
-  where
-    oneAndRest' _ [] = []
-    oneAndRest' n (x : xs) =
-      (x, n, xs) : map (\(y, n', ys) -> (y, n', x : ys)) (oneAndRest' (n + 1) xs)
-
-prop_oneAndRest :: Ord a => [a] -> Bool
-prop_oneAndRest xs = prop_hasAll && prop_restIsThere && prop_fromCorrectPos
-  where
-    app = oneAndRest xs
-    prop_hasAll =
-      length xs == length app
-        && sort xs == sort (map (\(x, _, _) -> x) app)
-    prop_restIsThere = all (\(_, _, xs) -> length xs == (length app - 1)) app
-    prop_fromCorrectPos = all (\(x, i, _) -> (xs !! i) == x) app
-
 -- Inserts the given element at the given index in the list, or at the end
 insertAt :: Int -> a -> [a] -> [a]
 insertAt _ a [] = [a]
 insertAt 0 a as = a : as
 insertAt n a (x : xs) = x : insertAt (n -1) a xs
-
--- Applies the given function to each element in the list and leaves the
--- others untouched, for each element.
-applToEach :: (a -> [(l, a)]) -> [a] -> [(l, [a])]
-applToEach f as = concatMap applToOne $ oneAndRest as
-  where
-    applToOne (g, i, r) = map (\(l', g') -> (l', insertAt i g' r)) (f g)
 
 showTime :: Integer -> String
 showTime time =

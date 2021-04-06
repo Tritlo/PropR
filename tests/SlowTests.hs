@@ -8,7 +8,7 @@ import Data.Maybe (isJust, mapMaybe)
 import Synth.Diff (applyFixes, getFixBinds, ppDiff)
 import Synth.Eval
 import Synth.Gen (genRepair)
-import Synth.Replace (replaceExpr)
+import Synth.Traversals
 import Synth.Types
 import Synth.Util
 import Test.Tasty
