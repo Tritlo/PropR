@@ -29,12 +29,12 @@ holeFitCache :: IORef (Map.Map HoleHash [HoleFit])
 {-# NOINLINE holeFitCache #-}
 holeFitCache = unsafePerformIO $ newIORef Map.empty
 
-type HoleHash = String
+type HoleHash = (RealSrcSpan, String)
 
-holeHash :: TypedHole -> Maybe HoleHash
-holeHash TyH {tyHCt = Just ct} =
-  Just $ showSDocUnsafe $ ppr (ctLocSpan $ ctLoc ct, ctPred ct)
-holeHash _ = Nothing
+holeHash :: DynFlags -> TypedHole -> Maybe HoleHash
+holeHash df TyH {tyHCt = Just ct} =
+  Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr $ ctPred ct)
+holeHash _ _ = Nothing
 
 synthPlug :: [ExprFitCand] -> IORef [(TypedHole, [HoleFit])] -> Plugin
 synthPlug local_exprs plugRef =
@@ -49,18 +49,17 @@ synthPlug local_exprs plugRef =
                   { candPlugin =
                       \h c -> do
                         cache <- liftIO $ readIORef holeFitCache
-                        case holeHash h of
-                          -- Just hash | hash `Map.member` cache -> liftIO $ do
-                          --   return []
+                        dflags <- getDynFlags
+                        case holeHash dflags h >>= (cache Map.!?) of
+                          Just _ -> return []
                           _ -> return c,
                     fitPlugin = \h f -> do
                       cache <- liftIO $ readIORef holeFitCache
-                      case holeHash h of
-                        -- Just hash
-                        --   | hash `Map.member` cache -> liftIO $ do
-                        --     let fits = cache Map.! hash
-                        --     modifyIORef plugRef ((h, fits) :)
-                        --     return fits
+                      dflags <- getDynFlags
+                      case holeHash dflags h >>= (cache Map.!?) of
+                        Just fits -> liftIO $ do
+                          modifyIORef plugRef ((h, fits) :)
+                          return fits
                         _ -> do
                           -- Bump the number of times this plugin has been called, used
                           -- to make sure we only check expression fits once.
@@ -93,7 +92,7 @@ synthPlug local_exprs plugRef =
                           let fits = map (RawHoleFit . ppr) exprs ++ f
                           liftIO $ do
                             modifyIORef plugRef ((h, fits) :)
-                            case holeHash h of
+                            case holeHash dflags h of
                               Just hash -> modifyIORef holeFitCache (Map.insert hash fits)
                               _ -> return ()
                           return fits
