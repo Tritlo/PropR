@@ -81,7 +81,7 @@ getHoleFits ::
   IO [[[HoleFit]]]
 getHoleFits cc local_exprs exprs =
   runGhc (Just libdir) $ do
-    plugRef <- initGhcCtxt' False cc local_exprs
+    plugRef <- initGhcCtxt' True cc local_exprs
     -- Then we can actually run the program!
     setNoDefaulting
     let exprFits expr =
@@ -271,15 +271,27 @@ failingProps cc ep@EProb {..} = do
           concat <$> mapM fp [ps1, ps2]
 
 repair :: CompileConfig -> EProblem -> IO [EFix]
-repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob
+repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob Nothing
 
 repairAttempt ::
   CompileConfig ->
   EProblem ->
+  Maybe [ExprFitCand] ->
   IO [(EFix, Either [Bool] Bool)]
-repairAttempt cc tp@EProb {..} = do
+repairAttempt cc tp@EProb {..} efcs = do
   let prog_at_ty = progAtTy e_prog e_ty
       holey_exprs = sanctifyExpr prog_at_ty
+      -- We add the context by replacing a hole in a let.
+      inContext = noLoc . HsLet NoExtField e_ctxt
+      holeyContext = inContext hole
+
+  -- We find expressions that can be used as candidates in the program. Since
+  -- these remain the same between attempts for the same program, we allow it
+  -- to be precomputed.
+  expr_cands <- case efcs of
+    Just cands -> return cands
+    _ -> collectStats $ getExprFitCands cc $ inContext $ noLoc undefVar
+
   trace_correl <- buildTraceCorrel cc prog_at_ty
 
   logOut DEBUG prog_at_ty
@@ -310,19 +322,7 @@ repairAttempt cc tp@EProb {..} = do
       non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
       non_zero_holes :: [(SrcSpan, LHsExpr GhcPs)]
       non_zero_holes = filter (\(l, e) -> l `Set.member` non_zero_src) holey_exprs
-  logStr DEBUG "Invokes:"
-  logOut DEBUG invokes
-  logStr DEBUG "Non-zero holes:"
-  logOut DEBUG non_zero_holes
-
-  -- We add the context by replacing a hole in a let.
-  let inContext = noLoc . HsLet NoExtField e_ctxt
-      holeyContext = inContext hole
-      undefContext = inContext $ noLoc undefVar
-
-  -- We find expressions that can be used as candidates in the program
-  expr_cands <- collectStats $ getExprFitCands cc undefContext
-  let addContext = snd . fromJust . flip fillHole holeyContext . unLoc
+      addContext = snd . fromJust . flip fillHole holeyContext . unLoc
       nzh = map snd non_zero_holes
 
   fits <- collectStats $ zip nzh <$> getHoleFits cc expr_cands (map addContext nzh)
@@ -343,8 +343,8 @@ repairAttempt cc tp@EProb {..} = do
   processed_fits <-
     runGhc (Just libdir) $
       initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
+
   let repls = processed_fits >>= uncurry replacements
-      -- We do it properly
       bcatC = buildSuccessCheck tp {e_prog = hole}
       (locs, checks) =
         unzip $ map (\(l, e) -> (l, snd $ fromJust $ flip fillHole bcatC $ unLoc e)) repls

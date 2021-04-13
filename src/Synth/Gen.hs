@@ -8,7 +8,8 @@ import qualified Data.Map as Map
 import Data.Maybe (mapMaybe)
 import Data.Ord
 import qualified Data.Set as Set
-import GhcPlugins (isSubspanOf)
+import GHC
+import GhcPlugins (isSubspanOf, noLoc)
 import Synth.Eval
 import Synth.Repair
 import Synth.Traversals
@@ -75,7 +76,8 @@ selection gc indivs = pruneGeneration gc de_duped
 
 genRepair :: CompileConfig -> EProblem -> IO [EFix]
 genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
-  first_attempt <- collectStats $ repairAttempt cc prob
+  efcs <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  first_attempt <- collectStats $ repairAttempt cc prob (Just efcs)
   if not $ null $ successful first_attempt
     then return (map fst $ successful first_attempt)
     else do
@@ -83,7 +85,7 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
           runGen (fix, _) = do
             let n_prog = replaceExpr fix prog_at_ty
             map (\(f, r) -> (f `mergeFixes` fix, r))
-              <$> collectStats (repairAttempt cc prob {e_prog = n_prog})
+              <$> collectStats (repairAttempt cc prob {e_prog = n_prog} (Just efcs))
           loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO [EFix]
           loop gen round
             | not (null $ successful gen) =
