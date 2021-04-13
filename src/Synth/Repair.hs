@@ -13,7 +13,7 @@ import Constraint
     isHoleCt,
     wc_simple,
   )
-import Control.Monad (filterM, when)
+import Control.Monad (filterM, unless, when)
 import qualified CoreUtils
 import Data.Bifunctor
 import Data.Dynamic (fromDyn)
@@ -79,16 +79,17 @@ getHoleFits ::
   [ExprFitCand] ->
   [LHsExpr GhcPs] ->
   IO [[[HoleFit]]]
-getHoleFits cc local_exprs exprs = runGhc (Just libdir) $ do
-  plugRef <- initGhcCtxt' cc local_exprs
-  -- Then we can actually run the program!
-  setNoDefaulting
-  let exprFits expr =
-        liftIO (writeIORef plugRef [])
-          >> handleSourceError
-            (getHoleFitsFromError plugRef)
-            (Right <$> compileParsedExpr expr)
-  map (map fst) . lefts <$> mapM exprFits exprs
+getHoleFits cc local_exprs exprs =
+  runGhc (Just libdir) $ do
+    plugRef <- initGhcCtxt' False cc local_exprs
+    -- Then we can actually run the program!
+    setNoDefaulting
+    let exprFits expr =
+          liftIO (writeIORef plugRef [])
+            >> handleSourceError
+              (getHoleFitsFromError plugRef)
+              (Right <$> compileParsedExpr expr)
+    map (map fst) . lefts <$> mapM exprFits exprs
 
 getHoley :: CompileConfig -> RExpr -> IO [(SrcSpan, LHsExpr GhcPs)]
 getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str

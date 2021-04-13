@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 
 module Synth.Plugin where
 
@@ -12,7 +13,7 @@ import GHC
 import GhcPlugins hiding (TcPlugin)
 import RnExpr
 import Synth.Types
-import Synth.Util (LogLevel (AUDIT), logOut, logStr)
+import Synth.Util (LogLevel (AUDIT, DEBUG), logOut, logStr)
 import System.IO.Unsafe (unsafePerformIO)
 import TcExpr
 import TcHoleErrors
@@ -25,7 +26,7 @@ import TyCoFVs (tyCoFVsOfTypes)
 -- same location, then we can just skip the checks and return the fits directly.
 -- This should be OK, since our fits do not change the types, and the repairs do
 -- not introduce additional bindings into scope.
-holeFitCache :: IORef (Map.Map HoleHash [HoleFit])
+holeFitCache :: IORef (Map.Map (Int, HoleHash) (TypedHole, [HoleFit]))
 {-# NOINLINE holeFitCache #-}
 holeFitCache = unsafePerformIO $ newIORef Map.empty
 
@@ -36,8 +37,8 @@ holeHash df TyH {tyHCt = Just ct} =
   Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr $ ctPred ct)
 holeHash _ _ = Nothing
 
-synthPlug :: [ExprFitCand] -> IORef [(TypedHole, [HoleFit])] -> Plugin
-synthPlug local_exprs plugRef =
+synthPlug :: Bool -> [ExprFitCand] -> IORef [(TypedHole, [HoleFit])] -> Plugin
+synthPlug useCache local_exprs plugRef =
   defaultPlugin
     { holeFitPlugin = \_ ->
         Just $
@@ -50,22 +51,27 @@ synthPlug local_exprs plugRef =
                       \h c -> do
                         cache <- liftIO $ readIORef holeFitCache
                         dflags <- getDynFlags
-                        case holeHash dflags h >>= (cache Map.!?) of
-                          Just _ -> return []
+                        num_calls <- readTcRef iref
+                        case holeHash dflags h >>= (cache Map.!?) . (num_calls,) of
+                          Just r | useCache -> liftIO $ do
+                            logStr DEBUG "CACHE HIT"
+                            logOut DEBUG $ holeHash dflags h
+                            logOut DEBUG (num_calls, h)
+                            logOut DEBUG r
+                            return []
                           _ -> return c,
                     fitPlugin = \h f -> do
                       cache <- liftIO $ readIORef holeFitCache
                       dflags <- getDynFlags
-                      case holeHash dflags h >>= (cache Map.!?) of
-                        Just fits -> liftIO $ do
-                          modifyIORef plugRef ((h, fits) :)
-                          return fits
+                      num_calls <- readTcRef iref
+                      writeTcRef iref (num_calls + 1)
+                      case holeHash dflags h >>= (cache Map.!?) . (num_calls,) of
+                        Just cached | useCache -> liftIO $ do
+                          modifyIORef plugRef (cached :)
+                          return []
                         _ -> do
                           -- Bump the number of times this plugin has been called, used
                           -- to make sure we only check expression fits once.
-                          num_calls <- readTcRef iref
-                          writeTcRef iref (num_calls + 1)
-                          dflags <- getDynFlags
                           exprs <- case tyHCt h of
                             -- We only do fits for non-refinement hole fits, i.e. the first time the plugin is called.
                             Just ct | num_calls == 0 -> do
@@ -91,9 +97,16 @@ synthPlug local_exprs plugRef =
                             _ -> return []
                           let fits = map (RawHoleFit . ppr) exprs ++ f
                           liftIO $ do
-                            modifyIORef plugRef ((h, fits) :)
+                            let packed = (h, fits)
+                            modifyIORef plugRef (packed :)
                             case holeHash dflags h of
-                              Just hash -> modifyIORef holeFitCache (Map.insert hash fits)
+                              Just hash | useCache -> do
+                                let upd (Just prev) = Just (packed : prev)
+                                    upd _ = Just [packed]
+                                logStr DEBUG "CACHING"
+                                logOut DEBUG (num_calls, hash)
+                                logOut DEBUG packed
+                                modifyIORef holeFitCache (Map.insert (num_calls, hash) packed)
                               _ -> return ()
                           return fits
                   }

@@ -138,12 +138,16 @@ toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming Tru
 -- InitGhcCtxt initializes the context and the hole fit plugin with no
 -- expression fit candidates
 initGhcCtxt :: CompileConfig -> Ghc (IORef [(TypedHole, [HoleFit])])
-initGhcCtxt cc = initGhcCtxt' cc []
+initGhcCtxt cc = initGhcCtxt' False cc []
 
 -- initGhcCtxt' intializes the hole fit plugin we use to extract fits and inject
 -- expression fits, as well as adding any additional imports.
-initGhcCtxt' :: CompileConfig -> [ExprFitCand] -> Ghc (IORef [(TypedHole, [HoleFit])])
-initGhcCtxt' CompConf {..} local_exprs = do
+initGhcCtxt' ::
+  Bool ->
+  CompileConfig ->
+  [ExprFitCand] ->
+  Ghc (IORef [(TypedHole, [HoleFit])])
+initGhcCtxt' useCache CompConf {..} local_exprs = do
   flags <- config hole_lvl <$> getSessionDynFlags
   --`dopt_set` Opt_D_dump_json
   -- First we have to add "base" to scope
@@ -159,7 +163,7 @@ initGhcCtxt' CompConf {..} local_exprs = do
         StaticPlugin $
           PluginWithArgs
             { paArguments = [],
-              paPlugin = synthPlug local_exprs plugRef
+              paPlugin = synthPlug useCache local_exprs plugRef
             }
   toLink <- setSessionDynFlags flags'
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
