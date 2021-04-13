@@ -18,6 +18,7 @@ import qualified CoreUtils
 import Data.Bifunctor
 import Data.Dynamic (fromDyn)
 import Data.Either
+import Data.IORef (writeIORef)
 import Data.List (intercalate, sortOn)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -76,19 +77,18 @@ setNoDefaulting = do
 getHoleFits ::
   CompileConfig ->
   [ExprFitCand] ->
-  LHsExpr GhcPs ->
-  IO [[HoleFit]]
-getHoleFits cc local_exprs expr = runGhc (Just libdir) $ do
+  [LHsExpr GhcPs] ->
+  IO [[[HoleFit]]]
+getHoleFits cc local_exprs exprs = runGhc (Just libdir) $ do
   plugRef <- initGhcCtxt' cc local_exprs
   -- Then we can actually run the program!
   setNoDefaulting
-  res <-
-    handleSourceError
-      (getHoleFitsFromError plugRef)
-      (Right <$> compileParsedExpr expr)
-  return $ case res of
-    Left r -> map fst r
-    Right _ -> []
+  let exprFits expr =
+        liftIO (writeIORef plugRef [])
+          >> handleSourceError
+            (getHoleFitsFromError plugRef)
+            (Right <$> compileParsedExpr expr)
+  map (map fst) . lefts <$> mapM exprFits exprs
 
 getHoley :: CompileConfig -> RExpr -> IO [(SrcSpan, LHsExpr GhcPs)]
 getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str
@@ -322,7 +322,9 @@ repairAttempt cc tp@EProb {..} = do
   -- We find expressions that can be used as candidates in the program
   expr_cands <- collectStats $ getExprFitCands cc undefContext
   let addContext = snd . fromJust . flip fillHole holeyContext . unLoc
-  fits <- collectStats $ mapM (\(_, e) -> (e,) <$> getHoleFits cc expr_cands (addContext e)) non_zero_holes
+      nzh = map snd non_zero_holes
+
+  fits <- collectStats $ zip nzh <$> getHoleFits cc expr_cands (map addContext nzh)
   -- We process the fits ourselves, since we might have some expression
   -- fits
   let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
