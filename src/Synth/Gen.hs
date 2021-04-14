@@ -2,6 +2,7 @@
 
 module Synth.Gen where
 
+import Control.Concurrent.Async
 import Data.Function (on)
 import Data.List (groupBy, nub, sortOn, tails)
 import qualified Data.Map as Map
@@ -15,7 +16,6 @@ import Synth.Repair
 import Synth.Traversals
 import Synth.Types
 import Synth.Util
-import Control.Concurrent.Async
 
 type Individual = (EFix, [Bool])
 
@@ -107,7 +107,8 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
             mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) gen
             logStr AUDIT "NEXT GEN"
             mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) new_gen
-            (t, new_attempt) <- collectStats $ time $ concat <$> mapM runGen new_gen
+            let mapGen = if genPar then mapConcurrently else mapM
+            (t, new_attempt) <- collectStats $ time $ concat <$> mapGen runGen new_gen
             logStr INFO $ "ROUND TIME: " ++ showTime t
             loop new_attempt (rounds + 1)
       loop first_attempt 1

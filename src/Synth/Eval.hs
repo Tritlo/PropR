@@ -14,7 +14,7 @@ module Synth.Eval where
 import Bag
 import Constraint (Ct (..), holeOcc)
 import Control.Concurrent.Async
-import Control.Monad (when)
+import Control.Monad (when, (>=>))
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Bifunctor
 import Data.Bits (complement)
@@ -116,13 +116,20 @@ data CompileConfig = CompConf
   { importStmts :: [String],
     packages :: [String],
     hole_lvl :: Int,
-    genConf :: GenConf
+    genConf :: GenConf,
+    repConf :: RepConf
+  }
+  deriving (Show, Eq, Ord)
+
+data RepConf = RepConf
+  { repParProcs :: Bool
   }
   deriving (Show, Eq, Ord)
 
 data GenConf = GenConf
   { genIndividuals :: Int,
-    genRounds :: Int
+    genRounds :: Int,
+    genPar :: Bool
   }
   deriving (Show, Eq, Ord)
 
@@ -132,7 +139,8 @@ defaultConf =
     { hole_lvl = 0,
       packages = ["base", "process", "QuickCheck"],
       importStmts = ["import Prelude"],
-      genConf = GenConf {genIndividuals = 4, genRounds = 5}
+      genConf = GenConf {genIndividuals = 4, genRounds = 5, genPar = True},
+      repConf = RepConf {repParProcs = True}
     }
 
 toPkg :: String -> PackageFlag
@@ -709,12 +717,12 @@ checkFixes cc tp@EProb {..} fixes = do
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     addTarget target
-    _ <- load LoadAllTargets
+    _ <- collectStats $ load LoadAllTargets
     let p '1' = Just True
         p '0' = Just False
         p _ = Nothing
-        runSingleCheck :: Int -> IO (Either [Bool] Bool)
-        runSingleCheck which = do
+        startCheck :: Int -> IO (Handle, ProcessHandle)
+        startCheck which = do
           let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
           (_, Just hout, _, ph) <-
             createProcess
@@ -723,6 +731,9 @@ checkFixes cc tp@EProb {..} fixes = do
                   -- We ignore the output
                   std_out = CreatePipe
                 }
+          return (hout, ph)
+        waitOnCheck :: (Handle, ProcessHandle) -> IO (Either [Bool] Bool)
+        waitOnCheck (hout, ph) = do
           ec <- timeout timeoutVal $ waitForProcess ph
           case ec of
             Nothing -> terminateProcess ph >> return (Right False)
@@ -734,8 +745,16 @@ checkFixes cc tp@EProb {..} fixes = do
                   then if and parsed then Right True else Left parsed
                   else Right False
 
-    let (checks, _) = unzip $ zip [0 ..] fixes
-    liftIO $ mapConcurrently runSingleCheck checks
+    liftIO $ do
+      let CompConf {repConf = RepConf {..}} = cc
+          inds = take (length fixes) [0 ..]
+      if repParProcs
+        then do
+          -- By starting all the processes and then waiting on them, we get more
+          -- mode parallelism.
+          procs <- collectStats $ mapM startCheck inds
+          collectStats $ mapM waitOnCheck procs
+        else collectStats $ mapM (startCheck >=> waitOnCheck) inds
 
 exprToCheckModule :: CompileConfig -> String -> EProblem -> [EExpr] -> RExpr
 exprToCheckModule CompConf {..} mname tp@EProb {..} fixes =
@@ -746,12 +765,16 @@ exprToCheckModule CompConf {..} mname tp@EProb {..} fixes =
       ++ lines (showUnsafe ctxt)
       ++ lines (showUnsafe check_bind)
       ++ [ "",
+           -- We can run multiple in parallell, but then we will have issues
+           -- if any of them loop infinitely.
            "main__ :: IO ()",
-           "main__ = do [which] <- getArgs",
-           "            act <- checks__ !! (read which)",
+           "main__ = do whiches <- getArgs",
            "            let f True  = 1 ",
            "                f False = 0 ",
-           "            putStrLn (concat (map (show . f) act))"
+           "                runC which = ",
+           "                  do act <- checks__ !! (read which)",
+           "                     putStrLn (concat (map (show . f) act))",
+           "            mapM_ runC whiches"
          ]
   where
     (ctxt, check_bind) = buildFixCheck tp fixes
