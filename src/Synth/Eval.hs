@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
@@ -310,14 +311,21 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             -- previous assumptions relied on the properties to take in the
             -- function being fixed  as the first argument.
             wrapProp :: LHsBind GhcPs -> LHsBind GhcPs
-            wrapProp (L l fb@FunBind {..}) = L l fb {fun_id = nfid fun_id, fun_matches = nmatches fun_matches}
+            wrapProp (L l fb@FunBind {..}) = L l fb {fun_id = nfid, fun_matches = nmatches fun_matches}
               where
-                nfid (L l (Unqual occ)) = L l (Unqual (nocc occ))
-                nfid (L l (Qual m occ)) = L l (Qual m (nocc occ))
+                mkFid (L l (Unqual occ)) = L l (Unqual (nocc occ))
+                mkFid (L l (Qual m occ)) = L l (Qual m (nocc occ))
+                nfid = mkFid fun_id
                 nocc o = mkOccName (occNameSpace o) $ insertAt 4 '\'' $ occNameString o
                 nmatches mg@MG {mg_alts = (L l alts)} = mg {mg_alts = L l $ map nalt alts}
                   where
-                    nalt (L l m@Match {..}) = L l m {m_pats = nvpat : m_pats}
+                    nalt (L l m@Match {..}) = L l m {m_pats = nvpat : m_pats, m_ctxt = n_ctxt}
+                      where
+                        n_ctxt =
+                          case m_ctxt of
+                            fh@FunRhs {mc_fun = L l _} ->
+                              fh {mc_fun = L l $ unLoc nfid}
+                            o -> o
                     nvpat = noLoc $ VarPat NoExtField $ noLoc t_name
             wrapProp e = e
             wrapped_props = map wrapProp props
@@ -376,26 +384,32 @@ buildTraceCorrel cc expr =
     . flattenExpr
     <$> buildTraceCorrelExpr cc expr
 
--- Run HPC to get the trace information.
 traceTarget ::
   CompileConfig ->
   EExpr ->
   EProp ->
   [RExpr] ->
   IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
-traceTarget cc expr@(L (RealSrcSpan realSpan) _) failing_prop failing_args = do
+traceTarget cc e fp ce = head <$> traceTargets cc e [(fp, ce)]
+
+-- Run HPC to get the trace information.
+traceTargets ::
+  CompileConfig ->
+  EExpr ->
+  [(EProp, [RExpr])] ->
+  IO [Maybe (Tree (SrcSpan, [(BoxLabel, Integer)]))]
+traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   let tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (tf, handle) <- openTempFile tempDir "FakeTarget.hs"
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
       correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-      modTxt = exprToModule cc mname correl (showUnsafe failing_prop) failing_args
+      modTxt = exprToModule cc mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
       m_name = mkModuleName mname
       mod = IIModule m_name
       exeName = dropExtension tf
-      tixFilePath = exeName ++ ".tix"
       mixFilePath = tempDir
 
   logStr DEBUG modTxt
@@ -425,48 +439,50 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _) failing_prop failing_args = do
     -- We should for here in case it doesn't terminate, and modify
     -- the run function so that it use the trace reflect functionality
     -- to timeout and dump the tix file if possible.
-    res <- liftIO $ do
-      (_, _, _, ph) <-
-        createProcess
-          (proc exeName [])
-            { env = Just [("HPCTIXFILE", tixFilePath)],
-              -- We ignore the output
-              std_out = CreatePipe
-            }
-      ec <- timeout timeoutVal $ waitForProcess ph
+    let runTrace which = liftIO $ do
+          let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+          (_, _, _, ph) <-
+            createProcess
+              (proc exeName [show which])
+                { env = Just [("HPCTIXFILE", tixFilePath)],
+                  -- We ignore the output
+                  std_out = CreatePipe
+                }
+          ec <- timeout timeoutVal $ waitForProcess ph
 
-      let -- If it doesn't respond to signals, we can't do anything
-          -- other than terminate
-          loop ec 0 = terminateProcess ph
-          loop ec n = when (isNothing ec) $ do
-            -- If it's taking too long, it's probably stuck in a loop.
-            -- By sending the right signal though, it will dump the tix
-            -- file before dying.
-            pid <- getPid ph
-            case pid of
-              Just pid ->
-                do
-                  signalProcess keyboardSignal pid
-                  ec2 <- timeout timeoutVal $ waitForProcess ph
-                  loop ec2 (n -1)
-              _ ->
-                -- It finished in the brief time between calls, so we're good.
-                return ()
-      -- We give it 3 tries
-      loop ec 3
+          let -- If it doesn't respond to signals, we can't do anything
+              -- other than terminate
+              loop ec 0 = terminateProcess ph
+              loop ec n = when (isNothing ec) $ do
+                -- If it's taking too long, it's probably stuck in a loop.
+                -- By sending the right signal though, it will dump the tix
+                -- file before dying.
+                pid <- getPid ph
+                case pid of
+                  Just pid ->
+                    do
+                      signalProcess keyboardSignal pid
+                      ec2 <- timeout timeoutVal $ waitForProcess ph
+                      loop ec2 (n -1)
+                  _ ->
+                    -- It finished in the brief time between calls, so we're good.
+                    return ()
+          -- We give it 3 tries
+          loop ec 3
 
-      tix <- readTix tixFilePath
-      let rm m = (m,) <$> readMix [mixFilePath] (Right m)
-      case tix of
-        Just (Tix mods) -> do
-          -- We throw away any extra functions in the file, such as
-          -- the properties and the main function, and only look at
-          -- the ticks for our expression
-          [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
-          return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
-        _ -> return Nothing
+          tix <- readTix tixFilePath
+          let rm m = (m,) <$> readMix [mixFilePath] (Right m)
+          case tix of
+            Just (Tix mods) -> do
+              -- We throw away any extra functions in the file, such as
+              -- the properties and the main function, and only look at
+              -- the ticks for our expression
+              [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
+              return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
+            _ -> return Nothing
     removeTarget tid
-    return res
+    let (checks, _) = unzip $ zip [0 ..] ps_w_ce
+    mapM runTrace checks
   where
     toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
     toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
@@ -488,25 +504,41 @@ traceTarget cc expr@(L (RealSrcSpan realSpan) _) failing_prop failing_args = do
         start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
         -- GHC Srcs end one after the end
         end = mkSrcLoc fname (el - eloff) (ec - ecoff)
-traceTarget cc e@(L _ xp) fp fa = do
+traceTargets cc e@(L _ xp) ps_w_ce = do
   tl <- fakeBaseLoc cc e
-  traceTarget cc (L tl xp) fp fa
+  traceTargets cc (L tl xp) ps_w_ce
 
-exprToModule :: CompileConfig -> String -> LHsBind GhcPs -> RProp -> [RExpr] -> RExpr
-exprToModule CompConf {..} mname expr failing_prop failing_args =
+exprToModule :: CompileConfig -> String -> LHsBind GhcPs -> [(EProp, [RExpr])] -> RExpr
+exprToModule CompConf {..} mname expr ps_w_ce =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
       ++ checkImports
-      ++ lines failing_prop
+      ++ concatMap (lines . showUnsafe) failing_props
       ++ [showUnsafe expr]
+      ++ [concat ["checks = [", checks, "]"]]
       ++ [ "",
            "main :: IO ()",
-           "main = do r <- quickCheckWithResult (" ++ qcArgs ++ ") (" ++ pname ++ " fake_target " ++ unwords failing_args ++ ")",
-           "          print (isSuccess r) "
+           "main = do [which] <- getArgs",
+           "          act <- checks !! (read which)",
+           "          print (isSuccess act) "
          ]
   where
-    pname = head (words failing_prop)
+    (failing_props, failing_argss) = unzip ps_w_ce
+    toName :: LHsBind GhcPs -> String
+    toName (L _ FunBind {fun_id = fid}) = showUnsafe fid
+    toName (L _ VarBind {var_id = vid}) = showUnsafe vid
+    toName _ = error "Unsupported bind!"
+    pnames = map toName failing_props
+    nas = zip pnames failing_argss
+    toCall pname args =
+      "quickCheckWithResult (" ++ qcArgs ++ ") ("
+        ++ pname
+        ++ " fake_target "
+        ++ unwords args
+        ++ ")"
+    checks :: String
+    checks = intercalate ", " $ map (uncurry toCall) nas
 
 -- Report error prints the error and stops execution
 reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b

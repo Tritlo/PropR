@@ -314,7 +314,7 @@ repairAttempt cc tp@EProb {..} efcs = do
         . Map.unionsWith (+)
         . map toInvokes
         . catMaybes
-        <$> mapM (uncurry $ traceTarget cc prog_at_ty) ps_w_ce
+        <$> traceTargets cc prog_at_ty ps_w_ce
   -- We then remove suggested holes that are unlikely to help (naively for now
   -- in the sense that we remove only holes which did not get evaluated at all,
   -- so they are definitely not going to matter).

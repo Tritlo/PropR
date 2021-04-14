@@ -49,7 +49,7 @@ qcArgsExpr shrinks =
 qcTime :: Integer
 qcTime = 1_000_000
 
-checkImports = ["import Test.QuickCheck"]
+checkImports = ["import Test.QuickCheck", "import System.Environment (getArgs)"]
 
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
 baseFun nm val =
