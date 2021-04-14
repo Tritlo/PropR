@@ -230,11 +230,16 @@ main = do
   -- mapM_ (putStrLn . unlines . map ((++) "  " . show)) trcs
   no_par_gen <- ("--no-par-gen" `elem`) <$> getArgs
   no_par_rep <- ("--no-par-rep" `elem`) <$> getArgs
+  no_rep_interpreted <- ("--no-rep-interpreted" `elem`) <$> getArgs
   let CompConf {genConf = gc, repConf = rp} = cc
       cc' =
         cc
           { genConf = gc {genPar = not no_par_gen},
-            repConf = rp {repParProcs = not no_par_rep}
+            repConf =
+              rp
+                { repParChecks = not no_par_rep,
+                  repUseInterpreted = not no_rep_interpreted
+                }
           }
   putStrLn "REPAIRING..."
   (t, fixes) <- time $ genRepair cc' tp

@@ -30,6 +30,7 @@ import Data.Maybe
 import qualified Data.Set as Set
 import Data.Time.Clock
 import Data.Tree
+import Debug.Trace (traceShow)
 import DriverPhases (Phase (..))
 import DynFlags
 import ErrUtils (errDocImportant, errDocSupplementary, errMsgDoc)
@@ -122,7 +123,8 @@ data CompileConfig = CompConf
   deriving (Show, Eq, Ord)
 
 data RepConf = RepConf
-  { repParProcs :: Bool
+  { repParChecks :: Bool,
+    repUseInterpreted :: Bool
   }
   deriving (Show, Eq, Ord)
 
@@ -140,7 +142,7 @@ defaultConf =
       packages = ["base", "process", "QuickCheck"],
       importStmts = ["import Prelude"],
       genConf = GenConf {genIndividuals = 4, genRounds = 5, genPar = True},
-      repConf = RepConf {repParProcs = True}
+      repConf = RepConf {repParChecks = True, repUseInterpreted = True}
     }
 
 toPkg :: String -> PackageFlag
@@ -186,7 +188,7 @@ initGhcCtxt' useCache CompConf {..} local_exprs = do
 
 justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
 justParseExpr cc str = do
-  plugRef <- initGhcCtxt cc
+  _ <- initGhcCtxt cc
   parseExprNoInit str
 
 parseExprNoInit :: HasCallStack => RExpr -> Ghc (LHsExpr GhcPs)
@@ -681,7 +683,8 @@ readHole hf@HoleFit {..} =
 
 checkFixes :: CompileConfig -> EProblem -> [EExpr] -> IO [Either [Bool] Bool]
 checkFixes cc tp@EProb {..} fixes = do
-  let tempDir = "./fake_targets"
+  let CompConf {repConf = RepConf {..}} = cc
+      tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (tf, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
   -- We generate the name of the module from the temporary file
@@ -707,8 +710,11 @@ checkFixes cc tp@EProb {..} fixes = do
         dynFlags
           { mainModIs = mkMainModule $ fsLit mname,
             mainFunIs = Just "main__",
-            hpcDir = "./fake_targets"
-            --, optLevel = 0
+            hpcDir = "./fake_targets",
+            ghcMode = if repUseInterpreted then CompManager else OneShot,
+            ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
+            hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
+            --optLevel = 2
           }
     now <- liftIO getCurrentTime
     let tid = TargetFile tf Nothing
@@ -745,16 +751,27 @@ checkFixes cc tp@EProb {..} fixes = do
                   then if and parsed then Right True else Left parsed
                   else Right False
 
-    liftIO $ do
-      let CompConf {repConf = RepConf {..}} = cc
-          inds = take (length fixes) [0 ..]
-      if repParProcs
-        then do
-          -- By starting all the processes and then waiting on them, we get more
-          -- mode parallelism.
-          procs <- collectStats $ mapM startCheck inds
-          collectStats $ mapM waitOnCheck procs
-        else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+    let inds = take (length fixes) [0 ..]
+    if repUseInterpreted
+      then do
+        let m_name = mkModuleName mname
+            all_wrong = replicate (length fixes) $ Right False
+            checkArr arr = if and arr then Right True else Left arr
+        setContext [IIDecl $ simpleImportDecl m_name]
+        checks_expr <- compileExpr "checks__"
+        let checks :: [IO [Bool]]
+            checks = unsafeCoerce# checks_expr
+            evf = if repParChecks then mapConcurrently else mapM
+        liftIO $ collectStats $ evf (checkArr <$>) checks
+      else
+        liftIO $
+          if repParChecks
+            then do
+              -- By starting all the processes and then waiting on them, we get more
+              -- mode parallelism.
+              procs <- collectStats $ mapM startCheck inds
+              collectStats $ mapM waitOnCheck procs
+            else collectStats $ mapM (startCheck >=> waitOnCheck) inds
 
 exprToCheckModule :: CompileConfig -> String -> EProblem -> [EExpr] -> RExpr
 exprToCheckModule CompConf {..} mname tp@EProb {..} fixes =
@@ -765,16 +782,19 @@ exprToCheckModule CompConf {..} mname tp@EProb {..} fixes =
       ++ lines (showUnsafe ctxt)
       ++ lines (showUnsafe check_bind)
       ++ [ "",
+           "runC__ :: Bool -> Int -> IO [Bool]",
+           "runC__ pr which = do let f True  = 1",
+           "                         f False = 0",
+           "                     act <- checks__ !! which",
+           "                     if pr then (putStrLn (concat (map (show . f) act))) else return ()",
+           "                     return act"
+         ]
+      ++ [ "",
            -- We can run multiple in parallell, but then we will have issues
            -- if any of them loop infinitely.
            "main__ :: IO ()",
            "main__ = do whiches <- getArgs",
-           "            let f True  = 1 ",
-           "                f False = 0 ",
-           "                runC which = ",
-           "                  do act <- checks__ !! (read which)",
-           "                     putStrLn (concat (map (show . f) act))",
-           "            mapM_ runC whiches"
+           "            mapM_ (runC__ True . read) whiches"
          ]
   where
     (ctxt, check_bind) = buildFixCheck tp fixes
