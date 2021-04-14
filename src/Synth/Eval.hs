@@ -13,6 +13,7 @@ module Synth.Eval where
 
 import Bag
 import Constraint (Ct (..), holeOcc)
+import Control.Concurrent.Async
 import Control.Monad (when)
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Bifunctor
@@ -73,6 +74,7 @@ import System.Posix.Signals
 import System.Process
 import System.Timeout
 import TcHoleErrors (HoleFit (..), TypedHole (..))
+import Text.Read (readMaybe)
 import Trace.Hpc.Mix
 import Trace.Hpc.Tix
 import Trace.Hpc.Util
@@ -405,7 +407,7 @@ traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
       correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-      modTxt = exprToModule cc mname correl ps_w_ce
+      modTxt = exprToTraceModule cc mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
       m_name = mkModuleName mname
       mod = IIModule m_name
@@ -508,8 +510,8 @@ traceTargets cc e@(L _ xp) ps_w_ce = do
   tl <- fakeBaseLoc cc e
   traceTargets cc (L tl xp) ps_w_ce
 
-exprToModule :: CompileConfig -> String -> LHsBind GhcPs -> [(EProp, [RExpr])] -> RExpr
-exprToModule CompConf {..} mname expr ps_w_ce =
+exprToTraceModule :: CompileConfig -> String -> LHsBind GhcPs -> [(EProp, [RExpr])] -> RExpr
+exprToTraceModule CompConf {..} mname expr ps_w_ce =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
@@ -668,3 +670,88 @@ readHole hf@HoleFit {..} =
   ( showHF hf,
     map (showSDocUnsafe . ppr) hfMatches
   )
+
+checkFixes :: CompileConfig -> EProblem -> [EExpr] -> IO [Either [Bool] Bool]
+checkFixes cc tp@EProb {..} fixes = do
+  let tempDir = "./fake_targets"
+  createDirectoryIfMissing False tempDir
+  (tf, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
+  -- We generate the name of the module from the temporary file
+  let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
+      modTxt = exprToCheckModule cc mname tp fixes
+      strBuff = stringToStringBuffer modTxt
+      exeName = dropExtension tf
+  -- mixFilePath = tempDir
+
+  logStr DEBUG modTxt
+  -- Note: we do not need to dump the text of the module into the file, it
+  -- only needs to exist. Otherwise we would have to write something like
+  -- `hPutStr handle modTxt`
+  hClose handle
+  liftIO $ mapM (logStr DEBUG) $ lines modTxt
+  runGhc (Just libdir) $ do
+    _ <- initGhcCtxt cc
+    -- We set the module as the main module, which makes GHC generate
+    -- the executable.
+    dynFlags <- getSessionDynFlags
+    setSessionDynFlags $
+      flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+        dynFlags
+          { mainModIs = mkMainModule $ fsLit mname,
+            mainFunIs = Just "main__",
+            hpcDir = "./fake_targets"
+            --, optLevel = 0
+          }
+    now <- liftIO getCurrentTime
+    let tid = TargetFile tf Nothing
+        target = Target tid True $ Just (strBuff, now)
+
+    -- Adding and loading the target causes the compilation to kick
+    -- off and compiles the file.
+    addTarget target
+    _ <- load LoadAllTargets
+    let p '1' = Just True
+        p '0' = Just False
+        p _ = Nothing
+        runSingleCheck :: Int -> IO (Either [Bool] Bool)
+        runSingleCheck which = do
+          let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+          (_, Just hout, _, ph) <-
+            createProcess
+              (proc exeName [show which])
+                { env = Just [("HPCTIXFILE", tixFilePath)],
+                  -- We ignore the output
+                  std_out = CreatePipe
+                }
+          ec <- timeout timeoutVal $ waitForProcess ph
+          case ec of
+            Nothing -> terminateProcess ph >> return (Right False)
+            Just res -> do
+              res <- hGetLine hout
+              let parsed = mapMaybe p res
+              return $
+                if length parsed == length res
+                  then if and parsed then Right True else Left parsed
+                  else Right False
+
+    let (checks, _) = unzip $ zip [0 ..] fixes
+    liftIO $ mapConcurrently runSingleCheck checks
+
+exprToCheckModule :: CompileConfig -> String -> EProblem -> [EExpr] -> RExpr
+exprToCheckModule CompConf {..} mname tp@EProb {..} fixes =
+  unlines $
+    ["module " ++ mname ++ " where"]
+      ++ importStmts
+      ++ checkImports
+      ++ lines (showUnsafe ctxt)
+      ++ lines (showUnsafe check_bind)
+      ++ [ "",
+           "main__ :: IO ()",
+           "main__ = do [which] <- getArgs",
+           "            act <- checks__ !! (read which)",
+           "            let f True  = 1 ",
+           "                f False = 0 ",
+           "            putStrLn (concat (map (show . f) act))"
+         ]
+  where
+    (ctxt, check_bind) = buildFixCheck tp fixes

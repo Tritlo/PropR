@@ -81,6 +81,56 @@ tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
 hole :: LHsExpr GhcPs
 hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
+buildFixCheck :: EProblem -> [EExpr] -> (LHsLocalBinds GhcPs, LHsBind GhcPs)
+buildFixCheck EProb {..} fixes =
+  (ctxt, check_bind)
+  where
+    (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
+    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ Just 0)
+    nvb = ValBinds vbe nvbs vsigs
+    nvbs =
+      unionManyBags
+        [ vbs,
+          listToBag e_props,
+          unitBag qcb
+          -- unitBag expr_b,
+          -- unitBag pcb
+        ]
+    ctxt = L bl (HsValBinds be nvb)
+    prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
+    prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
+    prop_to_name _ = Nothing
+    prop_names = mapMaybe prop_to_name e_props
+    propsToCheck = map (propCheckExpr $ tf "isSuccess") prop_names
+
+    expr_b ep = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy ep e_ty
+    check_progs =
+      map (\e -> noLoc $ HsLet NoExtField (eToBs e) par_app_w_ty) fixes
+      where
+        eToBs fix = noLoc $ HsValBinds NoExtField ebs
+          where
+            ebs = ValBinds NoExtField (unitBag (expr_b fix)) []
+        elpc = noLoc $ ExplicitList NoExtField Nothing propsToCheck
+        app :: LHsExpr GhcPs
+        app = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "sequence") elpc
+        app_w_ty :: LHsExpr GhcPs
+        app_w_ty = noLoc $ ExprWithTySig NoExtField app sq_ty
+        par_app_w_ty :: LHsExpr GhcPs
+        par_app_w_ty = noLoc $ HsPar NoExtField app_w_ty
+
+    check_bind =
+      baseFun (mkVarUnqual $ fsLit "checks__") $
+        noLoc $ ExplicitList NoExtField Nothing check_progs
+    sq_ty :: LHsSigWcType GhcPs
+    sq_ty =
+      HsWC NoExtField $
+        HsIB NoExtField $
+          noLoc $
+            HsAppTy
+              NoExtField
+              (tt "IO")
+              (noLoc $ HsListTy NoExtField $ tt "Bool")
+
 buildSuccessCheck :: EProblem -> EExpr
 buildSuccessCheck EProb {..} =
   noLoc $ HsLet NoExtField ctxt check_prog

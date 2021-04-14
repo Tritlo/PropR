@@ -15,6 +15,7 @@ import Synth.Repair
 import Synth.Traversals
 import Synth.Types
 import Synth.Util
+import Control.Concurrent.Async
 
 type Individual = (EFix, [Bool])
 

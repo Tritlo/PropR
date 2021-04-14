@@ -278,7 +278,7 @@ repairAttempt ::
   EProblem ->
   Maybe [ExprFitCand] ->
   IO [(EFix, Either [Bool] Bool)]
-repairAttempt cc tp@EProb {..} efcs = do
+repairAttempt cc tp@EProb {..} efcs = collectStats $ do
   let prog_at_ty = progAtTy e_prog e_ty
       holey_exprs = sanctifyExpr prog_at_ty
       -- We add the context by replacing a hole in a let.
@@ -345,13 +345,9 @@ repairAttempt cc tp@EProb {..} efcs = do
       initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
 
   let repls = processed_fits >>= uncurry replacements
-      bcatC = buildSuccessCheck tp {e_prog = hole}
-      (locs, checks) =
-        unzip $ map (\(l, e) -> (l, snd $ fromJust $ flip fillHole bcatC $ unLoc e)) repls
 
   logStr DEBUG "Fix candidates:"
-  mapM_ (logOut DEBUG) checks
+  mapM_ (logOut DEBUG) repls
   logStr DEBUG "Those were all of them!"
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-  compiled_checks <- collectStats $ zip repls <$> compileParsedChecks cc' checks
-  collectStats $ mapM (\((fs, _), c) -> (Map.fromList fs,) <$> runCheck c) compiled_checks
+  collectStats $ zipWith (\(fs, _) r -> (Map.fromList fs, r)) repls <$> checkFixes cc' tp (map snd repls)

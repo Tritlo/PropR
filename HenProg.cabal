@@ -14,6 +14,7 @@ license-file: LICENSE
 
 library synth
   default-language: Haskell2010
+  ghc-options: -O2
   hs-source-dirs: src/
   exposed-modules: Synth.Eval,
                    Synth.Plugin,
@@ -37,7 +38,8 @@ library synth
                  containers >= 0.6 && < 0.7,
                  unix >= 2.7.2 && < 2.8,
                  lens >= 5.0 && < 5.1,
-                 comonad >= 5.0 && < 5.1
+                 comonad >= 5.0 && < 5.1,
+                 async >= 2.2 && < 2.3
 
 executable henprog
   default-language: Haskell2010
