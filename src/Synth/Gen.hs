@@ -1,5 +1,15 @@
 {-# LANGUAGE RecordWildCards #-}
+{-|
+Module      : Synth.Gen
+Description : Holds the Genetic Programming Parts of HenProg
+License     : MIT
+Stability   : experimental
 
+This module holds simple genetic operators used to find fixes in HenProg. 
+The primary building brick is an EFix (See Synth.Types) that resembles a set of changes done to the Code. 
+The goodness of a certain fix is expressed by the failing and succeeding properties, 
+which are a list of boolean values (true for passing properties, false for failing).
+-}
 module Synth.Gen where
 
 import Control.Concurrent.Async
@@ -17,8 +27,18 @@ import Synth.Traversals
 import Synth.Types
 import Synth.Util
 
+{-|
+   An Individual consists of a "Fix", that is a change to be applied, 
+   and a list of properties they fulfill or fail, expressed as an boolean array. 
+   A perfect candidate would have an array full of true, as every property is hold.
+-}
 type Individual = (EFix, [Bool])
 
+{-|
+   This method combines individuals by merging their fixes.
+   The assumed properties of the offspring are the logically-or'd properties of the input individuals.
+   WARNING: The assumed property-fullfillment is a heuristic.  
+-}
 breed :: Individual -> Individual -> Individual
 breed i1@(f1, r1) i2@(f2, r2) =
   ( if fitness i1 >= fitness i2
@@ -27,11 +47,18 @@ breed i1@(f1, r1) i2@(f2, r2) =
     lor r1 r2
   )
   where
+    -- lor = logical or 
     lor :: [Bool] -> [Bool] -> [Bool]
     lor (False : xs) (False : ys) = False : lor xs ys
     lor (_ : xs) (_ : ys) = True : lor xs ys
     lor [] [] = []
 
+{-|
+   Merging fix-candidatesis mostly applying the list of changes in order. 
+   The only addressed special case is to discard the next change, 
+   if the next change is also used at the same place in the second fix.  
+   TODO: Is the above description of isSubspanOf correct?
+-}
 mergeFixes :: EFix -> EFix -> EFix
 mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
   where
@@ -39,9 +66,17 @@ mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
     mf' xs [] = xs
     mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
 
+{-|
+   This fitness is currently simply counting the hold properties. 
+   fitness (_,[true,true,false,true]) = 3
+-}
 fitness :: Individual -> Float
 fitness = fromIntegral . length . filter id . snd
 
+{-|
+   This method computes the estimated fitness of the offspring of two individuals.
+   WARNING: The fitness of the offspring is only estimated, not evaluated.
+-}
 complementary :: Individual -> Individual -> Float
 complementary a b = fitness $ breed a b
 
@@ -51,6 +86,11 @@ individuals = mapMaybe fromHelpful
     fromHelpful (fs, Left r) | or r = Just (fs, r)
     fromHelpful _ = Nothing
 
+{-|
+This method computes best pairings for individuals, and returns them in descending order. 
+I.E. the first element of the returned list will be the pair of individuals that produces the offspring with the best fitness.
+TODO: remove self-pairing, atleast if self-mating does not affect the fix
+-}
 makePairings :: [Individual] -> [(Individual, Individual)]
 makePairings indivs =
   sortOn (Down . uncurry complementary) $
@@ -59,6 +99,7 @@ makePairings indivs =
 -- TODO: Better heuristics
 pruneGeneration :: GenConf -> [Individual] -> [Individual]
 pruneGeneration GenConf {..} new_gen =
+  -- genIndividuals is the number of individuals pro generation, and is provided in GenConf
   take genIndividuals $ mapMaybe isFit new_gen
   where
     avg_fitness :: Float
@@ -72,8 +113,10 @@ successful = filter (\(_, r) -> r == Right True)
 selection :: GenConf -> [Individual] -> [Individual]
 selection gc indivs = pruneGeneration gc de_duped
   where
-    de_duped = deDupOn (Map.keys . fst) pairings
+    -- Compute the offsprigns of the best pairings
     pairings = map (uncurry breed) $ makePairings indivs
+    -- Deduplicate the pairings
+    de_duped = deDupOn (Map.keys . fst) pairings
 
 genRepair :: CompileConfig -> EProblem -> IO [EFix]
 genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
@@ -113,6 +156,12 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
             loop new_attempt (rounds + 1)
       loop first_attempt 1
 
+{-|
+Computes the average value of an array of integrals. 
+It is used to compute the average fitness of a generation. 
+
+TODO: Isn't this built in?
+-}
 avg :: Fractional a => [a] -> a
 avg as = sum as / fromIntegral (length as)
 

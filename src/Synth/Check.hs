@@ -2,6 +2,14 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{- |
+Module      : Synth.Check
+Description : Interfaces the Program and its variants towards QuickCheck.
+License     : MIT
+Stability   : experimental
+
+This module handles calls and configurations of QuickCheck.
+-}
 module Synth.Check where
 
 import Bag
@@ -17,6 +25,7 @@ import Synth.Util
 import TcEvidence (idHsWrapper)
 import TysWiredIn
 
+-- TODO: Give a Seed for reproducible Experiments & Tests 
 qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
 
 -- Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
@@ -46,11 +55,14 @@ qcArgsExpr shrinks =
         "maxShrinks"
         (HsLit NoExtField (HsInt NoExtField $ IL NoSourceText False shrinks))
 
+-- | Time to run the QuickCheck in seconds
 qcTime :: Integer
 qcTime = 1_000_000
 
+-- | This imports are required for the program to run.
 checkImports = ["import Test.QuickCheck", "import System.Environment (getArgs)"]
 
+-- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
 baseFun nm val =
   noLoc $ FunBind NoExtField (noLoc nm) (MG NoExtField (noLoc [base_case]) Generated) idHsWrapper []
@@ -62,10 +74,12 @@ baseFun nm val =
           (FunRhs (noLoc nm) Prefix NoSrcStrict)
           []
           (GRHSs NoExtField [noLoc $ GRHS NoExtField [] val] elb)
+    -- elb = empty local binds 
     elb :: LHsLocalBinds GhcPs
     elb = noLoc $ EmptyLocalBinds NoExtField
 
 -- Shorthands for common constructs
+-- TODO: What do these do? What do they get? 
 tf :: String -> LHsExpr GhcPs
 tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
 
@@ -158,6 +172,7 @@ buildSuccessCheck EProb {..} =
       baseFun
         (mkVarUnqual $ fsLit "propsToCheck__")
         (noLoc $ ExplicitList NoExtField Nothing propsToCheck)
+    -- TODO: ty is type, but what is sq? 
     sq_ty :: LHsSigWcType GhcPs
     sq_ty =
       HsWC NoExtField $
@@ -188,9 +203,12 @@ buildSuccessCheck EProb {..} =
                 sq_ty
           )
 
--- Runs the check with QuickCheck. Takes in the name of the function to use for
+-- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result
-propCheckExpr :: LHsExpr GhcPs -> Located RdrName -> LHsExpr GhcPs
+propCheckExpr :: 
+  LHsExpr GhcPs      -- ^ A compiled program that contains properties and everything to run them
+  -> Located RdrName -- ^ A reader containing the property to check
+  -> LHsExpr GhcPs   
 propCheckExpr extractor prop =
   noLoc $
     HsApp
@@ -222,7 +240,7 @@ propCheckExpr extractor prop =
     tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
     il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 
--- The `buildCounterExampleExpr` functions creates an expression which when
+-- | The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument
 -- to the given prop if it fails for the given program, and nothing otherwise.
 -- Note that we have to have it take in a list of properties to match the shape
@@ -351,6 +369,7 @@ buildCounterExampleCheck
                 Nothing
           flpat :: LPat GhcPs
           flpat = noLoc $ VarPat NoExtField svarname
+      -- elb = empty local binds
       elb :: LHsLocalBinds GhcPs
       elb = noLoc $ EmptyLocalBinds NoExtField
       failFun :: LHsBind GhcPs

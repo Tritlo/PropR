@@ -2,6 +2,20 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{- |
+Module      : Synth.Diff
+Description : This module pretty-prints the output of the repair.
+License     : MIT
+Stability   : experimental
+
+This module displays the changes introduced by the repair in a colourful and pretty way. 
+It also beforehand doublechecks that the thing to be printed is an actual valid program. 
+
+TODO: Should this rather be called (pretty-)printer?
+
+Abbreviations: 
+- pp: PrettyPrint
+-}
 module Synth.Diff where
 
 import Bag
@@ -31,6 +45,7 @@ getFixBinds parsed =
      in -- but it never hurts to check.
         lbs
   where
+    -- The below pattern is the only one we expect and accept.
     check (L _ (ExprWithTySig _ (L _ (HsPar _ (L _ (HsLet _ (L _ (HsValBinds _ ValBinds {})) _)))) _)) = True
     check _ = False
 
@@ -53,7 +68,7 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nbs =
     nbMap :: Map RdrName (LHsBind GhcPs)
     nbMap = Map.fromList $ mapMaybe bToFunId $ bagToList nbs
 
--- Colorize a pretty printed fix
+-- | Colorize a pretty printed fix
 colorizeDiff :: String -> String
 colorizeDiff = unlines . map color . lines
   where
@@ -74,7 +89,7 @@ colorizeDiff = unlines . map color . lines
 ppFix :: LHsExpr GhcPs -> EFix -> String
 ppFix expr fixes = curry ppDiff expr $ replaceExpr fixes expr
 
--- Pretty print a fix by adding git like '+' and '-' to each line.
+-- | Pretty print a fix by adding git like '+' and '-' to each line.
 ppDiff :: Outputable e => (Located e, Located e) -> String
 ppDiff (L o1 d, L o2 d') =
   unlines

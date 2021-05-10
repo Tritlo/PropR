@@ -1,6 +1,15 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
+{-
+Module      : Synth.Plugin
+Description : Moves some of the HenProg into the GHC compilation
+License     : MIT
+Stability   : experimental
+
+This module introduces the Synth-Plugin to fasten up checking for the correct expressions in GHC. 
+It also introduces heuristic caching.
+-}
 module Synth.Plugin where
 
 import Bag
@@ -32,6 +41,7 @@ holeFitCache = unsafePerformIO $ newIORef Map.empty
 
 type HoleHash = (RealSrcSpan, String)
 
+-- | Provides a heuristic Hash for the Typed holes, used for lookup in Caching. 
 holeHash :: DynFlags -> TypedHole -> Maybe HoleHash
 holeHash df TyH {tyHCt = Just ct} =
   Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr $ ctPred ct)

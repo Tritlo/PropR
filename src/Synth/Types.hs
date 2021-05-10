@@ -1,5 +1,24 @@
 {-# LANGUAGE RecordWildCards #-}
+{-|
+Module      : Synth.Types
+Description : Holds the types used throughout the HenProg Library
+License     : MIT
+Stability   : experimental
 
+This module holds common / shared types throughout the HenProg library. 
+Prefixes / Naming Convention: 
+- "R": 
+- "E":
+- "Ghc": Glasgow Haskell Compiler 
+- "LHs": Located Haskell, e.g. Located-Haskell-Binding. Located does not necessarily mean "local", 
+        it refers to a piece of Haskell code at a certain known position in a program, in contrag e.g. to the synthesized fixed which are un-located at first. 
+- "Ps": Parsed, as a pass in GHC before compilation
+- "Ty": Type
+- "Wc": WildCard, for our purposes the "holes"
+
+TODO: Difference between R & E ? 
+R for Readerbased == Strings and E for Expression-Based == Compiled & Resolved? 
+-}
 module Synth.Types where
 
 import Constraint
@@ -8,7 +27,10 @@ import GHC
 import Outputable
 import qualified Outputable as O
 
+{-|
+-- Properties as in QuickCheck Properties.
 -- Properties are strings, for now. We could parse them into LHsExpr GhcPs later.
+-}
 type RProp = String
 
 type RContext = [String]

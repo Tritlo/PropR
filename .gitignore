@@ -2,3 +2,6 @@ dist*/
 fake_targets/
 cabal.project.local
 *.mix
+
+*.o
+*.hi
