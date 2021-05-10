@@ -5,3 +5,5 @@ cabal.project.local
 
 *.o
 *.hi
+
+.DS_Store 

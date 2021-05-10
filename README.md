@@ -27,14 +27,14 @@ To run the program, ensure that `QuickCheck` is installed by running
 `$ cabal install --lib QuickCheck `. You can then run
 
 ```
-$ cabal run henprog -- tests/BrokenModule.hs
+$ cabal run henprog -- examples/BrokenModule.hs
 ```
 
 to see it in action on the `foldl (-) 0` example. This produces the following:
 
 ```diff
 TARGET:
-  `broken` in tests/BrokenModule.hs
+  `broken` in examples/BrokenModule.hs
 SCOPE:
   import Prelude hiding (id, ($), ($!), asTypeOf)
 TARGET TYPE:
@@ -72,20 +72,20 @@ TRACE OF COUNTER EXAMPLES:
 
 REPAIRING...DONE! (2.43s)
 REPAIRS:
----tests/BrokenModule.hs
-+++tests/BrokenModule.hs
+---examples/BrokenModule.hs
++++examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = sum
 
----tests/BrokenModule.hs
-+++tests/BrokenModule.hs
+---examples/BrokenModule.hs
++++examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = foldl add 0
 
----tests/BrokenModule.hs
-+++tests/BrokenModule.hs
+---examples/BrokenModule.hs
++++examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = foldl (+) 0
@@ -106,15 +106,15 @@ Showing how it works.
 For the `BrokenGCD` module, we get an interesting result:
 
 ```
-$ cabal run henprog -- tests/BrokenGCD.hs
+$ cabal run henprog -- examples/BrokenGCD.hs
 ```
 
 gives us:
 
 ```diff
 REPAIRS:
----tests/BrokenGCD.hs
-+++tests/BrokenGCD.hs
+---examples/BrokenGCD.hs
++++examples/BrokenGCD.hs
 @@ -17,3 +17,3 @@ gcd' 0 b = gcd' 0 b
 -gcd' 0 b = gcd' 0 b
 +gcd' 0 b = b
@@ -129,7 +129,7 @@ that there is an up-to-date run of the tests over at Travis-CI, which can be
 seen at the top of this document.
 
 To try it out for different scenarios, feel free to change the `Broken` modules
-in `tests/`, but note that AST coverage is pretty limited at the moment.
+in `examples/`, but note that AST coverage is pretty limited at the moment.
 
 Parameters
 ---------
