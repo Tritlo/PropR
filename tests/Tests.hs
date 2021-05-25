@@ -478,7 +478,7 @@ moduleTests =
                   unlines
                   [ [ "---tests/BrokenGCD.hs",
                       "+++tests/BrokenGCD.hs",
-                      "@@ -17,3 +17,3 @@ gcd' 0 b = gcd' 0 b",
+                      "@@ -19,3 +19,3 @@ gcd' 0 b = gcd' 0 b",
                       "-gcd' 0 b = gcd' 0 b",
                       "+gcd' 0 b = b",
                       " gcd' a b | b == 0 = a",

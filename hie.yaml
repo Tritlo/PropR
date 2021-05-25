@@ -4,6 +4,8 @@ cradle:
       component: "lib:synth"
     - path: "./tests"
       component: "lib:synth"
+    - path: "./examples"
+      component: "lib:synth"
     - path: "./src/Main.hs"
       component: "exe:henprog"
     - path: "./tests/Tests.hs"

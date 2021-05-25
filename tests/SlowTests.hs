@@ -26,13 +26,13 @@ genTests =
     [ localOption (mkTimeout 120_000_000) $
         testCase "Repair TwoFixes" $ do
           let cc = defaultConf
-              toFix = "examples/TwoFixes.hs"
+              toFix = "tests/TwoFixes.hs"
               repair_target = Nothing
               expected =
                 map
                   unlines
-                  [ [ "---examples/TwoFixes.hs",
-                      "+++examples/TwoFixes.hs",
+                  [ [ "---tests/TwoFixes.hs",
+                      "+++tests/TwoFixes.hs",
                       "@@ -12,1 +12,1 @@ brokenPair = (1, 2)",
                       "-brokenPair = (1, 2)",
                       "+brokenPair = (3, 4)"
@@ -47,13 +47,13 @@ genTests =
       localOption (mkTimeout 75_000_000) $
         testCase "Repair ThreeFixes" $ do
           let cc = defaultConf
-              toFix = "examples/ThreeFixes.hs"
+              toFix = "tests/ThreeFixes.hs"
               repair_target = Nothing
               expected =
                 map
                   unlines
-                  [ [ "---examples/ThreeFixes.hs",
-                      "+++examples/ThreeFixes.hs",
+                  [ [ "---tests/ThreeFixes.hs",
+                      "+++tests/ThreeFixes.hs",
                       "@@ -20,1 +20,1 @@ brokenPair = (1, 2, 3)",
                       "-brokenPair = (1, 2, 3)",
                       "+brokenPair = (3, 4, 5)"
@@ -68,13 +68,13 @@ genTests =
       localOption (mkTimeout 90_000_000) $
         testCase "Repair FourFixes" $ do
           let cc = defaultConf
-              toFix = "examples/FourFixes.hs"
+              toFix = "tests/FourFixes.hs"
               repair_target = Nothing
               expected =
                 map
                   unlines
-                  [ [ "---examples/FourFixes.hs",
-                      "+++examples/FourFixes.hs",
+                  [ [ "---tests/FourFixes.hs",
+                      "+++tests/FourFixes.hs",
                       "@@ -24,1 +24,1 @@ brokenPair = (1, 2, 3, 4)",
                       "-brokenPair = (1, 2, 3, 4)",
                       "+brokenPair = (3, 4, 5, 6)"
