@@ -131,28 +131,6 @@ output p = do
 ----
 
 
-data CompileConfig = CompConf
-  { importStmts :: [String],  -- ^ a list of imports required/wanted for the compilation
-    packages :: [String],     -- ^ a list of packages used for the compilation
-    hole_lvl :: Int,          -- ^ the "depth" of the wholes, see general notes on this 
-    genConf :: GenConf,       -- ^ The Configuration for the Genetic Algorithm
-    repConf :: RepConf        -- ^ The Configuration for the Repair 
-  }
-  deriving (Show, Eq, Ord)
-
-data RepConf = RepConf
-  { repParChecks :: Bool, -- ^ Whether or not to use Parallelisation 
-    repUseInterpreted :: Bool -- ^ Whether or not to use compiled sources (?)
-  }
-  deriving (Show, Eq, Ord)
-
-{-| GenConf represents a set of configurations for the Genetic Experiment -}
-data GenConf = GenConf
-  { genIndividuals :: Int,   -- ^ The number of individuals in a generation
-    genRounds :: Int,        -- ^ The number of generations processed
-    genPar :: Bool           -- ^ Whether or not to use parallelisation in genetic search parts
-  }
-  deriving (Show, Eq, Ord)
 
 {-| Provides a default configuration for the program.
 It requires the basic packages "base","process" & "QuickCheck" to be available on the system.
@@ -578,7 +556,7 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     pnames = map toName failing_props
     nas = zip pnames failing_argss
     toCall pname args =
-      "quickCheckWithResult (" ++ qcArgs ++ ") ("
+      "quickCheckWithResult (" ++ (showUnsafe (qcArgsExpr Nothing)) ++ ") ("
         ++ pname
         ++ " fake_target "
         ++ unwords args

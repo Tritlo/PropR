@@ -78,3 +78,27 @@ data ExprFitCand = EFC
 
 instance Outputable ExprFitCand where
   ppr EFC {..} = text "EFC {" O.<> ppr efc_cand O.<> text "}"
+
+data CompileConfig = CompConf
+  { importStmts :: [String],  -- ^ a list of imports required/wanted for the compilation
+    packages :: [String],     -- ^ a list of packages used for the compilation
+    hole_lvl :: Int,          -- ^ the "depth" of the wholes, see general notes on this
+    genConf :: GenConf,       -- ^ The Configuration for the Genetic Algorithm
+    repConf :: RepConf        -- ^ The Configuration for the Repair
+  }
+  deriving (Show, Eq, Ord)
+
+data RepConf = RepConf
+  { repParChecks :: Bool, -- ^ Whether or not to use Parallelisation
+    repUseInterpreted :: Bool -- ^ Whether or not to use compiled sources (?)
+  }
+  deriving (Show, Eq, Ord)
+
+{-| GenConf represents a set of configurations for the Genetic Experiment -}
+data GenConf = GenConf
+  { genIndividuals :: Int,   -- ^ The number of individuals in a generation
+    genRounds :: Int,        -- ^ The number of generations processed
+    genPar :: Bool           -- ^ Whether or not to use parallelisation in genetic search parts
+  }
+  deriving (Show, Eq, Ord)
+

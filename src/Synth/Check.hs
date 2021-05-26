@@ -27,10 +27,11 @@ import Synth.Util
 import TcEvidence (idHsWrapper)
 import TysWiredIn
 
--- TODO: Give a Seed for reproducible Experiments & Tests 
-qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
+-- TODO: Give a seed for reproducible experiments & tests.
+-- ^ Since QuickCheck doesn't support a simple integer seed, we'll have to
+-- manually create a "QCGen" instance below to have a fixed seed.
 
--- Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
+-- | Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
 qcArgsExpr :: Maybe Integer -> LHsExpr GhcPs
 qcArgsExpr shrinks =
   noLoc $

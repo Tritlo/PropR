@@ -15,8 +15,7 @@ import Data.Tuple (swap)
 import GhcPlugins (GenLocated (L), getLoc, unLoc)
 import Synth.Diff
 import Synth.Eval
-  ( CompileConfig (..),
-    buildTraceCorrel,
+  ( buildTraceCorrel,
     compileParsedCheck,
     defaultConf,
     moduleToProb,
