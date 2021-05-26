@@ -23,7 +23,7 @@ tests =
 genTests =
   testGroup
     "Generation tests"
-    [ localOption (mkTimeout 60_000_000) $
+    [ localOption (mkTimeout 120_000_000) $
         testCase "Repair TwoFixes" $ do
           let cc = defaultConf
               toFix = "tests/TwoFixes.hs"

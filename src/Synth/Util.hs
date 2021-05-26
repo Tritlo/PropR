@@ -1,5 +1,15 @@
 {-# LANGUAGE RecordWildCards #-}
+{-
+Module      : Synth.Util
+Description : Contains general and other orphaned functions of HenProg
+License     : MIT
+Stability   : experimental
 
+Your everyday Util file.
+Most of the functions contained are about logging.
+
+This is a pure module.
+-}
 module Synth.Util where
 
 import Control.Exception (assert)
@@ -31,11 +41,11 @@ progAtTy e_prog e_ty =
 undefVar :: HsExpr GhcPs
 undefVar = HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
 
--- Removes whitespace before and after a string
+-- | Removes whitespace before and after a string
 trim :: String -> String
 trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
--- Checks if the debug flag is set
+-- | Checks if the debug flag is set
 hasDebug :: IO Bool
 hasDebug = ("-fdebug" `elem`) <$> getArgs
 
@@ -55,6 +65,10 @@ logLevel = do
     Just lvl -> read lvl
     _ -> ERROR
 
+-- | Splits a list by a given element.
+-- The splitting element is not included in the created lists.  This could be
+-- provided by libraries, but we didn't want to introduce a dependency for
+-- 6 lines of code (this is not JS).
 split :: Eq a => a -> [a] -> [[a]]
 split a [] = []
 split a as =
@@ -121,24 +135,33 @@ boolsToBit bs = (foldl (.|.) zeroBits . map (bit . fst) . filter snd . zip [0 ..
 bitToBools :: Int -> [Bool]
 bitToBools b = map (testBit b) [0 .. finiteBitSize (0 :: Int) -1]
 
--- We want to be able to make SrcSpans into the ones made by `justParseExpr`,
--- which means we replace the actual filenames with "<interactive>""
+-- | We want to be able to make SrcSpans into the ones made by `justParseExpr`,
+-- which means we replace the actual filenames with "<interactive>".
 mkInteractive :: SrcSpan -> SrcSpan
+-- Case 1: We have a real source Span
 mkInteractive (RealSrcSpan rs) = RealSrcSpan $ mkRealSrcSpan ns ne
+  -- Make a lookup for the old span but use the interactive for further computing
   where
     UnhelpfulSpan ic = interactiveSrcSpan
     rss = realSrcSpanStart rs
     rse = realSrcSpanEnd rs
     ns = mkRealSrcLoc ic (srcLocLine rss) (srcLocCol rss)
     ne = mkRealSrcLoc ic (srcLocLine rse) (srcLocCol rse)
+-- Case 2: The source span was interactive or other anyway
 mkInteractive (UnhelpfulSpan _) = interactiveSrcSpan
 
--- Inserts the given element at the given index in the list, or at the end
-insertAt :: Int -> a -> [a] -> [a]
+-- | Inserts the given element at the given index in the list, or at the end
+insertAt ::
+  Int -- ^ the index at which the element should be inserted (0 is head)
+  -> a -- ^ the element to be inserted
+  -> [a] -- ^ the list in which to insert
+  -> [a] -- ^ the list with the new element at given index,
+         --   or at the end if the given index was out of list.
 insertAt _ a [] = [a]
 insertAt 0 a as = a : as
 insertAt n a (x : xs) = x : insertAt (n -1) a xs
 
+-- | Transforms time given in ns (as measured by "time") into a string
 showTime :: Integer -> String
 showTime time =
   if res > 1000
@@ -148,6 +171,7 @@ showTime time =
     res :: Integer
     res = floor $ fromIntegral time * 1e-9
 
+-- | Stopwatch for a given function, measures the time taken by a given act.
 time :: MonadIO m => m a -> m (Integer, a)
 time act = do
   start <- liftIO getCPUTime

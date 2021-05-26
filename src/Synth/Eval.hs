@@ -7,6 +7,22 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{-
+Module      : Synth.Eval
+Description : Contains most parts that directly rely on GHC Compilation
+License     : MIT
+Stability   : experimental
+
+This module holds most of the methods that interact with the GHC.
+This is a low-level module. This module is impure.
+This consists of the following blocks:
+
+1. Parsing a given problem from String into actual expressions of the Code
+2. Compiling given expression and their types, e.g. to check for hole fits later
+3. Finding Candidates for Genetic Programming
+4. Configuration for this and other parts of the project
+
+-}
 module Synth.Eval where
 
 -- GHC API
@@ -113,28 +129,11 @@ output p = do
 
 ----
 
-data CompileConfig = CompConf
-  { importStmts :: [String],
-    packages :: [String],
-    hole_lvl :: Int,
-    genConf :: GenConf,
-    repConf :: RepConf
-  }
-  deriving (Show, Eq, Ord)
 
-data RepConf = RepConf
-  { repParChecks :: Bool,
-    repUseInterpreted :: Bool
-  }
-  deriving (Show, Eq, Ord)
 
-data GenConf = GenConf
-  { genIndividuals :: Int,
-    genRounds :: Int,
-    genPar :: Bool
-  }
-  deriving (Show, Eq, Ord)
-
+{-| Provides a default configuration for the program.
+It requires the basic packages "base","process" & "QuickCheck" to be available on the system.
+-}
 defaultConf :: CompileConfig
 defaultConf =
   CompConf
@@ -145,19 +144,20 @@ defaultConf =
       repConf = RepConf {repParChecks = True, repUseInterpreted = True}
     }
 
+{-| This method takes a package given as a string and puts it into the GHC PackageFlag-Type -}
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming True [])
 
--- InitGhcCtxt initializes the context and the hole fit plugin with no
+-- | Initializes the context and the hole fit plugin with no
 -- expression fit candidates
 initGhcCtxt :: CompileConfig -> Ghc (IORef [(TypedHole, [HoleFit])])
 initGhcCtxt cc = initGhcCtxt' False cc []
 
--- initGhcCtxt' intializes the hole fit plugin we use to extract fits and inject
+-- | Intializes the hole fit plugin we use to extract fits and inject
 -- expression fits, as well as adding any additional imports.
 initGhcCtxt' ::
-  Bool ->
-  CompileConfig ->
+  Bool -> -- ^ Whether to use Caching
+  CompileConfig -> -- ^ The experiment configuration
   [ExprFitCand] ->
   Ghc (IORef [(TypedHole, [HoleFit])])
 initGhcCtxt' useCache CompConf {..} local_exprs = do
@@ -202,9 +202,15 @@ runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
 
 type ValsAndRefs = ([HoleFit], [HoleFit])
 
+{-|
+  The compiler result, which can either be a set of values and refs (everything
+  worked) or still be dynamic, which means that some kind of error occurred.
+  That could be that the holes are not resolvable, the program does not clearly
+  terminate etc.
+-}
 type CompileRes = Either [ValsAndRefs] Dynamic
 
--- By integrating with a hole fit plugin, we can extract the fits (with all
+-- | By integrating with a hole fit plugin, we can extract the fits (with all
 -- the types and everything directly, instead of having to parse the error
 -- message)
 getHoleFitsFromError ::
@@ -243,38 +249,45 @@ monomorphiseType cc ty =
       where
         (tvs, base_ty) = splitForAllTys ty
 
+{-|
+  This method tries attempts to parse a given Module into a repair problem.
+-}
 moduleToProb ::
-  CompileConfig ->
-  FilePath ->
-  Maybe String ->
+  CompileConfig ->  -- ^ A given Compilerconfig to use for the Module
+  FilePath ->       -- ^ The Path under which the module is located
+  Maybe String ->   -- ^ "mb_target" whether to target a specific type (?)
   IO (CompileConfig, ParsedModule, [EProblem])
 moduleToProb cc@CompConf {..} mod_path mb_target = do
   let target = Target (TargetFile mod_path Nothing) True Nothing
+  -- Feed the given Module into GHC
   runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc
     addTarget target
     _ <- load LoadAllTargets
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
+    -- Retrieve the parsed module
     mod@ParsedModule {..} <- getModSummary mname >>= parseModule
     let (L _ HsModule {..}) = pm_parsed_source
         cc' = cc {importStmts = importStmts ++ imps'}
           where
             imps' = map showUnsafe hsmodImports
-        valDs :: [LHsBind GhcPs]
-        valDs = mapMaybe fromValD hsmodDecls
+        -- Retrieves the Values declared in the given Haskell-Module
+        valueDeclarations :: [LHsBind GhcPs]
+        valueDeclarations = mapMaybe fromValD hsmodDecls
           where
             fromValD (L l (ValD _ b)) = Just (L l b)
             fromValD _ = Nothing
-        sigs :: [LSig GhcPs]
-        sigs = mapMaybe fromSigD hsmodDecls
+        -- Retrieves the Sigmas declared in the given Haskell-Module
+        sigmaDeclarations :: [LSig GhcPs]
+        sigmaDeclarations = mapMaybe fromSigD hsmodDecls
           where
             fromSigD (L l (SigD _ s)) = Just (L l s)
             fromSigD _ = Nothing
 
         toCtxt :: [LHsBind GhcPs] -> LHsLocalBinds GhcPs
-        toCtxt vals = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag vals) sigs)
+        toCtxt vals = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag vals) sigmaDeclarations)
         ctxt :: LHsLocalBinds GhcPs
-        ctxt = toCtxt valDs
+        ctxt = toCtxt valueDeclarations
 
         props :: [LHsBind GhcPs]
         props = mapMaybe fromPropD hsmodDecls
@@ -544,7 +557,7 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     pnames = map toName failing_props
     nas = zip pnames failing_argss
     toCall pname args =
-      "quickCheckWithResult (" ++ qcArgs ++ ") ("
+      "quickCheckWithResult (" ++ (showUnsafe (qcArgsExpr Nothing)) ++ ") ("
         ++ pname
         ++ " fake_target "
         ++ unwords args
@@ -552,7 +565,7 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
 
--- Report error prints the error and stops execution
+-- | Prints the error and stops execution
 reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b
 reportError p e = do
   liftIO $ do
@@ -562,10 +575,11 @@ reportError p e = do
   printException e
   error "UNEXPECTED EXCEPTION"
 
--- Tries an action, returning Nothing in case of error
+-- | Tries an action, returning Nothing in case of error
 nothingOnError :: GhcMonad m => m a -> m (Maybe a)
 nothingOnError act = handleSourceError (const $ return Nothing) (Just <$> act)
 
+-- | Tries an action, reports about it in case of error
 reportOnError :: (GhcMonad m, Outputable t) => (t -> m a) -> t -> m a
 reportOnError act a = handleSourceError (reportError a) (act a)
 
@@ -575,14 +589,14 @@ compileParsedCheck cc expr = runGhc (Just libdir) $ do
   _ <- initGhcCtxt (cc {hole_lvl = 0})
   dynCompileParsedExpr `reportOnError` expr
 
--- Since initialization has some overhead, we have a special case for compiling
+-- | Since initialization has some overhead, we have a special case for compiling
 -- multiple checks at once.
 compileParsedChecks :: HasCallStack => CompileConfig -> [EExpr] -> IO [CompileRes]
 compileParsedChecks cc exprs = runGhc (Just libdir) $ do
   _ <- initGhcCtxt (cc {hole_lvl = 0})
   mapM (\exp -> ((Right <$>) . dynCompileParsedExpr) `reportOnError` exp) exprs
 
--- Adapted from dynCompileExpr in InteractiveEval
+-- | Adapted from dynCompileExpr in InteractiveEval
 dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic
 dynCompileParsedExpr parsed_expr = do
   let loc = getLoc parsed_expr
@@ -593,6 +607,10 @@ dynCompileParsedExpr parsed_expr = do
   hval <- compileParsedExpr to_dyn_expr
   return (unsafeCoerce# hval :: Dynamic)
 
+{-|
+  This method returns the types of gene-candidates.
+  To do so, it first needs to compile the code.
+-}
 genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
 genCandTys cc bcat cands = runGhc (Just libdir) $ do
   initGhcCtxt (cc {hole_lvl = 0})
@@ -605,10 +623,12 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
       )
       cands
 
+-- | The time to wait for everything to timeout, hardcoded to the same amount
+--   as QuickCheck at the moment (1ms)
 timeoutVal :: Int
 timeoutVal = fromIntegral qcTime
 
--- Right True means that all the properties hold, while Right False mean that
+-- | Right True means that all the properties hold, while Right False mean that
 -- There is some error or infinite loop.
 -- Left bs indicates that the properties as ordered by bs are the ones that hold
 runCheck :: Either [ValsAndRefs] Dynamic -> IO (Either [Bool] Bool)

@@ -2,6 +2,23 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
+{-|
+Module      : Synth.Repair
+Description : Replaces holes in functions with other found expressions.
+License     : MIT
+Stability   : experimental
+
+This is a highlevel module that utilizes most of the other modules implemented.
+
+This is an impure module, as GHC is run which requires IO.
+
+Note on (SrcSpan, LHsExpr GhcPs):
+
+We thought about Synomising this, but it resembles multiple things;
+  1. An expression and it's (new) hole
+  2. An expression and it's (possible) fix/patch (where fix means candidate, not
+     definitely solved)
+-}
 module Synth.Repair where
 
 import Bag
@@ -65,6 +82,8 @@ import TcExpr
 import TcHoleErrors (HoleFit (..), TypedHole (..))
 import TcSimplify
 
+-- | Provides a GHC without a ic_default set.
+-- IC is short for Interactive-Context (ic_default is set to empty list).
 setNoDefaulting :: Ghc ()
 setNoDefaulting = do
   -- Make sure we don't do too much defaulting by setting `default ()`
@@ -74,11 +93,12 @@ setNoDefaulting = do
   env <- getSession
   setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
 
+-- | Runs the whole compiler chain to get the fits for a hole.
 getHoleFits ::
-  CompileConfig ->
-  [ExprFitCand] ->
-  [LHsExpr GhcPs] ->
-  IO [[[HoleFit]]]
+  CompileConfig ->    -- ^  A given Compiler Config
+  [ExprFitCand] ->    -- ^ A list of existing and reachable candidate-expression
+  [LHsExpr GhcPs] ->  -- ^ The existing Expressions including holes
+  IO [[[HoleFit]]]    -- ^ Possible Replacement-Elements for the holes
 getHoleFits cc local_exprs exprs =
   runGhc (Just libdir) $ do
     plugRef <- initGhcCtxt' True cc local_exprs
@@ -91,10 +111,13 @@ getHoleFits cc local_exprs exprs =
               (Right <$> compileParsedExpr expr)
     map (map fst) . lefts <$> mapM exprFits exprs
 
-getHoley :: CompileConfig -> RExpr -> IO [(SrcSpan, LHsExpr GhcPs)]
+-- | Returns for a given compiler config and an expression the possible holes to fill.
+getHoley :: CompileConfig          -- ^ A compiler setup/config to evaluate the expression in
+  -> RExpr                         -- ^ A given Expression
+  -> IO [(SrcSpan, LHsExpr GhcPs)] -- ^ All versions of the Expression with new holes poked in it
 getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str
 
--- Parse, rename and type check an expression
+-- | Parse, rename and type check an expression
 justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
 justTcExpr cc parsed = do
   _ <- initGhcCtxt cc
@@ -107,12 +130,15 @@ justTcExpr cc parsed = do
           tcInferSigma rn_e
   return res
 
--- We get the type of the given expression by desugaring it and getting the type
+-- | We get the type of the given expression by desugaring it and getting the type
 -- of the resulting Core expression
 getExprTy :: HscEnv -> LHsExpr GhcTc -> IO (Maybe Type)
 getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env expr
 
-replacements :: LHsExpr GhcPs -> [[HsExpr GhcPs]] -> [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
+replacements ::
+  LHsExpr GhcPs -> -- ^ The original expression with one or more holes
+  [[HsExpr GhcPs]] -> -- ^ A list of expressions that fits the holes
+  [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)] -- ^ Combinations of fixes for the holes and the holed program.
 replacements r [] = [([], r)]
 replacements e (first_hole_fit : rest) = concat rest_fit_res
   where
@@ -123,13 +149,14 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
     res = map (\(e, (l, r)) -> ([(l, e)], r)) (mapMaybe' (`fillHole` e) first_hole_fit)
     (first_fit_locs_and_e, first_fit_res) = unzip res
     rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
+    -- addL = Add Left, adds the gien expression at any lefthand side of the expressions existing
     addL ::
       [(SrcSpan, HsExpr GhcPs)] ->
       [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)] ->
       [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
     addL srcs reses = map (first (srcs ++)) reses
 
--- Translate from the old String based version to the new LHsExpr version.
+-- | Translate from the old String based version to the new LHsExpr version.
 translate :: HasCallStack => CompileConfig -> RProblem -> IO EProblem
 translate cc RProb {..} = runGhc (Just libdir) $ do
   _ <- initGhcCtxt cc
@@ -153,7 +180,7 @@ detranslate EProb {..} =
       r_ctxt = map showUnsafe sigs ++ map showUnsafe (bagToList bs)
    in RProb {..}
 
--- Get a list of strings which represent shrunk arguments to the property that
+-- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
 propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
 propCounterExample cc ep prop = do
@@ -164,7 +191,10 @@ propCounterExample cc ep prop = do
 
 -- getExprFitCands takes an expression and generates HoleFitCandidates from
 -- every subexpression.
-getExprFitCands :: CompileConfig -> EExpr -> IO [ExprFitCand]
+getExprFitCands ::
+  CompileConfig -> -- ^ The general compiler setup
+  EExpr ->         -- ^ The expression to be holed
+  IO [ExprFitCand] -- ^ The HoleFitCandidates
 getExprFitCands cc expr = runGhc (Just libdir) $ do
   -- setSessionDynFlags reads the package database.
   setSessionDynFlags =<< getSessionDynFlags
@@ -233,7 +263,7 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
             && anyFVMentioned ct
             && not (isHoleCt ct)
 
--- Returns the props that fail for the given program
+-- | Returns the props that fail for the given program
 failingProps :: CompileConfig -> EProblem -> IO [EProp]
 failingProps _ EProb {e_props = []} = return []
 -- Our method for checking which props fail is restricted to maximum 8 at a time,
@@ -270,13 +300,22 @@ failingProps cc ep@EProb {..} = do
               (ps1, ps2) = splitAt (length e_props `div` 2) e_props
           concat <$> mapM fp [ps1, ps2]
 
+{-| Primary method of this module.
+It takes a program & configuration,
+a (translated) repair problem and returns a list of potential fixes.
+-}
 repair :: CompileConfig -> EProblem -> IO [EFix]
 repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob Nothing
 
+-- | This method tries to repair a given Problem.
+-- It first creates the program with holes in it and runs it against the properties.
+-- From this, candidates are retrieved of touched holes and fixes are created and run.
+-- Quite some information can be printed when the program is run in DEBUG.
+-- As an important sidenote, places that are not in failing properties will not be altered.
 repairAttempt ::
-  CompileConfig ->
-  EProblem ->
-  Maybe [ExprFitCand] ->
+  CompileConfig -> -- ^ The GHC Configuration
+  EProblem -> -- ^ The problem that is to fix, consisting of a program and a failing suite of properties
+  Maybe [ExprFitCand] -> -- ^ Manually passed Candidates, if "Nothing" collected from program runtime
   IO [(EFix, Either [Bool] Bool)]
 repairAttempt cc tp@EProb {..} efcs = collectStats $ do
   let prog_at_ty = progAtTy e_prog e_ty
@@ -326,8 +365,7 @@ repairAttempt cc tp@EProb {..} efcs = collectStats $ do
       nzh = map snd non_zero_holes
 
   fits <- collectStats $ zip nzh <$> getHoleFits cc expr_cands (map addContext nzh)
-  -- We process the fits ourselves, since we might have some expression
-  -- fits
+  -- We process the fits ourselves, since we might have some expression fits
   let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
       processFit hf@HoleFit {..} =
         return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))

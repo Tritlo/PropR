@@ -2,6 +2,16 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
+{- |
+Module      : Synth.Check
+Description : Interfaces the Program and its variants towards QuickCheck.
+License     : MIT
+Stability   : experimental
+
+This module handles calls and configurations of QuickCheck.
+It only builds the checks - it does not execute them.
+This module is a pure module.
+-}
 module Synth.Check where
 
 import Bag
@@ -17,9 +27,11 @@ import Synth.Util
 import TcEvidence (idHsWrapper)
 import TysWiredIn
 
-qcArgs = "stdArgs { chatty = False, maxShrinks = 0}"
+-- TODO: Give a seed for reproducible experiments & tests.
+-- ^ Since QuickCheck doesn't support a simple integer seed, we'll have to
+-- manually create a "QCGen" instance below to have a fixed seed.
 
--- Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
+-- | Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
 qcArgsExpr :: Maybe Integer -> LHsExpr GhcPs
 qcArgsExpr shrinks =
   noLoc $
@@ -46,11 +58,14 @@ qcArgsExpr shrinks =
         "maxShrinks"
         (HsLit NoExtField (HsInt NoExtField $ IL NoSourceText False shrinks))
 
+-- | Time to run the QuickCheck in seconds
 qcTime :: Integer
 qcTime = 1_000_000
 
+-- | This imports are required for the program to run.
 checkImports = ["import Test.QuickCheck", "import System.Environment (getArgs)"]
 
+-- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
 baseFun nm val =
   noLoc $ FunBind NoExtField (noLoc nm) (MG NoExtField (noLoc [base_case]) Generated) idHsWrapper []
@@ -62,22 +77,33 @@ baseFun nm val =
           (FunRhs (noLoc nm) Prefix NoSrcStrict)
           []
           (GRHSs NoExtField [noLoc $ GRHS NoExtField [] val] elb)
+    -- elb = empty local binds
     elb :: LHsLocalBinds GhcPs
     elb = noLoc $ EmptyLocalBinds NoExtField
 
 -- Shorthands for common constructs
-tf :: String -> LHsExpr GhcPs
+
+-- | Short for "the function"
+tf ::
+  String            -- ^ The string to lookup
+  -> LHsExpr GhcPs  -- ^ The matching function + location
 tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
 
-tfn :: NameSpace -> String -> LHsExpr GhcPs
+-- | Runs tf in a given specified namespace
+tfn ::
+  NameSpace         -- ^ A namespace to look for a function ("Variable Scope", for non Haskellers)
+  -> String         -- ^ The name to look up
+  -> LHsExpr GhcPs  -- ^ The function that was searched for
 tfn ns = noLoc . HsVar NoExtField . noLoc . mkUnqual ns . fsLit
 
 il :: Integer -> LHsExpr GhcPs
 il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 
+-- | Short for "the type"
 tt :: String -> LHsType GhcPs
 tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
 
+-- | The building brick that resembles a "hole" for an expression.
 hole :: LHsExpr GhcPs
 hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
@@ -121,6 +147,7 @@ buildFixCheck EProb {..} fixes =
     check_bind =
       baseFun (mkVarUnqual $ fsLit "checks__") $
         noLoc $ ExplicitList NoExtField Nothing check_progs
+    -- sq_ty is short for "sequence type"
     sq_ty :: LHsSigWcType GhcPs
     sq_ty =
       HsWC NoExtField $
@@ -158,6 +185,7 @@ buildSuccessCheck EProb {..} =
       baseFun
         (mkVarUnqual $ fsLit "propsToCheck__")
         (noLoc $ ExplicitList NoExtField Nothing propsToCheck)
+    -- sq_ty is short for "sequence type"
     sq_ty :: LHsSigWcType GhcPs
     sq_ty =
       HsWC NoExtField $
@@ -188,9 +216,12 @@ buildSuccessCheck EProb {..} =
                 sq_ty
           )
 
--- Runs the check with QuickCheck. Takes in the name of the function to use for
+-- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result
-propCheckExpr :: LHsExpr GhcPs -> Located RdrName -> LHsExpr GhcPs
+propCheckExpr ::
+  LHsExpr GhcPs      -- ^ A compiled program that contains properties and everything to run them
+  -> Located RdrName -- ^ A reader containing the property to check
+  -> LHsExpr GhcPs
 propCheckExpr extractor prop =
   noLoc $
     HsApp
@@ -222,7 +253,7 @@ propCheckExpr extractor prop =
     tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
     il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 
--- The `buildCounterExampleExpr` functions creates an expression which when
+-- | The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument
 -- to the given prop if it fails for the given program, and nothing otherwise.
 -- Note that we have to have it take in a list of properties to match the shape
@@ -351,6 +382,7 @@ buildCounterExampleCheck
                 Nothing
           flpat :: LPat GhcPs
           flpat = noLoc $ VarPat NoExtField svarname
+      -- elb = empty local binds
       elb :: LHsLocalBinds GhcPs
       elb = noLoc $ EmptyLocalBinds NoExtField
       failFun :: LHsBind GhcPs

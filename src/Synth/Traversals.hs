@@ -7,6 +7,22 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{- |
+Module      : Synth.Traversal
+Description : Replaces holes in functions with other found expressions.
+License     : MIT
+Stability   : experimental
+
+This module has the methods to
+a) Retrieve all suited expressions for a hole
+b) Put another expression in a fitting hole
+
+It is called Traversal as all included methods traverse the expressions and
+sub-expressions.
+
+Both happens on a low level, not on the module/compilation level.
+This is a pure module.
+-}
 module Synth.Traversals where
 
 import Control.Comonad.Store.Class
@@ -32,11 +48,11 @@ import GhcPlugins
 instance Data (HsExpr id) => Plated (LHsExpr id) where
   plate = uniplate
 
--- Get this expression and all subexpressions
+-- | Get this expression and all subexpressions
 flattenExpr :: Data (HsExpr id) => LHsExpr id -> [LHsExpr id]
 flattenExpr = universe
 
--- Replace all expressions in a given expression with those
+-- | Replace all expressions in a given expression with those
 -- found in the given map.
 replaceExpr :: Map SrcSpan (HsExpr GhcPs) -> LHsExpr GhcPs -> LHsExpr GhcPs
 replaceExpr repls =
@@ -44,8 +60,9 @@ replaceExpr repls =
     L loc _ | loc `member` repls -> L loc (repls ! loc)
     e -> e
 
--- All possible replacement of one variable with a hole, i.e. we are making
--- the expression "holey". Could also be named `perforate`, `stigmatize` or
+-- | All possible replacement of one variable with a hole, i.e. we are making
+-- the expression "holey". Which is pronounced holy.
+-- Could also be named `perforate`, `stigmatize` or
 -- `spindle`. See https://twitter.com/tritlo/status/1367202546415206400
 sanctifyExpr :: LHsExpr GhcPs -> [(SrcSpan, LHsExpr GhcPs)]
 sanctifyExpr = map repl . contexts
@@ -67,7 +84,7 @@ sanctifyExpr = map repl . contexts
                 ++ ([srcSpanEndLine r | not (isOneLineSpan s)])
                 ++ [srcSpanEndCol r]
 
--- Fill the first hole in the expression.
+-- | Fill the first hole in the given holed-expression.
 fillHole :: HsExpr GhcPs -> LHsExpr GhcPs -> Maybe (SrcSpan, LHsExpr GhcPs)
 fillHole fit = fillFirst . contexts
   where
