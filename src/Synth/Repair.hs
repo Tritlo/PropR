@@ -2,7 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
-{-| 
+{-|
 Module      : Synth.Repair
 Description : Replaces holes in functions with other found expressions.
 License     : MIT
@@ -15,8 +15,9 @@ This is an impure module, as GHC is run which requires IO.
 Note on (SrcSpan, LHsExpr GhcPs):
 
 We thought about Synomising this, but it resembles multiple things;
-  1. an expression and it's (new) hole
-  2. an expression and it's (possible) fix/patch (where fix means candidate, not definetely solved)
+  1. An expression and it's (new) hole
+  2. An expression and it's (possible) fix/patch (where fix means candidate, not
+     definitely solved)
 -}
 module Synth.Repair where
 
@@ -92,7 +93,7 @@ setNoDefaulting = do
   env <- getSession
   setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
 
--- | Runs the whole compiler chain to get the fits for a hole. 
+-- | Runs the whole compiler chain to get the fits for a hole.
 getHoleFits ::
   CompileConfig ->    -- ^  A given Compiler Config
   [ExprFitCand] ->    -- ^ A list of existing and reachable candidate-expression
@@ -134,8 +135,7 @@ justTcExpr cc parsed = do
 getExprTy :: HscEnv -> LHsExpr GhcTc -> IO (Maybe Type)
 getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env expr
 
--- | 
-replacements :: 
+replacements ::
   LHsExpr GhcPs -> -- ^ The original expression with one or more holes
   [[HsExpr GhcPs]] -> -- ^ A list of expressions that fits the holes
   [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)] -- ^ Combinations of fixes for the holes and the holed program.
@@ -191,9 +191,9 @@ propCounterExample cc ep prop = do
 
 -- getExprFitCands takes an expression and generates HoleFitCandidates from
 -- every subexpression.
-getExprFitCands :: 
+getExprFitCands ::
   CompileConfig -> -- ^ The general compiler setup
-  EExpr ->         -- ^ The expression to be holed 
+  EExpr ->         -- ^ The expression to be holed
   IO [ExprFitCand] -- ^ The HoleFitCandidates
 getExprFitCands cc expr = runGhc (Just libdir) $ do
   -- setSessionDynFlags reads the package database.
@@ -300,18 +300,18 @@ failingProps cc ep@EProb {..} = do
               (ps1, ps2) = splitAt (length e_props `div` 2) e_props
           concat <$> mapM fp [ps1, ps2]
 
-{-| Primary method of this module. 
-It takes a program & configuration, 
+{-| Primary method of this module.
+It takes a program & configuration,
 a (translated) repair problem and returns a list of potential fixes.
 -}
 repair :: CompileConfig -> EProblem -> IO [EFix]
 repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob Nothing
 
 -- | This method tries to repair a given Problem.
--- It first creates the program with holes in it and runs it against the properties. 
+-- It first creates the program with holes in it and runs it against the properties.
 -- From this, candidates are retrieved of touched holes and fixes are created and run.
--- Quite some information can be printed when the program is run in DEBUG. 
--- As an important sidenote, places that are not in failing properties will not be altered. 
+-- Quite some information can be printed when the program is run in DEBUG.
+-- As an important sidenote, places that are not in failing properties will not be altered.
 repairAttempt ::
   CompileConfig -> -- ^ The GHC Configuration
   EProblem -> -- ^ The problem that is to fix, consisting of a program and a failing suite of properties

@@ -65,9 +65,9 @@ logLevel = do
     Just lvl -> read lvl
     _ -> ERROR
 
--- | Splits a list by a given element. 
--- The splitting element is not included in the created lists.
--- This could be provided by libraries, but we didn't want to introduce a dependency for 
+-- | Splits a list by a given element.
+-- The splitting element is not included in the created lists.  This could be
+-- provided by libraries, but we didn't want to introduce a dependency for
 -- 6 lines of code (this is not JS).
 split :: Eq a => a -> [a] -> [[a]]
 split a [] = []
@@ -151,11 +151,12 @@ mkInteractive (RealSrcSpan rs) = RealSrcSpan $ mkRealSrcSpan ns ne
 mkInteractive (UnhelpfulSpan _) = interactiveSrcSpan
 
 -- | Inserts the given element at the given index in the list, or at the end
-insertAt :: 
+insertAt ::
   Int -- ^ the index at which the element should be inserted (0 is head)
   -> a -- ^ the element to be inserted
   -> [a] -- ^ the list in which to insert
-  -> [a] -- ^ the list with the new element at given index, or at the end if the given index was out of list.
+  -> [a] -- ^ the list with the new element at given index,
+         --   or at the end if the given index was out of list.
 insertAt _ a [] = [a]
 insertAt 0 a as = a : as
 insertAt n a (x : xs) = x : insertAt (n -1) a xs

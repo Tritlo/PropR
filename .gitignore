@@ -6,4 +6,4 @@ cabal.project.local
 *.o
 *.hi
 
-.DS_Store 
+.DS_Store

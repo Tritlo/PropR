@@ -9,7 +9,7 @@ License     : MIT
 Stability   : experimental
 
 This module handles calls and configurations of QuickCheck.
-It only builds the checks - it does not execute them. 
+It only builds the checks - it does not execute them.
 This module is a pure module.
 -}
 module Synth.Check where
@@ -77,22 +77,22 @@ baseFun nm val =
           (FunRhs (noLoc nm) Prefix NoSrcStrict)
           []
           (GRHSs NoExtField [noLoc $ GRHS NoExtField [] val] elb)
-    -- elb = empty local binds 
+    -- elb = empty local binds
     elb :: LHsLocalBinds GhcPs
     elb = noLoc $ EmptyLocalBinds NoExtField
 
 -- Shorthands for common constructs
 
 -- | Short for "the function"
-tf :: 
-  String            -- ^ The string to lookup 
+tf ::
+  String            -- ^ The string to lookup
   -> LHsExpr GhcPs  -- ^ The matching function + location
 tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
 
 -- | Runs tf in a given specified namespace
-tfn :: 
+tfn ::
   NameSpace         -- ^ A namespace to look for a function ("Variable Scope", for non Haskellers)
-  -> String         -- ^ The name to look up 
+  -> String         -- ^ The name to look up
   -> LHsExpr GhcPs  -- ^ The function that was searched for
 tfn ns = noLoc . HsVar NoExtField . noLoc . mkUnqual ns . fsLit
 
@@ -218,10 +218,10 @@ buildSuccessCheck EProb {..} =
 
 -- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result
-propCheckExpr :: 
+propCheckExpr ::
   LHsExpr GhcPs      -- ^ A compiled program that contains properties and everything to run them
   -> Located RdrName -- ^ A reader containing the property to check
-  -> LHsExpr GhcPs   
+  -> LHsExpr GhcPs
 propCheckExpr extractor prop =
   noLoc $
     HsApp

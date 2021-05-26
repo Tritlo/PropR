@@ -13,16 +13,15 @@ Description : Contains most parts that directly rely on GHC Compilation
 License     : MIT
 Stability   : experimental
 
-This module holds most of the methods that interact with the GHC. 
+This module holds most of the methods that interact with the GHC.
 This is a low-level module. This module is impure.
-This consists of the following blocks: 
+This consists of the following blocks:
 
 1. Parsing a given problem from String into actual expressions of the Code
 2. Compiling given expression and their types, e.g. to check for hole fits later
 3. Finding Candidates for Genetic Programming
-4. Configuration for this and other parts of the project 
+4. Configuration for this and other parts of the project
 
-TODO: Should the configuration-parts be somewhere else, like in Synth.Configuration or Synth.Types ? 
 -}
 module Synth.Eval where
 
@@ -149,17 +148,17 @@ defaultConf =
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming True [])
 
--- | initializes the context and the hole fit plugin with no
+-- | Initializes the context and the hole fit plugin with no
 -- expression fit candidates
 initGhcCtxt :: CompileConfig -> Ghc (IORef [(TypedHole, [HoleFit])])
 initGhcCtxt cc = initGhcCtxt' False cc []
 
--- | intializes the hole fit plugin we use to extract fits and inject
+-- | Intializes the hole fit plugin we use to extract fits and inject
 -- expression fits, as well as adding any additional imports.
 initGhcCtxt' ::
-  Bool -> -- ^ Whether to use Caching 
+  Bool -> -- ^ Whether to use Caching
   CompileConfig -> -- ^ The experiment configuration
-  [ExprFitCand] -> 
+  [ExprFitCand] ->
   Ghc (IORef [(TypedHole, [HoleFit])])
 initGhcCtxt' useCache CompConf {..} local_exprs = do
   flags <- config hole_lvl <$> getSessionDynFlags
@@ -204,8 +203,10 @@ runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
 type ValsAndRefs = ([HoleFit], [HoleFit])
 
 {-|
-  The compiler result, which can either be a set of values and refs (everything worked) or still be dynamic, 
-  which means that some kind of error occurred. That could be that the holes are not resolvable, the program does not clearly terminate etc.
+  The compiler result, which can either be a set of values and refs (everything
+  worked) or still be dynamic, which means that some kind of error occurred.
+  That could be that the holes are not resolvable, the program does not clearly
+  terminate etc.
 -}
 type CompileRes = Either [ValsAndRefs] Dynamic
 
@@ -258,13 +259,13 @@ moduleToProb ::
   IO (CompileConfig, ParsedModule, [EProblem])
 moduleToProb cc@CompConf {..} mod_path mb_target = do
   let target = Target (TargetFile mod_path Nothing) True Nothing
-  -- Feed the given Module into GHC 
+  -- Feed the given Module into GHC
   runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc
     addTarget target
     _ <- load LoadAllTargets
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
-    -- Retrieve the parsed module 
+    -- Retrieve the parsed module
     mod@ParsedModule {..} <- getModSummary mname >>= parseModule
     let (L _ HsModule {..}) = pm_parsed_source
         cc' = cc {importStmts = importStmts ++ imps'}
@@ -564,7 +565,7 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
 
--- | prints the error and stops execution
+-- | Prints the error and stops execution
 reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b
 reportError p e = do
   liftIO $ do
@@ -622,7 +623,8 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
       )
       cands
 
--- | The time to wait for everything to timeout, hardcoded to the same amount as QuickCheck at the moment (1mil seconds)
+-- | The time to wait for everything to timeout, hardcoded to the same amount
+--   as QuickCheck at the moment (1ms)
 timeoutVal :: Int
 timeoutVal = fromIntegral qcTime
 

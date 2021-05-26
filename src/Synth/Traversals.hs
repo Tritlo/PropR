@@ -13,10 +13,12 @@ Description : Replaces holes in functions with other found expressions.
 License     : MIT
 Stability   : experimental
 
-This module has the methods to 
+This module has the methods to
 a) Retrieve all suited expressions for a hole
 b) Put another expression in a fitting hole
-It is called Traversal as all included methods traverse the expressions and sub-expressions.
+
+It is called Traversal as all included methods traverse the expressions and
+sub-expressions.
 
 Both happens on a low level, not on the module/compilation level.
 This is a pure module.
