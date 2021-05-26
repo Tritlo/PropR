@@ -145,3 +145,15 @@ The `-fdepth` is deep we go, i.e. `0` means that we only synthesize top-level
 expressions, `1` we synthesize a top-level expression with holes in it, and then
 fill those holes with top-level expressions, for `2` we allow holes in the
 sub-expressions one level deep etc.
+
+To get a better idea of what's going on, you can run HenProg with `--log=<LEVEL>`, where `level` is one of:
+
++ `DEBUG` to see absolutely everything that's logged,
++ `AUDIT` to see a little less than Debug, but still a lot (this includes e.g. the run-time of hotspots and such)
++ `INFO` to see only informative messages and above
++ `WARN` for warnings or more
++ `ERROR` for errors only, and
++ `FATAL` for fatal errors (an irrecoverable crash)
+
+You can also add `--log-loc` to get the location in the code of each log message, for e.g. telling which line
+a given run-time corresponds to.
