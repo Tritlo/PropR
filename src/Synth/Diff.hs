@@ -8,10 +8,9 @@ Description : This module pretty-prints the output of the repair.
 License     : MIT
 Stability   : experimental
 
-This module displays the changes introduced by the repair in a colourful and pretty way. 
+This module displays the changes/diff introduced by the repair in a colourful and pretty way. 
 It also beforehand doublechecks that the thing to be printed is an actual valid program. 
-
-TODO: Should this rather be called (pretty-)printer?
+This is a pure module.
 
 Abbreviations: 
 - pp: PrettyPrint

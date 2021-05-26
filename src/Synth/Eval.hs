@@ -14,7 +14,7 @@ License     : MIT
 Stability   : experimental
 
 This module holds most of the methods that interact with the GHC. 
-This is a low-level module.
+This is a low-level module. This module is impure.
 This consists of the following blocks: 
 
 1. Parsing a given problem from String into actual expressions of the Code
@@ -430,7 +430,6 @@ buildTraceCorrel cc expr =
     . flattenExpr
     <$> buildTraceCorrelExpr cc expr
 
--- TODO: Shouldn't the traceTarget be the building brick for traceTargets, and not vice versa? 
 traceTarget ::
   CompileConfig ->
   EExpr ->

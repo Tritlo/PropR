@@ -9,6 +9,14 @@ License     : MIT
 Stability   : experimental
 
 This is a highlevel module that utilizes most of the other modules implemented.
+
+This is an impure module, as GHC is run which requires IO.
+
+Note on (SrcSpan, LHsExpr GhcPs):
+
+We thought about Synomising this, but it resembles multiple things;
+  1. an expression and it's (new) hole
+  2. an expression and it's (possible) fix/patch (where fix means candidate, not definetely solved)
 -}
 module Synth.Repair where
 
@@ -74,8 +82,7 @@ import TcHoleErrors (HoleFit (..), TypedHole (..))
 import TcSimplify
 
 -- | Provides a GHC without a ic_default set.
--- (ic_default is set to empty list)
--- TODO: What is IC ? 
+-- IC is short for Interactive-Context (ic_default is set to empty list).
 setNoDefaulting :: Ghc ()
 setNoDefaulting = do
   -- Make sure we don't do too much defaulting by setting `default ()`
@@ -85,13 +92,12 @@ setNoDefaulting = do
   env <- getSession
   setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
 
--- | 
--- TODO: What's the difference to getHoley? 
+-- | Runs the whole compiler chain to get the fits for a hole. 
 getHoleFits ::
-  CompileConfig ->
-  [ExprFitCand] ->
-  [LHsExpr GhcPs] ->
-  IO [[[HoleFit]]]
+  CompileConfig ->    -- ^  A given Compiler Config
+  [ExprFitCand] ->    -- ^ A list of existing and reachable candidate-expression
+  [LHsExpr GhcPs] ->  -- ^ The existing Expressions including holes
+  IO [[[HoleFit]]]    -- ^ Possible Replacement-Elements for the holes
 getHoleFits cc local_exprs exprs =
   runGhc (Just libdir) $ do
     plugRef <- initGhcCtxt' True cc local_exprs
@@ -104,10 +110,10 @@ getHoleFits cc local_exprs exprs =
               (Right <$> compileParsedExpr expr)
     map (map fst) . lefts <$> mapM exprFits exprs
 
--- | Returns for a given compiler config and an expression the possible holes to fill
--- TODO: Maybe make a synonym for (SrcSpan, LHsExpr GhcPs) ?
--- TODO: Does Holey refer to returning the hole, or the fix? 
-getHoley :: CompileConfig -> RExpr -> IO [(SrcSpan, LHsExpr GhcPs)]
+-- | Returns for a given compiler config and an expression the possible holes to fill.
+getHoley :: CompileConfig          -- ^ A compiler setup/config to evaluate the expression in
+  -> RExpr                         -- ^ A given Expression
+  -> IO [(SrcSpan, LHsExpr GhcPs)] -- ^ All versions of the Expression with new holes poked in it
 getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str
 
 -- | Parse, rename and type check an expression
@@ -185,7 +191,6 @@ propCounterExample cc ep prop = do
 
 -- getExprFitCands takes an expression and generates HoleFitCandidates from
 -- every subexpression.
--- TODO: Does this belong here, or more towards Synth.Traversal ? 
 getExprFitCands :: 
   CompileConfig -> -- ^ The general compiler setup
   EExpr ->         -- ^ The expression to be holed 
@@ -259,7 +264,6 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
             && not (isHoleCt ct)
 
 -- | Returns the props that fail for the given program
--- TODO: Does this belong here, or to Synth.Check ? 
 failingProps :: CompileConfig -> EProblem -> IO [EProp]
 failingProps _ EProb {e_props = []} = return []
 -- Our method for checking which props fail is restricted to maximum 8 at a time,

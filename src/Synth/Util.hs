@@ -6,6 +6,9 @@ License     : MIT
 Stability   : experimental
 
 Your everyday Util file.
+Most of the functions contained are about logging.
+
+This is a pure module.
 -}
 module Synth.Util where
 
@@ -62,7 +65,10 @@ logLevel = do
     Just lvl -> read lvl
     _ -> ERROR
 
--- | TODO: this ... is in the list library?
+-- | Splits a list by a given element. 
+-- The splitting element is not included in the created lists.
+-- This could be provided by libraries, but we didn't want to introduce a dependency for 
+-- 6 lines of code (this is not JS).
 split :: Eq a => a -> [a] -> [[a]]
 split a [] = []
 split a as =
@@ -135,7 +141,6 @@ mkInteractive :: SrcSpan -> SrcSpan
 -- Case 1: We have a real source Span
 mkInteractive (RealSrcSpan rs) = RealSrcSpan $ mkRealSrcSpan ns ne
   -- Make a lookup for the old span but use the interactive for further computing
-  -- TODO: is the above given description correct? 
   where
     UnhelpfulSpan ic = interactiveSrcSpan
     rss = realSrcSpanStart rs
@@ -155,6 +160,7 @@ insertAt _ a [] = [a]
 insertAt 0 a as = a : as
 insertAt n a (x : xs) = x : insertAt (n -1) a xs
 
+-- | Transforms time given in ns (as measured by "time") into a string
 showTime :: Integer -> String
 showTime time =
   if res > 1000
@@ -164,6 +170,7 @@ showTime time =
     res :: Integer
     res = floor $ fromIntegral time * 1e-9
 
+-- | Stopwatch for a given function, measures the time taken by a given act.
 time :: MonadIO m => m a -> m (Integer, a)
 time act = do
   start <- liftIO getCPUTime

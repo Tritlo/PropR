@@ -9,6 +9,8 @@ License     : MIT
 Stability   : experimental
 
 This module handles calls and configurations of QuickCheck.
+It only builds the checks - it does not execute them. 
+This module is a pure module.
 -}
 module Synth.Check where
 
@@ -79,19 +81,28 @@ baseFun nm val =
     elb = noLoc $ EmptyLocalBinds NoExtField
 
 -- Shorthands for common constructs
--- TODO: What do these do? What do they get? 
-tf :: String -> LHsExpr GhcPs
+
+-- | Short for "the function"
+tf :: 
+  String            -- ^ The string to lookup 
+  -> LHsExpr GhcPs  -- ^ The matching function + location
 tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
 
-tfn :: NameSpace -> String -> LHsExpr GhcPs
+-- | Runs tf in a given specified namespace
+tfn :: 
+  NameSpace         -- ^ A namespace to look for a function ("Variable Scope", for non Haskellers)
+  -> String         -- ^ The name to look up 
+  -> LHsExpr GhcPs  -- ^ The function that was searched for
 tfn ns = noLoc . HsVar NoExtField . noLoc . mkUnqual ns . fsLit
 
 il :: Integer -> LHsExpr GhcPs
 il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 
+-- | Short for "the type"
 tt :: String -> LHsType GhcPs
 tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
 
+-- | The building brick that resembles a "hole" for an expression.
 hole :: LHsExpr GhcPs
 hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
@@ -135,6 +146,7 @@ buildFixCheck EProb {..} fixes =
     check_bind =
       baseFun (mkVarUnqual $ fsLit "checks__") $
         noLoc $ ExplicitList NoExtField Nothing check_progs
+    -- sq_ty is short for "sequence type"
     sq_ty :: LHsSigWcType GhcPs
     sq_ty =
       HsWC NoExtField $
@@ -172,7 +184,7 @@ buildSuccessCheck EProb {..} =
       baseFun
         (mkVarUnqual $ fsLit "propsToCheck__")
         (noLoc $ ExplicitList NoExtField Nothing propsToCheck)
-    -- TODO: ty is type, but what is sq? 
+    -- sq_ty is short for "sequence type"
     sq_ty :: LHsSigWcType GhcPs
     sq_ty =
       HsWC NoExtField $

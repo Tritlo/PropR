@@ -16,10 +16,10 @@ Stability   : experimental
 This module has the methods to 
 a) Retrieve all suited expressions for a hole
 b) Put another expression in a fitting hole
+It is called Traversal as all included methods traverse the expressions and sub-expressions.
 
 Both happens on a low level, not on the module/compilation level.
-
-TODO: Is Traversal the correct name for this?
+This is a pure module.
 -}
 module Synth.Traversals where
 
@@ -59,7 +59,8 @@ replaceExpr repls =
     e -> e
 
 -- | All possible replacement of one variable with a hole, i.e. we are making
--- the expression "holey". Could also be named `perforate`, `stigmatize` or
+-- the expression "holey". Which is pronounced holy.
+-- Could also be named `perforate`, `stigmatize` or
 -- `spindle`. See https://twitter.com/tritlo/status/1367202546415206400
 sanctifyExpr :: LHsExpr GhcPs -> [(SrcSpan, LHsExpr GhcPs)]
 sanctifyExpr = map repl . contexts
@@ -81,7 +82,7 @@ sanctifyExpr = map repl . contexts
                 ++ ([srcSpanEndLine r | not (isOneLineSpan s)])
                 ++ [srcSpanEndCol r]
 
--- | Fill the first hole in the expression.
+-- | Fill the first hole in the given holed-expression.
 fillHole :: HsExpr GhcPs -> LHsExpr GhcPs -> Maybe (SrcSpan, LHsExpr GhcPs)
 fillHole fit = fillFirst . contexts
   where

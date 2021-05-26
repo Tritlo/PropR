@@ -54,10 +54,9 @@ breed i1@(f1, r1) i2@(f2, r2) =
     lor [] [] = []
 
 {-|
-   Merging fix-candidatesis mostly applying the list of changes in order. 
+   Merging fix-candidates is mostly applying the list of changes in order. 
    The only addressed special case is to discard the next change, 
    if the next change is also used at the same place in the second fix.  
-   TODO: Is the above description of isSubspanOf correct?
 -}
 mergeFixes :: EFix -> EFix -> EFix
 mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
@@ -107,6 +106,7 @@ pruneGeneration GenConf {..} new_gen =
     isFit ind | fitness ind >= avg_fitness * 0.75 = Just ind
     isFit _ = Nothing
 
+-- | Checks a given fix-result for successfulness, that is passing all tests. 
 successful :: Eq b => [(a, Either b Bool)] -> [(a, Either b Bool)]
 successful = filter (\(_, r) -> r == Right True)
 
@@ -159,8 +159,6 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
 {-|
 Computes the average value of an array of integrals. 
 It is used to compute the average fitness of a generation. 
-
-TODO: Isn't this built in?
 -}
 avg :: Fractional a => [a] -> a
 avg as = sum as / fromIntegral (length as)
