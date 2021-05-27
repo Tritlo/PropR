@@ -136,7 +136,13 @@ defaultConf =
     { hole_lvl = 0,
       packages = ["base", "process", "QuickCheck"],
       importStmts = ["import Prelude"],
-      genConf = GenConf {genIndividuals = 4, genRounds = 5, genPar = True},
+      genConf =
+        GenConf
+          { genIndividuals = 4,
+            genRounds = 5,
+            genPar = True,
+            genSeed = Nothing
+          },
       repConf = RepConf {repParChecks = True, repUseInterpreted = True}
     }
 

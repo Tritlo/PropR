@@ -23,9 +23,12 @@ module Synth.Types where
 
 import Constraint
 import Data.Map (Map)
+import Data.Vector (Vector)
+import Data.Word (Word32)
 import GHC
 import Outputable
 import qualified Outputable as O
+import System.Random.MWC (Seed)
 
 -- |
 -- Properties as in QuickCheck Properties.  Properties are strings, for now. We
@@ -93,7 +96,7 @@ data CompileConfig = CompConf
     -- | The Configuration for the Repair
     repConf :: RepConf
   }
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Read)
 
 data RepConf = RepConf
   { -- | Whether or not to use Parallelisation
@@ -101,7 +104,7 @@ data RepConf = RepConf
     -- | Whether or not to use compiled sources (?)
     repUseInterpreted :: Bool
   }
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Read)
 
 -- | GenConf represents a set of configurations for the Genetic Experiment
 data GenConf = GenConf
@@ -110,6 +113,8 @@ data GenConf = GenConf
     -- | The number of generations processed
     genRounds :: Int,
     -- | Whether or not to use parallelisation in genetic search parts
-    genPar :: Bool
+    genPar :: Bool,
+    -- | Seed for random mutations
+    genSeed :: Maybe (Vector Word32)
   }
-  deriving (Show, Eq, Ord)
+  deriving (Show, Eq, Read)

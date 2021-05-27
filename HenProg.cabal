@@ -39,6 +39,8 @@ library synth
                  unix >= 2.7.2 && < 2.8,
                  lens >= 5.0 && < 5.1,
                  comonad >= 5.0 && < 5.1,
+                 mwc-random >= 0.15 && < 0.16,
+                 vector >= 0.12 && < 0.13,
                  async >= 2.2 && < 2.3
 
 executable henprog

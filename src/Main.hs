@@ -35,7 +35,7 @@ import Trace.Hpc.Mix (BoxLabel (ExpBox))
 
 type SynthInput = (CompileConfig, Int, [String], String, [String])
 
-type Memo = IORef (Map SynthInput [String])
+type Memo = IORef (Map String [String])
 
 synthesizeSatisfying ::
   CompileConfig ->
@@ -49,7 +49,7 @@ synthesizeSatisfying _ depth _ _ _ _ | depth < 0 = return []
 synthesizeSatisfying cc depth ioref context props ty = do
   let inp = (cc, depth, context, ty, props)
   sM <- readIORef ioref
-  case sM Map.!? inp of
+  case sM Map.!? (show inp) of
     Just res -> logStr INFO ("Found " ++ show inp ++ "!") >> return res
     Nothing -> do
       logStr INFO $ "Synthesizing " ++ show inp
@@ -107,10 +107,10 @@ synthesizeSatisfying cc depth ioref context props ty = do
                     logStr INFO $ show inp ++ " fits done!"
                     let res = map fst $ filter snd fits
                     return res
-          atomicModifyIORef' ioref (\m -> (Map.insert inp res m, ()))
+          atomicModifyIORef' ioref (\m -> (Map.insert (show inp) res m, ()))
           return res
         _ -> do
-          atomicModifyIORef' ioref (\m -> (Map.insert inp [] m, ()))
+          atomicModifyIORef' ioref (\m -> (Map.insert (show inp) [] m, ()))
           return []
   where
     rprob ty cand = RProb props context "" ty cand

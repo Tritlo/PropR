@@ -27,31 +27,13 @@ import Synth.Repair
 import Synth.Traversals
 import Synth.Types
 import Synth.Util
+import System.Random.MWC
 
 -- |
 --   An Individual consists of a "Fix", that is a change to be applied,
 --   and a list of properties they fulfill or fail, expressed as an boolean array.
 --   A perfect candidate would have an array full of true, as every property is hold.
 type Individual = (EFix, [Bool])
-
--- |
---   This method combines individuals by merging their fixes.
---   The assumed properties of the offspring are the logically-or'd properties of
---   the input individuals.
---   WARNING: The assumed property-fullfillment is a heuristic.
-breed :: Individual -> Individual -> Individual
-breed i1@(f1, r1) i2@(f2, r2) =
-  ( if fitness i1 >= fitness i2
-      then f1 `mergeFixes` f2
-      else f2 `mergeFixes` f1,
-    lor r1 r2
-  )
-  where
-    -- lor = logical or
-    lor :: [Bool] -> [Bool] -> [Bool]
-    lor (False : xs) (False : ys) = False : lor xs ys
-    lor (_ : xs) (_ : ys) = True : lor xs ys
-    lor [] [] = []
 
 -- |
 --   Merging fix-candidates is mostly applying the list of changes in order.
@@ -73,8 +55,8 @@ fitness = fromIntegral . length . filter id . snd
 -- |
 --   This method computes the estimated fitness of the offspring of two individuals.
 --   WARNING: The fitness of the offspring is only estimated, not evaluated.
-complementary :: Individual -> Individual -> Float
-complementary a b = fitness $ breed a b
+complementary :: GenConf -> Individual -> Individual -> Float
+complementary gc a b = avg $ map fitness $ crossover gc a b
 
 individuals :: [(EFix, Either [Bool] Bool)] -> [Individual]
 individuals = mapMaybe fromHelpful
@@ -87,9 +69,9 @@ individuals = mapMaybe fromHelpful
 -- descending order.  I.E. the first element of the returned list will be the pair
 -- of individuals that produces the offspring with the best fitness.
 -- TODO: remove self-pairing, atleast if self-mating does not affect the fix
-makePairings :: [Individual] -> [(Individual, Individual)]
-makePairings indivs =
-  sortOn (Down . uncurry complementary) $
+makePairings :: GenConf -> [Individual] -> [(Individual, Individual)]
+makePairings gc indivs =
+  sortOn (Down . uncurry (complementary gc)) $
     [(x, y) | (x : ys) <- tails indivs, y <- ys]
 
 -- TODO: Better heuristics
@@ -107,11 +89,37 @@ pruneGeneration GenConf {..} new_gen =
 successful :: Eq b => [(a, Either b Bool)] -> [(a, Either b Bool)]
 successful = filter (\(_, r) -> r == Right True)
 
-selection :: GenConf -> [Individual] -> [Individual]
-selection gc indivs = pruneGeneration gc de_duped
+-- |
+--   This method combines individuals by merging their fixes.
+--   The assumed properties of the offspring are the logically-or'd properties of
+--   the input individuals.
+--   WARNING: The assumed property-fullfillment is a heuristic.
+crossover :: GenConf -> Individual -> Individual -> [Individual]
+crossover _ i1 i2 = [breed i1 i2, breed i2 i1]
+  where
+    -- lor = logical or
+    breed :: Individual -> Individual -> Individual
+    breed i1@(f1, r1) i2@(f2, r2) = (f1 `mergeFixes` f2, lor r1 r2)
+    lor :: [Bool] -> [Bool] -> [Bool]
+    lor (False : xs) (False : ys) = False : lor xs ys
+    lor (_ : xs) (_ : ys) = True : lor xs ys
+    lor [] [] = []
+
+mutation :: GenConf -> GenIO -> [Individual] -> IO [Individual]
+mutation gc rand_gen inds = do
+  r <- uniformR (0, length inds) rand_gen
+  -- TODO: Make configureable, e.g. how often, and such. This is very crude
+  return [inds !! r]
+
+selection :: GenConf -> GenIO -> [Individual] -> IO [Individual]
+selection gc rand_gen indivs = do
+  let new_gen = pruneGeneration gc de_duped
+  mut <- mutation gc rand_gen de_duped
+  return (new_gen ++ mut)
   where
     -- Compute the offsprigns of the best pairings
-    pairings = map (uncurry breed) $ makePairings indivs
+    pairings :: [Individual]
+    pairings = concatMap (uncurry (crossover gc)) $ makePairings gc indivs
     -- Deduplicate the pairings
     de_duped = deDupOn (Map.keys . fst) pairings
 
@@ -119,6 +127,12 @@ genRepair :: CompileConfig -> EProblem -> IO [EFix]
 genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
   efcs <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
   first_attempt <- collectStats $ repairAttempt cc prob (Just efcs)
+  -- initialize generator
+  seed <- case genSeed of
+    -- TODO: This will return the same number again and again
+    Just gs -> return $ toSeed gs
+    _ -> createSystemSeed
+  rand_gen <- restore seed
   if not $ null $ successful first_attempt
     then return (map fst $ successful first_attempt)
     else do
@@ -136,8 +150,8 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
           loop _ rounds | rounds >= genRounds = return []
           loop attempt rounds = do
             let gen = individuals attempt
-                new_gen = selection gc gen
-                ga = avg $ map fitness gen
+            new_gen <- selection gc rand_gen gen
+            let ga = avg $ map fitness gen
                 nga = avg $ map fitness new_gen
             logStr INFO $ "GENERATION " ++ show rounds
             logStr INFO $ "AVERAGE FITNESS: " ++ show ga
