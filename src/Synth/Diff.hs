@@ -2,19 +2,18 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{- |
-Module      : Synth.Diff
-Description : This module pretty-prints the output of the repair.
-License     : MIT
-Stability   : experimental
-
-This module displays the changes/diff introduced by the repair in a colourful
-and pretty way.  It also beforehand doublechecks that the thing to be printed
-is an actual valid program. This is a pure module.
-
-Abbreviations:
-- pp: PrettyPrint
--}
+-- |
+-- Module      : Synth.Diff
+-- Description : This module pretty-prints the output of the repair.
+-- License     : MIT
+-- Stability   : experimental
+--
+-- This module displays the changes/diff introduced by the repair in a colourful
+-- and pretty way.  It also beforehand doublechecks that the thing to be printed
+-- is an actual valid program. This is a pure module.
+--
+-- Abbreviations:
+-- - pp: PrettyPrint
 module Synth.Diff where
 
 import Bag

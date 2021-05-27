@@ -2,16 +2,15 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{- |
-Module      : Synth.Check
-Description : Interfaces the Program and its variants towards QuickCheck.
-License     : MIT
-Stability   : experimental
-
-This module handles calls and configurations of QuickCheck.
-It only builds the checks - it does not execute them.
-This module is a pure module.
--}
+-- |
+-- Module      : Synth.Check
+-- Description : Interfaces the Program and its variants towards QuickCheck.
+-- License     : MIT
+-- Stability   : experimental
+--
+-- This module handles calls and configurations of QuickCheck.
+-- It only builds the checks - it does not execute them.
+-- This module is a pure module.
 module Synth.Check where
 
 import Bag
@@ -28,6 +27,7 @@ import TcEvidence (idHsWrapper)
 import TysWiredIn
 
 -- TODO: Give a seed for reproducible experiments & tests.
+
 -- ^ Since QuickCheck doesn't support a simple integer seed, we'll have to
 -- manually create a "QCGen" instance below to have a fixed seed.
 
@@ -85,15 +85,20 @@ baseFun nm val =
 
 -- | Short for "the function"
 tf ::
-  String            -- ^ The string to lookup
-  -> LHsExpr GhcPs  -- ^ The matching function + location
+  -- | The string to lookup
+  String ->
+  -- | The matching function + location
+  LHsExpr GhcPs
 tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
 
 -- | Runs tf in a given specified namespace
 tfn ::
-  NameSpace         -- ^ A namespace to look for a function ("Variable Scope", for non Haskellers)
-  -> String         -- ^ The name to look up
-  -> LHsExpr GhcPs  -- ^ The function that was searched for
+  -- | A namespace to look for a function ("Variable Scope", for non Haskellers)
+  NameSpace ->
+  -- | The name to look up
+  String ->
+  -- | The function that was searched for
+  LHsExpr GhcPs
 tfn ns = noLoc . HsVar NoExtField . noLoc . mkUnqual ns . fsLit
 
 il :: Integer -> LHsExpr GhcPs
@@ -219,9 +224,11 @@ buildSuccessCheck EProb {..} =
 -- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result
 propCheckExpr ::
-  LHsExpr GhcPs      -- ^ A compiled program that contains properties and everything to run them
-  -> Located RdrName -- ^ A reader containing the property to check
-  -> LHsExpr GhcPs
+  -- | A compiled program that contains properties and everything to run them
+  LHsExpr GhcPs ->
+  -- | A reader containing the property to check
+  Located RdrName ->
+  LHsExpr GhcPs
 propCheckExpr extractor prop =
   noLoc $
     HsApp

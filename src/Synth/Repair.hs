@@ -2,23 +2,21 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
-{-|
-Module      : Synth.Repair
-Description : Replaces holes in functions with other found expressions.
-License     : MIT
-Stability   : experimental
-
-This is a highlevel module that utilizes most of the other modules implemented.
-
-This is an impure module, as GHC is run which requires IO.
-
-Note on (SrcSpan, LHsExpr GhcPs):
-
-We thought about Synomising this, but it resembles multiple things;
-  1. An expression and it's (new) hole
-  2. An expression and it's (possible) fix/patch (where fix means candidate, not
-     definitely solved)
--}
+-- |
+-- Module      : Synth.Repair
+-- Description : Replaces holes in functions with other found expressions.
+-- License     : MIT
+-- Stability   : experimental
+--
+-- This is a highlevel module that utilizes most of the other modules implemented.
+--
+-- This is an impure module, as GHC is run which requires IO.
+--
+-- Note on (SrcSpan, LHsExpr GhcPs):
+-- We thought about Synomising this, but it resembles multiple things;
+--   1. An expression and it's (new) hole
+--   2. An expression and it's (possible) fix/patch (where fix means candidate, not
+--      definitely solved)
 module Synth.Repair where
 
 import Bag

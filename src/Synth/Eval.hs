@@ -129,11 +129,9 @@ output p = do
 
 ----
 
-
-
-{-| Provides a default configuration for the program.
-It requires the basic packages "base","process" & "QuickCheck" to be available on the system.
--}
+-- |
+-- Provides a default configuration for the program.
+-- It requires the basic packages "base","process" & "QuickCheck" to be available on the system.
 defaultConf :: CompileConfig
 defaultConf =
   CompConf
@@ -144,7 +142,7 @@ defaultConf =
       repConf = RepConf {repParChecks = True, repUseInterpreted = True}
     }
 
-{-| This method takes a package given as a string and puts it into the GHC PackageFlag-Type -}
+-- | This method takes a package given as a string and puts it into the GHC PackageFlag-Type
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming True [])
 
@@ -156,8 +154,10 @@ initGhcCtxt cc = initGhcCtxt' False cc []
 -- | Intializes the hole fit plugin we use to extract fits and inject
 -- expression fits, as well as adding any additional imports.
 initGhcCtxt' ::
-  Bool -> -- ^ Whether to use Caching
-  CompileConfig -> -- ^ The experiment configuration
+  Bool ->
+  -- | Whether to use Caching
+  CompileConfig ->
+  -- | The experiment configuration
   [ExprFitCand] ->
   Ghc (IORef [(TypedHole, [HoleFit])])
 initGhcCtxt' useCache CompConf {..} local_exprs = do
@@ -202,12 +202,11 @@ runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
 
 type ValsAndRefs = ([HoleFit], [HoleFit])
 
-{-|
-  The compiler result, which can either be a set of values and refs (everything
-  worked) or still be dynamic, which means that some kind of error occurred.
-  That could be that the holes are not resolvable, the program does not clearly
-  terminate etc.
--}
+-- |
+--  The compiler result, which can either be a set of values and refs (everything
+--  worked) or still be dynamic, which means that some kind of error occurred.
+--  That could be that the holes are not resolvable, the program does not clearly
+--  terminate etc.
 type CompileRes = Either [ValsAndRefs] Dynamic
 
 -- | By integrating with a hole fit plugin, we can extract the fits (with all
@@ -249,13 +248,15 @@ monomorphiseType cc ty =
       where
         (tvs, base_ty) = splitForAllTys ty
 
-{-|
-  This method tries attempts to parse a given Module into a repair problem.
--}
+-- |
+--  This method tries attempts to parse a given Module into a repair problem.
 moduleToProb ::
-  CompileConfig ->  -- ^ A given Compilerconfig to use for the Module
-  FilePath ->       -- ^ The Path under which the module is located
-  Maybe String ->   -- ^ "mb_target" whether to target a specific type (?)
+  CompileConfig ->
+  -- | A given Compilerconfig to use for the Module
+  FilePath ->
+  -- | The Path under which the module is located
+  Maybe String ->
+  -- | "mb_target" whether to target a specific type (?)
   IO (CompileConfig, ParsedModule, [EProblem])
 moduleToProb cc@CompConf {..} mod_path mb_target = do
   let target = Target (TargetFile mod_path Nothing) True Nothing
@@ -607,10 +608,9 @@ dynCompileParsedExpr parsed_expr = do
   hval <- compileParsedExpr to_dyn_expr
   return (unsafeCoerce# hval :: Dynamic)
 
-{-|
-  This method returns the types of gene-candidates.
-  To do so, it first needs to compile the code.
--}
+-- |
+--  This method returns the types of gene-candidates.
+--  To do so, it first needs to compile the code.
 genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
 genCandTys cc bcat cands = runGhc (Just libdir) $ do
   initGhcCtxt (cc {hole_lvl = 0})

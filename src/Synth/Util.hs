@@ -1,15 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
-{-
-Module      : Synth.Util
-Description : Contains general and other orphaned functions of HenProg
-License     : MIT
-Stability   : experimental
 
-Your everyday Util file.
-Most of the functions contained are about logging.
-
-This is a pure module.
--}
+-- |
+-- Module      : Synth.Util
+-- Description : Contains general and other orphaned functions of HenProg
+-- License     : MIT
+-- Stability   : experimental
+-- Your everyday Util file.
+-- Most of the functions contained are about logging.
+-- This is a pure module.
 module Synth.Util where
 
 import Control.Exception (assert)
@@ -140,8 +138,9 @@ bitToBools b = map (testBit b) [0 .. finiteBitSize (0 :: Int) -1]
 mkInteractive :: SrcSpan -> SrcSpan
 -- Case 1: We have a real source Span
 mkInteractive (RealSrcSpan rs) = RealSrcSpan $ mkRealSrcSpan ns ne
-  -- Make a lookup for the old span but use the interactive for further computing
   where
+    -- Make a lookup for the old span but use the interactive for further computing
+
     UnhelpfulSpan ic = interactiveSrcSpan
     rss = realSrcSpanStart rs
     rse = realSrcSpanEnd rs
@@ -152,11 +151,15 @@ mkInteractive (UnhelpfulSpan _) = interactiveSrcSpan
 
 -- | Inserts the given element at the given index in the list, or at the end
 insertAt ::
-  Int -- ^ the index at which the element should be inserted (0 is head)
-  -> a -- ^ the element to be inserted
-  -> [a] -- ^ the list in which to insert
-  -> [a] -- ^ the list with the new element at given index,
-         --   or at the end if the given index was out of list.
+  -- | the index at which the element should be inserted (0 is head)
+  Int ->
+  -- | the element to be inserted
+  a ->
+  -- | the list in which to insert
+  [a] ->
+  -- | the list with the new element at given index,
+  --   or at the end if the given index was out of list.
+  [a]
 insertAt _ a [] = [a]
 insertAt 0 a as = a : as
 insertAt n a (x : xs) = x : insertAt (n -1) a xs

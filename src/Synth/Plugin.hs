@@ -1,15 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
-{-
-Module      : Synth.Plugin
-Description : Moves some of the HenProg into the GHC compilation
-License     : MIT
-Stability   : experimental
-
-This module introduces the Synth-Plugin to fasten up checking for the correct
-expressions in GHC. It also introduces heuristic caching.
--}
+-- |
+-- Module      : Synth.Plugin
+-- Description : Moves some of the HenProg into the GHC compilation
+-- License     : MIT
+-- Stability   : experimental
+-- This module introduces the Synth-Plugin to fasten up checking for the correct
+-- expressions in GHC. It also introduces heuristic caching.
 module Synth.Plugin where
 
 import Bag
