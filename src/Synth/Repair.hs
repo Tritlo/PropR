@@ -145,10 +145,10 @@ getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env e
 -- fit each holes and returns a list of expressions where each hole has been
 -- replaced with a candidate, which candidate it was and where in the expression.
 replacements ::
-  LHsExpr GhcPs ->
   -- | The original expression with one or more holes
-  [[HsExpr GhcPs]] ->
+  LHsExpr GhcPs ->
   -- | A list of expressions that fits the holes
+  [[HsExpr GhcPs]] ->
   [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
 replacements r [] = [([], r)]
 replacements e (first_hole_fit : rest) = concat rest_fit_res
@@ -200,13 +200,12 @@ propCounterExample cc ep prop = do
   exec <- compileParsedCheck cc' bcc
   fromDyn exec (return Nothing)
 
--- | Takes an expression and generates HoleFitCandidates from
--- every subexpression.
+-- | Takes an expression and generates HoleFitCandidates from every subexpression.
 getExprFitCands ::
-  CompileConfig ->
   -- | The general compiler setup
-  EExpr ->
+  CompileConfig ->
   -- | The expression to be holed
+  EExpr ->
   IO [ExprFitCand]
 getExprFitCands cc expr = runGhc (Just libdir) $ do
   -- setSessionDynFlags reads the package database.
@@ -325,12 +324,12 @@ repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt
 -- Quite some information can be printed when the program is run in DEBUG.
 -- As an important sidenote, places that are not in failing properties will not be altered.
 repairAttempt ::
-  CompileConfig ->
   -- | The GHC Configuration
-  EProblem ->
+  CompileConfig ->
   -- | The problem that is to fix, consisting of a program and a failing suite of properties
-  Maybe [ExprFitCand] ->
+  EProblem ->
   -- | Manually passed Candidates, if "Nothing" collected from program runtime
+  Maybe [ExprFitCand] ->
   IO [(EFix, Either [Bool] Bool)]
 repairAttempt cc tp@EProb {..} efcs = collectStats $ do
   let prog_at_ty = progAtTy e_prog e_ty

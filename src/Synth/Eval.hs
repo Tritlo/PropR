@@ -7,22 +7,20 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
 
-{-
-Module      : Synth.Eval
-Description : Contains most parts that directly rely on GHC Compilation
-License     : MIT
-Stability   : experimental
-
-This module holds most of the methods that interact with the GHC.
-This is a low-level module. This module is impure.
-This consists of the following blocks:
-
-1. Parsing a given problem from String into actual expressions of the Code
-2. Compiling given expression and their types, e.g. to check for hole fits later
-3. Finding Candidates for Genetic Programming
-4. Configuration for this and other parts of the project
-
--}
+-- |
+-- Module      : Synth.Eval
+-- Description : Contains most parts that directly rely on GHC Compilation
+-- License     : MIT
+-- Stability   : experimental
+--
+-- This module holds most of the methods that interact with the GHC.
+-- This is a low-level module. This module is impure.
+-- This consists of the following blocks:
+--
+-- 1. Parsing a given problem from String into actual expressions of the Code
+-- 2. Compiling given expression and their types, e.g. to check for hole fits later
+-- 3. Finding Candidates for Genetic Programming
+-- 4. Configuration for this and other parts of the project
 module Synth.Eval where
 
 -- GHC API

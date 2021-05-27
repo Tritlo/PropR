@@ -228,6 +228,7 @@ propCheckExpr ::
   LHsExpr GhcPs ->
   -- | A reader containing the property to check
   Located RdrName ->
+  -- | The resulting expression
   LHsExpr GhcPs
 propCheckExpr extractor prop =
   noLoc $
