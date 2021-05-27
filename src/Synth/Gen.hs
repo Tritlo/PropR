@@ -107,7 +107,7 @@ crossover _ i1 i2 = [breed i1 i2, breed i2 i1]
 
 mutation :: GenConf -> GenIO -> [Individual] -> IO [Individual]
 mutation gc rand_gen inds = do
-  r <- uniformR (0, length inds) rand_gen
+  r <- uniformR (0, length inds -1) rand_gen
   -- TODO: Make configureable, e.g. how often, and such. This is very crude
   return [inds !! r]
 
@@ -115,7 +115,7 @@ selection :: GenConf -> GenIO -> [Individual] -> IO [Individual]
 selection gc rand_gen indivs = do
   let new_gen = pruneGeneration gc de_duped
   mut <- mutation gc rand_gen de_duped
-  return (new_gen ++ mut)
+  return $ deDupOn (Map.keys . fst) $ new_gen ++ mut
   where
     -- Compute the offsprigns of the best pairings
     pairings :: [Individual]
