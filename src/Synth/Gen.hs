@@ -115,7 +115,8 @@ selection :: GenConf -> GenIO -> [Individual] -> IO [Individual]
 selection gc rand_gen indivs = do
   let new_gen = pruneGeneration gc de_duped
   mut <- mutation gc rand_gen de_duped
-  return $ deDupOn (Map.keys . fst) $ new_gen ++ mut
+  -- TODO: There's something weird going on with the deduping here
+  return $ deDupOn (Map.keys . fst) (new_gen ++ mut)
   where
     -- Compute the offsprigns of the best pairings
     pairings :: [Individual]
@@ -131,7 +132,10 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
   seed <- case genSeed of
     -- TODO: This will return the same number again and again
     Just gs -> return $ toSeed gs
-    _ -> createSystemSeed
+    _ -> do
+      s <- createSystemSeed
+      logStr INFO $ "Using seed " ++ show s
+      return s
   rand_gen <- restore seed
   if not $ null $ successful first_attempt
     then return (map fst $ successful first_attempt)

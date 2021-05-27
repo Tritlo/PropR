@@ -5,6 +5,7 @@
 module Main where
 
 import Data.Maybe (isJust, mapMaybe)
+import Data.Vector (fromList)
 import Synth.Diff (applyFixes, getFixBinds, ppDiff)
 import Synth.Eval
 import Synth.Gen (genRepair)
@@ -25,7 +26,10 @@ genTests =
     "Generation tests"
     [ localOption (mkTimeout 120_000_000) $
         testCase "Repair TwoFixes" $ do
-          let cc = defaultConf
+          let dcc = defaultConf
+              gc = genConf dcc
+              ngc = gc {genSeed = Just $ fromList (replicate 256 42)}
+              cc = dcc {genConf = ngc}
               toFix = "tests/TwoFixes.hs"
               repair_target = Nothing
               expected =
@@ -46,7 +50,10 @@ genTests =
           fixDiffs @?= expected,
       localOption (mkTimeout 75_000_000) $
         testCase "Repair ThreeFixes" $ do
-          let cc = defaultConf
+          let dcc = defaultConf
+              gc = genConf dcc
+              ngc = gc {genSeed = Just $ fromList (replicate 256 42)}
+              cc = dcc {genConf = ngc}
               toFix = "tests/ThreeFixes.hs"
               repair_target = Nothing
               expected =
@@ -67,7 +74,10 @@ genTests =
           fixDiffs @?= expected,
       localOption (mkTimeout 90_000_000) $
         testCase "Repair FourFixes" $ do
-          let cc = defaultConf
+          let dcc = defaultConf
+              gc = genConf dcc
+              ngc = gc {genSeed = Just $ fromList (replicate 256 42)}
+              cc = dcc {genConf = ngc}
               toFix = "tests/FourFixes.hs"
               repair_target = Nothing
               expected =
