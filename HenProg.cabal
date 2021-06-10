@@ -24,7 +24,8 @@ library synth
                    Synth.Traversals,
                    Synth.Types,
                    Synth.Diff,
-                   Synth.Util
+                   Synth.Util,
+                   Synth.Gen2
   build-depends: base >= 4 && < 5,
                  ghc >= 8 && < 9,
                  ghc-boot >= 8 && < 9,
@@ -41,7 +42,8 @@ library synth
                  comonad >= 5.0 && < 5.1,
                  mwc-random >= 0.15 && < 0.16,
                  vector >= 0.12 && < 0.13,
-                 async >= 2.2 && < 2.3
+                 async >= 2.2 && < 2.3,
+                 random >= 1.2 && < 1.3
 
 executable henprog
   default-language: Haskell2010
