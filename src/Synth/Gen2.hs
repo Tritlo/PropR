@@ -52,31 +52,23 @@ import Data.List(sortBy)
 import Data.Time.Clock
 
 type RandomNumberProvider = StdGen   -- ^ Short Type to make Signatures a bit more readable when Types are used. Also, the seed shows clearly which parts have random elements.
-defaultSeed = 42
 
 class Eq g => Chromosome g where 
-    --crossover :: (g,g) -> (g,g)                         -- ^ The Crossover Function to produce a new Chromosome from two Genes, pre-seeded with a default value
-    --crossover = crossover defaultSeed
-    -- ^ TODO: We could also move the crossover to the configuration 
+    -- | TODO: We could also move the crossover to the configuration 
     crossover :: RandomNumberProvider -> (g,g) -> (g,g)                 -- ^ The Crossover Function to produce a new Chromosome from two Genes, in a seeded Fashion
-    --mutate :: g -> g                                    -- ^ The Mutation Function, pre-seeded with default value
-    --mutate = mutate defaultSeed
     mutate :: RandomNumberProvider -> g -> g                            -- ^ The Mutation Function, in a seeded Fashion. This is a mutation that always "hits", taking care of not mutating every generation is done in genetic search.
     -- | TODO: Do we want to move Fitness out, 
     -- and just require a Function (Fitness :: Chromosome g, Ord a => g -> a) in the Method Signatures? 
     -- Or do we "bloat" our signatures heavily if we always carry it around?
     -- Optionally, we can put it into the Configuration
-    fitness :: (Ord a) => g -> a                            -- ^ A fitness function, applicable to the Chromosome. 
-    --perfectFitness :: (Ord a) => a                        -- ^ The best fitness, usually we want "0" here. It determines a solution.
+    fitness :: g -> Double                            -- ^ A fitness function, applicable to the Chromosome. 
 
     -- | Returns an Initial Population of Size p
     initialPopulation ::                    
         RandomNumberProvider                            -- ^ The seed of the initial Population 
         -> Int                                          -- ^ The size of the population
         -> [g]                                          -- ^ The first population, represented as a list of genes.
-    --initialPopulation :: (EQ g) => Int -> [g] 
-    --initialPopulation = initialPopulation defaultSeed
-
+    
 -- BIG TODO with Matthì: 
 -- instance Chromosome [Efix] where 
     -- TODO: Mutation should add or remove elements from the [Efix]
@@ -184,7 +176,7 @@ geneticSearch conf
 
         -- | Process a single generation of the GA, without filtering or checking for any times.
         -- We pass the fitness out with the next generation, to save us some computations upstream
-        environmentSelectedGeneration :: (Chromosome g, Ord a) => GeneticConfiguration -> [g] -> [(a,g)]
+        environmentSelectedGeneration :: (Chromosome g) => GeneticConfiguration -> [g] -> [(Double,g)]
         environmentSelectedGeneration conf existingPopulation = 
             let 
                 -- extract seed, to be shorter 
@@ -202,7 +194,7 @@ geneticSearch conf
                 fitnessedPopulation = [(fitness x, x) | x <- mergedPopulation]
                 -- select best fitting N elements, we assume 0 (smaller) fitness is better 
             in take (populationSize conf) $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) fitnessedPopulation
-        tournamentSelectedGeneration :: (Chromosome g, Ord a) => GeneticConfiguration -> [g] -> [(a,g)]
+        tournamentSelectedGeneration :: (Chromosome g) => GeneticConfiguration -> [g] -> [(Double,g)]
         tournamentSelectedGeneration = undefined 
 
 -- TODO: Add Reasoning when to use Tournaments and Pseudocode
@@ -216,13 +208,13 @@ pickByTournament seed tournamentSize rounds population =
     fmap (\(a,b)-> b) $ pickByTournament' seed tournamentSize rounds population Nothing
     where 
         -- TODO: Explain that I carry the fitness around to save computations
-        pickByTournament' :: (Ord a,Chromosome g) => 
+        pickByTournament' :: (Chromosome g) => 
             RandomNumberProvider 
             -> Int          -- ^ Tournment size, how many elements the champion is compared to per round
             -> Int          -- ^ (Remaining) Tournament Rounds 
             -> [g]          -- ^ Population from which to draw from 
-            -> Maybe (a,g)  -- ^ Current Champion, Just random element for first iteration
-            -> Maybe (a,g)   -- ^ Champion after the selection 
+            -> Maybe (Double,g)  -- ^ Current Champion, Just random element for first iteration
+            -> Maybe (Double,g)   -- ^ Champion after the selection 
         pickByTournament' _ _ 0 _ (Just champion) = Just champion
         pickByTournament' _ _ 0 _ (Nothing) = Nothing
         pickByTournament' seed tournamentSize 1 population Nothing = 
@@ -236,7 +228,7 @@ pickByTournament seed tournamentSize rounds population =
 
 
 -- TODO: Maybify this? To handle empty lists?
-fittest :: (Ord a,Chromosome g) => [g] -> Maybe (a,g)
+fittest :: (Chromosome g) => [g] -> Maybe (Double,g)
 fittest gs = listToMaybe $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) $ map (\x -> (fitness x, x)) gs
 
 -- ===============================================================
