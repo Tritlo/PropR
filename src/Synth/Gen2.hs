@@ -62,7 +62,6 @@ import Data.List(sortBy)
 import Data.Time.Clock
 
 import Data.IORef
-import System.Random
 import System.IO.Unsafe (unsafePerformIO)
 import Synth.Types (EFix, GenConf (GenConf), EProblem (EProb, e_prog, e_ty), CompileConfig, ExprFitCand)
 import GHC (SrcSpan, HsExpr, GhcPs, isSubspanOf)
@@ -118,7 +117,9 @@ class Eq g => Chromosome g where
 instance Eq (HsExpr GhcPs) where
     (==) = (==) `on` showSDocUnsafe .ppr
 
-type GenMonad = R.ReaderT GeneticConfiguration (ST.StateT StdGen IO)
+type FitnessCache = [(EFix, Double)]
+
+type GenMonad = R.ReaderT GeneticConfiguration (ST.StateT StdGen (ST.StateT FitnessCache IO))
 -- BIG TODO with Matthì:
 -- instance Chromosome [Efix] where
     -- TODO: Mutation should add or remove elements from the [Efix]
@@ -150,7 +151,7 @@ instance Chromosome EFix where
                      prob = progProblem
                      ecfs = Just exprFitCands
                  possibleFixes <-
-                    lift $ lift $ repairAttempt cc prob {e_prog = n_prog} ecfs
+                    lift $ lift $ lift $ repairAttempt cc prob {e_prog = n_prog} ecfs
                  case pickElementUniform possibleFixes gen of
                      Nothing -> error "no possible fixes!!"
                      -- Fix res here is:
@@ -160,10 +161,25 @@ instance Chromosome EFix where
                      -- + Left [Bool] if it's somewhere in between.
                      Just ((fix, fix_res), gen) ->
                          do lift (ST.put gen)
-                            return (mergeFixes fix e1)
+                            fc <- lift (lift ST.get)
+                            let mf = mergeFixes fix e1
+                            when (mf `notElem` map fst fc) $ do
+                                    let fitness_func = fromIntegral . length . filter id . snd
+                                    let nf = case fix_res of
+                                                Left bools -> 1 - (fitness_func (mf, bools) / fromIntegral (length bools))
+                                                Right True -> 0 -- Perfect fitness
+                                                Right False -> 1 -- The worst
+                                         -- here we should compute the fitness
+                                    lift (lift (ST.put (nf:fc)))
+                            return mf
 
 
-    fitness _ = 1.0
+    fitness e1 = do fc <- lift (lift ST.get)
+                    let res = lookup e1 fc
+                    case res of
+                        Nothing -> error "Fitness not found"
+                        Just r -> return r
+
     initialPopulation n = replicateM n (mutate Map.empty)
 
 
@@ -240,7 +256,7 @@ geneticSearch conf
             its   = iterations conf
             iConf = fromJust $ islandConfiguration conf
             populations :: Chromosome g => [[g]]
-            populations = [(initialPopulation seed' (populationSize conf)) | _ <- [1 .. (islands iConf)]]
+            populations = [initialPopulation seed' (populationSize conf) | _ <- [1 .. (islands iConf)]]
         --TODO: Log here time
         results <- islandSearch its 0 conf iConf populations
         --TODO: Log here time again!
@@ -260,14 +276,14 @@ geneticSearch conf
         geneticSearch' 0 _ _ _ = return []
         -- Case B: Iterations left, check on other abortion criteria
         geneticSearch' n currentTime conf pop =
-            if currentTime > (maxTimeInMS conf)
+            if currentTime > maxTimeInMS conf
             then return []
             else do
                 start <- getCurrentTime
                 let
                     -- Select the right mechanism according to Configuration (tournament vs. Environment)
                     selectionMechanism =
-                        if (isJust $ tournamentConfiguration conf)
+                        if isJust $ tournamentConfiguration conf
                         then tournamentSelectedGeneration
                         else environmentSelectedGeneration
                     nextGen = selectionMechanism conf pop
@@ -278,7 +294,7 @@ geneticSearch conf
                     nextPop = [x | (_,x) <- nextGen]
                     -- Calculate passed time in ms
                     timediff :: Int
-                    timediff = round $ (diffUTCTime end start) * 1000
+                    timediff = round $ diffUTCTime end start * 1000
                 -- End Early when any result is ok
                 -- when (not (null winners) && stopOnResults conf) (return winners)
                 -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
@@ -299,14 +315,14 @@ geneticSearch conf
         -- Case B: We have Iterations Left
         islandSearch n currentTime conf iConf populations =
             -- Check for Timeout
-            if currentTime > (maxTimeInMS conf)
+            if currentTime > maxTimeInMS conf
             then return []
             else do
                 start <- getCurrentTime
                 let
                     -- Select the right mechanism according to Configuration (tournament vs. Environment)
                     selectionMechanism =
-                        if (isJust $ tournamentConfiguration conf)
+                        if isJust $ tournamentConfiguration conf
                         then tournamentSelectedGeneration
                         else environmentSelectedGeneration
                     nextGens = map (selectionMechanism conf) populations
@@ -315,14 +331,14 @@ geneticSearch conf
                     -- Determine Winners
                     winners = concat [[species | (f,species) <- nextGen , f == 0] | nextGen <- nextGens]
                     -- We calculate the passed generations by substracting current remaining its from total its
-                    passedIterations = (iterations conf) - n
+                    passedIterations = iterations conf - n
                     -- We check whether we have a migration, by using modulo on the passed generations
-                    nextPops = if (mod passedIterations (migrationInterval iConf)) == 0
-                        then [map (snd) gen | gen <- (migrate (seed conf) iConf nextGens)]
-                        else [map (snd) gen | gen <- nextGens]
+                    nextPops = if mod passedIterations (migrationInterval iConf) == 0
+                        then [map snd gen | gen <- migrate (seed conf) iConf nextGens]
+                        else [map snd gen | gen <- nextGens]
                     -- Calculate passed time in ms
                     timediff :: Int
-                    timediff = round $ (diffUTCTime end start) * 1000
+                    timediff = round $ diffUTCTime end start * 1000
                 -- End Early when any result is ok
                 -- when (not (null winners) && stopOnResults conf) (return winners)
                 -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
@@ -382,11 +398,11 @@ geneticSearch conf
                 -- Drop the worst M species per Island
                 receivers = [drop (migrationSize iConf) $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) pop | pop <- islandPops]
                 -- Rearrange the migrating species either by moving one clockwise, or by shuffling them
-                migrators' = if (ringwiseMigration iConf)
+                migrators' = if ringwiseMigration iConf
                              then tail migrators ++ [head migrators]
                              else shuffle seed migrators
                 pairs = zip receivers migrators'
-            in map (\(a,b) -> a ++ b) pairs
+            in map (uncurry (++)) pairs
 
 -- TODO: Add Reasoning when to use Tournaments, and suggested params
 pickByTournament :: Chromosome g => RandomNumberProvider -> Int -> Int -> [g] -> Maybe g
@@ -396,7 +412,7 @@ pickByTournament _ _ _ [] =     Nothing
 pickByTournament _ _ _ [a] =    Just a
 --- Case C: Actual Tournament Selection taking place, including Fitness Function
 pickByTournament seed tournamentSize rounds population =
-    fmap (\(a,b)-> b) $ pickByTournament' seed tournamentSize rounds population Nothing
+    (\(a,b)-> b) <$> pickByTournament' seed tournamentSize rounds population Nothing
     where
         -- TODO: Explain that I carry the fitness around to save computations. Maybe remove this with cached fitness
         pickByTournament' :: (Chromosome g) =>
@@ -407,15 +423,15 @@ pickByTournament seed tournamentSize rounds population =
             -> Maybe (Double,g)  -- ^ Current Champion, Nothing if iteration started or on missbehaviour
             -> Maybe (Double,g)   -- ^ Champion after the selection, Nothing on Empty Populations
         pickByTournament' _ _ 0 _ (Just champion) = Just champion
-        pickByTournament' _ _ 0 _ (Nothing) = Nothing
+        pickByTournament' _ _ 0 _ Nothing = Nothing
         pickByTournament' seed tournamentSize 1 population Nothing =
-            fittest $ catMaybes [(pickRandomElement seed population) | _ <- [1..tournamentSize]]
+            fittest $ catMaybes [pickRandomElement seed population | _ <- [1..tournamentSize]]
         pickByTournament' seed tournamentSize 1 population (Just (a,b)) =
-            let challengers = catMaybes [(pickRandomElement seed population) | _ <- [1..tournamentSize]]
+            let challengers = catMaybes [pickRandomElement seed population | _ <- [1..tournamentSize]]
             in fittest (b:challengers)
         pickByTournament' seed tournamentSize n population champ =
                     let
-                        challengers = catMaybes [(pickRandomElement seed population) | _ <- [1..tournamentSize]]
+                        challengers = catMaybes [pickRandomElement seed population | _ <- [1..tournamentSize]]
                         recursiveBest = pickByTournament' seed tournamentSize (n-1) population champ
                         fighters = maybeToList (fmap snd champ) ++ maybeToList (fmap snd recursiveBest) ++ challengers
                     in fittest fighters
@@ -453,7 +469,7 @@ partitionInPairs seed as =
     in
         if isNothing pair
         then []
-        else (fromJust pair) : (partitionInPairs seed (removePairFromList as (fromJust pair)))
+        else fromJust pair : partitionInPairs seed (removePairFromList as (fromJust pair))
 
 -- | Returns the same list shuffled.
 shuffle :: RandomNumberProvider -> [a] -> [a]

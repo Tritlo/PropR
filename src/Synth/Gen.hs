@@ -35,16 +35,6 @@ import System.Random.MWC
 --   A perfect candidate would have an array full of true, as every property is hold.
 type Individual = (EFix, [Bool])
 
--- |
---   Merging fix-candidates is mostly applying the list of changes in order.
---   The only addressed special case is to discard the next change,
---   if the next change is also used at the same place in the second fix.
-mergeFixes :: EFix -> EFix -> EFix
-mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
-  where
-    mf' [] xs = xs
-    mf' xs [] = xs
-    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
 
 -- |
 --   This fitness is currently simply counting the hold properties.
