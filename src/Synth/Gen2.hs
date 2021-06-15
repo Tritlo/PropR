@@ -24,11 +24,23 @@ See: https://hackage.haskell.org/package/random-1.2.0/docs/System-Random.html
 - tX is an X related to Tournament Behaviour (e.g. tSize = TournamentSize)
 - iX is an X related to Island Behaviour (e.g. iConf = IslandConfiguration)
 
+**GenMonad**
+
+We happened to come accross some challenges nicely designing this library, in particular 
+we needed some re-occurring parts in nearly all functions. 
+This is why we decided to declare the "GenMonad", that holds
+
+- the configuration
+- a random number provider 
+- a cache for the fitness function
+- IO (as the search logs and takes times)
+
 **Genetic - Naming**
 A Chromosome is made up by Genotypes, which are the building bricks of changes/diffs.
-In our Context, a Genotype is a single diff we apply to the Code resembled by an EFix, and the Chromosome is a [EFix].
+In our Context, a Genotype is a set of diffs we apply to the Code resembled by an pair of (SourceSpan,Expression), 
+and the Chromosome is a EFix (A map of those).
 A Phenotype is the "physical implementation" of a Chromosome, in our context that is the program with all the patches applied.
-That is, our [EFix] turns from a Genotype to a Phenotype once it is run against the properties.
+That is, our EFix turns from its Genotype to a Phenotype once it is run against the properties.
 The final representation of Solutions provided by "Synth.Diff" is also a (different) Phenotype.
 
 **Island Evolution**
@@ -45,10 +57,6 @@ https://neo.lcc.uma.es/Articles/WRH98.pdf
 **Open Questions // Points**
 
     - Do we want to have unique elements in populations? Do we want this as a flag?
-    - We could move caching into the fitness function, if we e.g. add a "hidden" reader monad to it.
-      As long as the fitness here is pure that's fine and might make some tasks much nicer
-      if we can easily re-calculate fitness instead of carrying it around.
-      We could re-implement it similar to StdGen which also has a hidden state within the Monad.
     - Timeouts are not actually interrupting - the are checked after a generation.
       That can lead to a heavy plus above the specified timeout, e.g. by big populations on Islands.
 -}
@@ -58,7 +66,7 @@ module Synth.Gen2 where
 import Control.Monad(when, replicateM)
 import System.Random
 import Data.Maybe
-import Data.List(sortBy)
+import Data.List(sortBy,delete)
 import Data.Time.Clock
 
 import Data.IORef
@@ -78,17 +86,10 @@ import Synth.Traversals (replaceExpr)
 
 type RandomNumberProvider = StdGen   -- ^ Short Type to make Signatures a bit more readable when Types are used. Also, the seed shows clearly which parts have random elements.
 
-
-getRandomDouble :: Double -> Double -> GenMonad Double
-getRandomDouble lo hi =
-     do gen <- lift get
-        let (res, new_gen) = randomR (lo, hi) gen
-        lift (put new_gen)
-        return res
--- |
---   Merging fix-candidates is mostly applying the list of changes in order.
+-- | Merging fix-candidates is mostly applying the list of changes in order.
 --   The only addressed special case is to discard the next change,
 --   if the next change is also used at the same place in the second fix.
+-- TODO: We want to use random parts here, where we randomly pick a crossover point to make the babies
 mergeFixes :: EFix -> EFix -> EFix
 mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
   where
@@ -113,21 +114,29 @@ class Eq g => Chromosome g where
            Int                                     -- ^ The size of the population
         -> GenMonad [g]                            -- ^ The first population, represented as a list of genes.
 
--- OK for GhcPs expressions
+-- | This instance is required to implement "EQ" for Efixes. 
+-- The Efixes are a Map SrcSpan (HsExpr GhcPs), where the SrcSpan (location in the program) already has a suitable 
+-- EQ instance. For our purposes, it is hence fine to just compare the "toString" of both Expressions.
+-- We do not recommend using this as an implementation for other programs.
 instance Eq (HsExpr GhcPs) where
     (==) = (==) `on` showSDocUnsafe .ppr
 
+-- | This FitnessCache is created to hold the known fitness values of Efixes. 
+-- When the fitness function is called, it performs a lookup here. 
+-- In it's current implementation, the Cache is updated at the mutate step, when a new EFix is created. 
+-- In it's current implementation, the Cache is never cleared. 
 type FitnessCache = [(EFix, Double)]
 
+-- | The GenMonad resembles the environment in which we run our Genetic Search and it's parts. 
+-- It was introduced to reduce the load on various signatures and provide caching easier. 
+-- It consists (in this order) of 
+-- - A Read only GeneticConfiguration
+-- - A Read-Write random number provider
+-- - A Read-Write cache for Fitness values
+-- - IO, to perform logging and Time-Tasks
+-- The order of these is not particularly important, but we moved them in order of their occurrence (that is, 
+-- configuration is used the most, while IO and caching are used the least)
 type GenMonad = R.ReaderT GeneticConfiguration (ST.StateT StdGen (ST.StateT FitnessCache IO))
--- BIG TODO with Matthì:
--- instance Chromosome [Efix] where
-    -- TODO: Mutation should add or remove elements from the [Efix]
-
-pickElementUniform :: (RandomGen g) => [a] -> g -> Maybe (a,g)
-pickElementUniform [] _ = Nothing
-pickElementUniform xs g = let (ind, g') = uniformR (0, length xs) g
-                          in Just (xs !! ind, g')
 
 
 instance Chromosome EFix where
@@ -262,7 +271,6 @@ geneticSearch conf
         --TODO: Log here time again!
         return results
         -- Careful: Timer is max timer of all Island Timers?
-    -- Case C:
 
     where
         -- | Recursive Step of Genetic Search without Islands, based on environmental selection (best fit elements survive, every element is tested)
@@ -445,48 +453,6 @@ fittest gs = listToMaybe $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) $ map (\x ->
 -- "Non Genetic" Helpers
 -- ===============================================================
 
--- | Determines whether an even with chance x happens.
--- A random number between 0 and 1 is created and compared to x,
--- if the drawn number is smaller it returns true, false otherwise.
--- This leads e.g. that (coin 0.5) returns true and false in 50:50
--- While (coin 0.25) returns true and false in 25:75 ratio
-coin ::
-    RandomNumberProvider        -- ^ A seed to control the randomness
-    -> Double                   -- ^ The Probabilty of passing, between 0 (never) and 1 (always).
-    -> Bool                     -- ^ Whether or not the event occured
-coin _ 0 = False -- Shortcut for false, no random used
-coin _ 1 = True -- Shortcut for true, no random used
-coin gen th = undefined
-
--- | This method finds pairs from a given List.
--- It is used for either finding partners to crossover,
--- Or in terms of Island Evolution to find Islands that swap Individuals.
-partitionInPairs :: (Eq a) => RandomNumberProvider -> [a] -> [(a,a)]
-partitionInPairs _ [] = []
-partitionInPairs _ [a] = []
-partitionInPairs seed as =
-    let pair = pickRandomPair seed as
-    in
-        if isNothing pair
-        then []
-        else fromJust pair : partitionInPairs seed (removePairFromList as (fromJust pair))
-
--- | Returns the same list shuffled.
-shuffle :: RandomNumberProvider -> [a] -> [a]
-shuffle = undefined
-
--- | Picks a random pair of a given List.
--- The pair is not removed from the List.
--- Must be given a List with an even Number of Elements.
-pickRandomPair :: RandomNumberProvider -> [a] -> Maybe (a,a)
-pickRandomPair seed [] = Nothing -- ^ not allowed!
-pickRandomPair seed [a] = Nothing -- ^ not allowed!
-pickRandomPair seed as = if even (length as)
-    then undefined
-    else Nothing
-
-pickRandomElement :: RandomNumberProvider -> [a] -> Maybe a
-pickRandomElement seed gs = undefined
 
 -- | Reads the timeOutInMinutes of a configuration and rounds it to the nearest ms
 maxTimeInMS :: GeneticConfiguration -> Int
@@ -500,3 +466,83 @@ maxTimeInMS conf = round $ 1000 * 60 * timeoutInMinutes conf
 -- Used to remove a drafted set from parents from the population for further drafting pairs.
 removePairFromList :: (Eq a) => [a] -> (a,a) -> [a]
 removePairFromList as (x,y) = [a | a <- as, a /= x, a /= y]
+
+-- ===========                 ==============
+-- ===           Random Parts             ===
+-- ===========                 ==============
+
+
+-- | Determines whether an even with chance x happens.
+-- A random number between 0 and 1 is created and compared to x,
+-- if the drawn number is smaller it returns true, false otherwise.
+-- This leads e.g. that (coin 0.5) returns true and false in 50:50
+-- While (coin 0.25) returns true and false in 25:75 ratio
+coin ::
+    (RandomGen g) =>            
+    Double                   -- ^ The Probabilty of passing, between 0 (never) and 1 (always).
+    -> g                        -- ^ The Random number provider 
+    -> (Bool,g)                     -- ^ Whether or not the event occured
+coin 0 gen = (False,gen) -- Shortcut for false, no random used
+coin 1 gen = (True,gen) -- Shortcut for true, no random used
+coin th gen = 
+    let (val, gen') = randomR (0,1) gen
+    in  (val<th,gen')
+
+-- | This method finds pairs from a given List.
+-- It is used for either finding partners to crossover,
+-- Or in terms of Island Evolution to find Islands that swap Individuals.
+partitionInPairs :: (Eq a, RandomGen g) => [a] -> g -> ([(a,a)],g)
+partitionInPairs [] g = ([],g)
+partitionInPairs [a] g = ([],g)
+partitionInPairs as g =
+    let nextPair = pickRandomPair as g
+    in case nextPair of 
+        Nothing -> ([],g)
+        Just (pair,g') -> let 
+                            reducedList = removePairFromList as pair
+                            (as',g'') = partitionInPairs reducedList g'
+                          in (pair:as',g'')
+
+-- | Returns the same list shuffled.
+shuffle :: (RandomGen g) => [a] -> g -> ([a],g)
+shuffle [] g = ([],g)
+shuffle as g = let 
+                Just (a,g') = pickElementUniform as g
+                as' = delete a as 
+                (as'',g'') = shuffle as' g' 
+                in (a:as'',g'')
+
+-- | Helper to clearer use "randomR" of the RandomPackage for our GenMonad. 
+getRandomDouble :: 
+    Double                  -- ^ lower bound, included in the possible values
+    -> Double               -- ^ upper bound, included in the possible values
+    -> GenMonad Double      -- ^ a values chosen from a uniform distribution (low,high), and the updated GenMonad with the new Generator
+getRandomDouble lo hi =
+     do gen <- lift ST.get
+        let (res, new_gen) = randomR (lo, hi) gen
+        lift (ST.put new_gen)
+        return res
+
+-- | Picks a random pair of a given List.
+-- The pair is not removed from the List.
+-- Must be given a List with an even Number of Elements.
+pickRandomPair :: (Eq a, RandomGen g) => [a] -> g -> Maybe ((a,a),g)
+pickRandomPair [] _ = Nothing     -- ^ not supported!
+pickRandomPair [a] _ = Nothing    -- ^ not supported!
+pickRandomPair as g = if even (length as)
+    then 
+        let  
+            -- We only get justs, because we have taken care of empty lists beforehand
+            Just (elem1,g') = pickElementUniform as g
+            as' = delete elem1 as
+            Just (elem2,g'') = pickElementUniform as' g'
+        in Just $ ((elem1,elem2),g)
+    else Nothing
+
+-- | Picks a random element from a list, given the list has elements.
+-- All elements have the same likeliness to be drawn. 
+-- Returns Just (element,updatedStdGen) for lists with elements, or Nothing otherwise
+pickElementUniform :: (RandomGen g) => [a] -> g -> Maybe (a,g)
+pickElementUniform [] _ = Nothing
+pickElementUniform xs g = let (ind, g') = uniformR (0, length xs) g
+                          in Just (xs !! ind, g')
