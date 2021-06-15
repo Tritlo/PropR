@@ -59,6 +59,7 @@ https://neo.lcc.uma.es/Articles/WRH98.pdf
     - Do we want to have unique elements in populations? Do we want this as a flag?
     - Timeouts are not actually interrupting - the are checked after a generation.
       That can lead to a heavy plus above the specified timeout, e.g. by big populations on Islands.
+    - we NEED the un-cached fitness, otherwise we run into issues by dop-mutate and crossover!
 -}
 {-# LANGUAGE FlexibleInstances #-}
 module Synth.Gen2 where
@@ -373,81 +374,146 @@ geneticSearch conf
                 fitnessedPopulation = [(fitness x, x) | x <- mergedPopulation]
                 -- select best fitting N elements, we assume 0 (smaller) fitness is better
             in take (populationSize conf) $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) fitnessedPopulation
-        tournamentSelectedGeneration :: (Chromosome g) => GeneticConfiguration -> [g] -> [(Double,g)]
-        tournamentSelectedGeneration conf pop =
+        tournamentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]
+        tournamentSelectedGeneration pop = do 
+            conf <- R.ask
+            gen <- lift $ ST.get
+            champions <- pickNByTournament (populationSize conf) pop
             let
-                seed' = seed conf
                 tConf =  fromJust (tournamentConfiguration conf)
-                champions = catMaybes [pickByTournament seed' (size tConf) (rounds tConf) pop | _ <- [1 .. (populationSize conf)]]
-                parents = partitionInPairs seed' champions
-                children = [crossover seed' x | x <- parents]
-                children' = [a | (a,b) <- children] ++ [b | (a,b) <- children]
-                -- For every new baby, coinFlip whether to mutate, mutate if true
-                mutatedChildren = [if coin (seed conf) (mutationRate conf) then mutate seed' x else x | x <- children']
+                (parents,gen') = partitionInPairs champions gen
+            children <- sequence $ [crossover x | x <- parents]
+            let children' = [a | (a,b) <- children] ++ [b | (a,b) <- children]
                 -- Unlike Environment Selection, in Tournament the "Elitism" is done passively in the Tournament
                 -- The Parents are not merged and selected later, they are just discarded
                 -- In concept, well fit parents will make it through the tournament twice, keeping their genes anyway.
-                newPopulation = mutatedChildren
-                -- calculate fitness
-                fitnessedPopulation = [(fitness x, x) | x <- newPopulation]
-            in fitnessedPopulation
+            performMutation children'
         -- | Performs the migration from all islands to all islands,
         -- According to the IslandConfiguration provided.
         -- It always migrates, check whether migration is needed/done is done upstream.
         migrate :: Chromosome g =>
-            RandomNumberProvider   -- ^ Required for random island migrations
-            -> IslandConfiguration -- ^ The Configuration by which to perform the migration
-            -> [[(Double,g)]]      -- ^ The populations in which the migration will take place
-            -> [[(Double,g)]]      -- ^ The populations after migration, the very best species of every island are duplicated to the receiving island (intended behaviour)
-        migrate seed iConf islandPops =
-            let
+            [[g]]                -- ^ The populations in which the migration will take place
+            -> GenMonad [[g]]       -- ^ The populations after migration, the very best species of every island are duplicated to the receiving island (intended behaviour)
+        migrate islandPops = do 
+            conf <- R.ask
+            gen <- lift $ ST.get 
+            let iConf = fromJust $ islandConfiguration conf 
+                sortedIslands = (map (sortBy (\(s1) (s2) -> compare (fitness s1) (fitness s2))) islandPops)
                 -- Select the best M species per island
-                migrators = [take (migrationSize iConf) $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) pop | pop <- islandPops]
+                migrators = [take (migrationSize iConf) pop | pop <- sortedIslands]
                 -- Drop the worst M species per Island
-                receivers = [drop (migrationSize iConf) $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) pop | pop <- islandPops]
+                receivers = [drop (migrationSize iConf) pop | pop <- sortedIslands]    
                 -- Rearrange the migrating species either by moving one clockwise, or by shuffling them
-                migrators' = if ringwiseMigration iConf
-                             then tail migrators ++ [head migrators]
-                             else shuffle seed migrators
-                pairs = zip receivers migrators'
-            in map (uncurry (++)) pairs
+                (migrators',gen') = if ringwiseMigration iConf
+                             then (tail migrators ++ [head migrators],gen)
+                             else shuffle migrators gen
+                islandMigrationPairs = zip receivers migrators'
+                newIslands = map (uncurry (++)) islandMigrationPairs
+            lift $ ST.put gen'
+            return newIslands
+
+-- | Little Helper to perform tournament Selection n times 
+-- It hurt my head to do it in the monad 
+pickNByTournament :: Chromosome g => Int -> [g] -> GenMonad [g]
+pickNByTournament 0 _ = return []
+pickNByTournament _ [] = return []
+pickNByTournament n gs = do 
+    champ <- pickByTournament gs
+    recursiveChampions <- pickNByTournament (n-1) gs
+    return ((maybeToList champ) ++ recursiveChampions)
+
+-- | Helper to perform mutation on a list of Chromosomes. 
+-- For every element, it checks whether to mutate, and if yes it mutates.
+-- It hurt my head to do in the monad 
+performMutation :: Chromosome g => [g] -> GenMonad [g]
+performMutation [] = return []
+performMutation (g:gs) = do 
+    GConf{..} <- R.ask
+    gen <- lift $ ST.get
+    let (doMutate,gen') = coin mutationRate gen
+    lift $ ST.put gen' -- This must be this early, as mutate needs StdGen too
+    doneElement <- if doMutate 
+        then (mutate g)
+        else return g
+    recursiveMutated <- performMutation gs
+    return (doneElement:recursiveMutated) 
 
 -- TODO: Add Reasoning when to use Tournaments, and suggested params
-pickByTournament :: Chromosome g => RandomNumberProvider -> Int -> Int -> [g] -> Maybe g
+pickByTournament :: Chromosome g => [g] -> GenMonad (Maybe g)
 -- Case A: No Elements in the Pop
-pickByTournament _ _ _ [] =     Nothing
+pickByTournament [] =  return Nothing
 -- Case B: One Element in the Pop - Shortwire to it
-pickByTournament _ _ _ [a] =    Just a
+pickByTournament [a] =  return (Just a)
 --- Case C: Actual Tournament Selection taking place, including Fitness Function
-pickByTournament seed tournamentSize rounds population =
-    (\(a,b)-> b) <$> pickByTournament' seed tournamentSize rounds population Nothing
+pickByTournament population =
+    do 
+        -- Ask for Tournament Rounds m
+        GConf{..} <- R.ask
+        let 
+            (Just tConf) = tournamentConfiguration
+            tournamentRounds = rounds tConf
+        -- Perform Tournament with m rounds and no initial champion
+        pickByTournament' tournamentRounds population Nothing
     where
         -- TODO: Explain that I carry the fitness around to save computations. Maybe remove this with cached fitness
         pickByTournament' :: (Chromosome g) =>
-            RandomNumberProvider
-            -> Int          -- ^ Tournment size, how many elements the champion is compared to per round
-            -> Int          -- ^ (Remaining) Tournament Rounds
-            -> [g]          -- ^ Population from which to draw from
-            -> Maybe (Double,g)  -- ^ Current Champion, Nothing if iteration started or on missbehaviour
-            -> Maybe (Double,g)   -- ^ Champion after the selection, Nothing on Empty Populations
-        pickByTournament' _ _ 0 _ (Just champion) = Just champion
-        pickByTournament' _ _ 0 _ Nothing = Nothing
-        pickByTournament' seed tournamentSize 1 population Nothing =
-            fittest $ catMaybes [pickRandomElement seed population | _ <- [1..tournamentSize]]
-        pickByTournament' seed tournamentSize 1 population (Just (a,b)) =
-            let challengers = catMaybes [pickRandomElement seed population | _ <- [1..tournamentSize]]
-            in fittest (b:challengers)
-        pickByTournament' seed tournamentSize n population champ =
-                    let
-                        challengers = catMaybes [pickRandomElement seed population | _ <- [1..tournamentSize]]
-                        recursiveBest = pickByTournament' seed tournamentSize (n-1) population champ
-                        fighters = maybeToList (fmap snd champ) ++ maybeToList (fmap snd recursiveBest) ++ challengers
-                    in fittest fighters
-
+            Int                         -- ^ (Remaining) Tournament Rounds
+            -> [g]                      -- ^ Population from which to draw from
+            -> Maybe g                  -- ^ Current Champion, Nothing if search just started or on missbehaviour
+            -> GenMonad (Maybe g)       -- ^ Champion after the selection, Nothing on Empty Populations
+        -- Case 1: We terminated and have a champion
+        pickByTournament'  0 _ (Just champion) = return (Just champion)
+        -- Case 2: We terminated but do not have a champion
+        pickByTournament'  0 _ Nothing = return Nothing
+        -- Case 3: We are in the last iteration, and do not have a champion.
+        -- Have n random elements compete, return best
+        pickByTournament' 1 population Nothing = 
+            do 
+                gen <- lift $ ST.get
+                GConf{..} <- R.ask
+                let 
+                    (Just tConf) = tournamentConfiguration
+                    tournamentSize = size tConf
+                    (tParticipants,gen') = pickRandomElements tournamentSize gen population
+                    champion = fittest tParticipants
+                lift $ ST.put gen'
+                champion
+        -- Case 4: We are in the last iteration, and have a champion
+        -- Pick n random elements to compete with the Champion, return best
+        pickByTournament' 1 population (Just currentChampion) = 
+            do
+                gen <- lift $ ST.get
+                GConf{..} <- R.ask
+                let 
+                    (Just tConf) = tournamentConfiguration
+                    tournamentSize = size tConf
+                    (tParticipants,gen') = pickRandomElements tournamentSize gen population
+                    champion = fittest (currentChampion:tParticipants)
+                lift $ ST.put gen'
+                champion
+        -- Case 5: "normal" recursive Case 
+        -- At iteration i ask for the champion of i-1 
+        -- Let the current Champion, n random elements and champion from i-1 compete
+        -- Return best
+        pickByTournament' n population champ =
+            do
+                gen <- lift $ ST.get
+                GConf{..} <- R.ask
+                let 
+                    (Just tConf) = tournamentConfiguration
+                    tournamentSize = size tConf
+                    (tParticipants,gen') = pickRandomElements tournamentSize gen population
+                recursiveChampion <-  pickByTournament' (n-1) population champ
+                lift $ ST.put gen'
+                fittest ((maybeToList recursiveChampion)++(maybeToList champ) ++ tParticipants)
+                
 -- | For a given list of cromosomes, applies the fitness function and returns the
 -- very fittest (head of the sorted list) if the list is non-empty.
-fittest :: (Chromosome g) => [g] -> Maybe (Double,g)
-fittest gs = listToMaybe $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) $ map (\x -> (fitness x, x)) gs
+-- Fitness is drawn from the GenMonads Fitness Cache
+fittest :: (Chromosome g) => [g] -> GenMonad (Maybe g)
+fittest gs = do 
+    let sorted = sortBy (\(s1) (s2) -> compare (fitness s1) (fitness s2)) gs
+    return (listToMaybe sorted)
 
 -- ===============================================================
 -- "Non Genetic" Helpers
@@ -511,6 +577,17 @@ shuffle as g = let
                 as' = delete a as 
                 (as'',g'') = shuffle as' g' 
                 in (a:as'',g'')
+
+-- | Picks n random elements from u, can give duplicates (intentional behavior)
+pickRandomElements :: (RandomGen g) => Int -> g -> [a] -> ([a],g)
+pickRandomElement 0 g _ = ([],g)
+pickRandomElements _ g [] = ([],g)
+pickRandomElements n g as = 
+    let 
+        (asShuffled,g') = shuffle as g
+        (recursiveResults,g'') = pickRandomElements (n-1) g' as
+        x = head asShuffled
+    in (x:recursiveResults,g'')
 
 -- | Helper to clearer use "randomR" of the RandomPackage for our GenMonad. 
 getRandomDouble :: 
