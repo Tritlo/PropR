@@ -430,9 +430,15 @@ geneticSearch = do
             lift $ ST.put gen'
             return newIslands
 
--- TODO: I think I have to ... lift the fitness function somewhere? 
 sortPopByFitness :: Chromosome g => [g] -> GenMonad [g]
-sortPopByFitness gs = return gs
+sortPopByFitness gs = do 
+    fitnesses <- mapM (\x-> fitness x) gs
+    let 
+        fitnessedGs = zip fitnesses gs 
+        -- TODO: Check if this is ascending!
+        sorted = sortBy (\(f1,_) (f2,_) -> compare f1 f2) fitnessedGs
+        extracted = map snd sorted
+    return extracted
 
 selectWinners :: Chromosome g => 
     Double -> -- ^ Best value to compare with, winners are the ones where fitness equal to this value
