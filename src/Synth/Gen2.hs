@@ -23,6 +23,8 @@ See: https://hackage.haskell.org/package/random-1.2.0/docs/System-Random.html
 
 - tX is an X related to Tournament Behaviour (e.g. tSize = TournamentSize)
 - iX is an X related to Island Behaviour (e.g. iConf = IslandConfiguration)
+- a "pop" is short for population
+- a "gen" is short for generator, a StdGen that helps to provide random elements
 
 **GenMonad**
 
@@ -59,6 +61,7 @@ https://neo.lcc.uma.es/Articles/WRH98.pdf
     - Do we want to have unique elements in populations? Do we want this as a flag?
     - Timeouts are not actually interrupting - the are checked after a generation.
       That can lead to a heavy plus above the specified timeout, e.g. by big populations on Islands.
+      Can we do this better?
     - we NEED the un-cached fitness, otherwise we run into issues by dop-mutate and crossover!
 -}
 {-# LANGUAGE FlexibleInstances #-}
@@ -205,10 +208,10 @@ data GeneticConfiguration = GConf
   , tournamentConfiguration :: Maybe TournamentConfiguration -- ^ Nothing to not do Tournament Selection, existing Conf will use Tournament instead (See below for more info)
   , islandConfiguration :: Maybe IslandConfiguration -- ^ Nothing to disable IslandEvolution, existing Conf will run Island Evolution (See below for more Info)
   -- Pick better names for these? :
-  , dropRate :: Double             -- ^ The probability of how often we drop during mutation
-  , progProblem :: EProblem -- The problem we're trying to solve
-  , compConf :: CompileConfig
-  , exprFitCands :: [ExprFitCand]
+  , dropRate :: Double              -- ^ The probability of how often we drop during mutation
+  , progProblem :: EProblem         -- ^ The problem we're trying to solve
+  , compConf :: CompileConfig       -- ^ The compiler configuration, required to retrieve mutated EFixes
+  , exprFitCands :: [ExprFitCand]   -- ^ The sum of all potentially replaced elements, required to retrieve mutated EFixes
   }
 
 -- Holds all attributes for the tournament selection process
@@ -238,142 +241,155 @@ It runs a genetic search that terminates in three cases:
     c) solutions found (optionally with early exit)
 It will return an empty List in case of no found solutions.
 
-It also optionally runs Island Evolution depending on the Configuration. See module comment on more information.
+The search consists of 
+    - Generation of Initial Population
+    - Configuring / Using the right GA Algorithm
+    - Genetic Search (See methods for detail)
+    - Extraction of Results
+    - TODO: Logging
+
+It also optionally runs Island Evolution depending on the Configuration. 
+See module comment on more information.
 -}
 geneticSearch ::
     (Chromosome g) =>
-    GeneticConfiguration
-    -> IO [g] -- ^ The solutions found for the problems. Empty if none are found.
-geneticSearch conf
-    -- Case A: We do not have an Island Configuration - we do a "normal" genetic Search with Environment Selection (Best )
-    | isNothing (islandConfiguration conf) = do
-    -- If no: Proceed normal Evolution
-        -- TODO: Log start time, to catch time for initial Population Generation
-        let seed' = seed conf
-            its = iterations conf
-            -- Create Initial Population
-            firstPop = initialPopulation seed' (populationSize conf)
-        -- TODO: Some log Info here
-        results <- geneticSearch' its 0 conf firstPop
-        -- TODO: Some Log Info here too
-        return results
+    GenMonad [g] -- ^ The solutions found for the problems. Empty if none are found.
+geneticSearch = do 
+    conf <- R.ask
+    case islandConfiguration conf of 
+        -- Case A: We do not have an Island Configuration - we do a "normal" genetic Search with Environment Selection (Best )
+        Nothing -> do
+        -- If no: Proceed normal Evolution
+            -- TODO: Log start time, to catch time for initial Population Generation
+            let its = iterations conf
+                -- Create Initial Population
+            firstPop <- initialPopulation (populationSize conf)
+            -- TODO: Some log Info here
+            results <- geneticSearch' its 0 firstPop
+            -- TODO: Some Log Info here too
+            return results
 
-    -- Case B: We do have an Island Configuration - we go all out for the coolest algorithms
-    | otherwise = do
-    -- If yes: Split Iterations by MigrationInterval, create sub-configurations and run sub-genetic search per config
-        --TODO: Log here time
-        let seed' = seed conf
-            its   = iterations conf
-            iConf = fromJust $ islandConfiguration conf
-            populations :: Chromosome g => [[g]]
-            populations = [initialPopulation seed' (populationSize conf) | _ <- [1 .. (islands iConf)]]
-        --TODO: Log here time
-        results <- islandSearch its 0 conf iConf populations
-        --TODO: Log here time again!
-        return results
-        -- Careful: Timer is max timer of all Island Timers?
+        -- Case B: We do have an Island Configuration - we go all out for the coolest algorithms
+        (Just iConf) -> do
+        -- If yes: Split Iterations by MigrationInterval, create sub-configurations and run sub-genetic search per config
+            --TODO: Log here time
+            let seed' = seed conf
+                its   = iterations conf
+                
+            populations <- sequence $ [initialPopulation (populationSize conf) | _ <- [1 .. (islands iConf)]]
+            --TODO: Log here time
+            results <- islandSearch its 0 populations
+            --TODO: Log here time again!
+            return results
+            -- Careful: Timer is max timer of all Island Timers?
 
     where
         -- | Recursive Step of Genetic Search without Islands, based on environmental selection (best fit elements survive, every element is tested)
         geneticSearch' ::  (Chromosome g) =>
             Int         -- ^ The remaining iterations to perform before abort, stops on 0
             -> Int      -- ^ The current time in Ms, used to check for timeout
-            -> GeneticConfiguration
             -> [g]      -- ^ The (current) population on which to perform search on
-            -> IO [g]   -- ^ The results found, for which the fitness function is correct. Collected over all generations, ordered by generations ascending
+            -> GenMonad [g]   -- ^ The results found, for which the fitness function is correct. Collected over all generations, ordered by generations ascending
         -- Case A: Iterations Done, return empty results
-        geneticSearch' 0 _ _ _ = return []
+        geneticSearch' 0 _ _ = return []
         -- Case B: Iterations left, check on other abortion criteria
-        geneticSearch' n currentTime conf pop =
+        geneticSearch' n currentTime pop = do 
+            conf <- R.ask
             if currentTime > maxTimeInMS conf
             then return []
             else do
-                start <- getCurrentTime
+                start <- lift $ lift $ lift $ getCurrentTime
                 let
                     -- Select the right mechanism according to Configuration (tournament vs. Environment)
                     selectionMechanism =
                         if isJust $ tournamentConfiguration conf
                         then tournamentSelectedGeneration
                         else environmentSelectedGeneration
-                    nextGen = selectionMechanism conf pop
-                end <- getCurrentTime
-                let
+                nextPop <- selectionMechanism pop
+                end <- lift $ lift $ lift $ getCurrentTime
                     -- Determine Winners
-                    winners = [species | (fitness,species) <- nextGen, fitness == 0]
-                    nextPop = [x | (_,x) <- nextGen]
-                    -- Calculate passed time in ms
+                winners <- selectWinners 0 nextPop
+                let -- Calculate passed time in ms
                     timediff :: Int
                     timediff = round $ diffUTCTime end start * 1000
                 -- End Early when any result is ok
                 -- when (not (null winners) && stopOnResults conf) (return winners)
                 -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
-                recursiveResults <- geneticSearch' (n-1) (currentTime + timediff) conf nextPop
+                recursiveResults <- geneticSearch' (n-1) (currentTime + timediff) nextPop
                 return (winners ++ recursiveResults)
 
         -- | recursive step of genetic search with Islands.
-        --
+        -- Basically, it performs the same steps as normal genetic evolution but per island, 
+        -- And every so often a migration takes place (see "migrate" for information)
         islandSearch ::  (Chromosome g) =>
             Int         -- ^ The remaining iterations to perform before abort, stops on 0
             -> Int      -- ^ The current time in Ms, used to check for timeout
-            -> GeneticConfiguration
-            -> IslandConfiguration -- ^ separated out from normal Conf, to not always extract from Maybe.
             -> [[g]]      -- ^ The (current) populations, separated by island, on which to perform search on
-            -> IO [g]   -- ^ The results found, for which the fitness function is correct. Collected over all generations and all Islands, ordered by generations ascending
+            -> GenMonad [g]   -- ^ The results found, for which the fitness function is "perfect"(==0). Collected over all generations and all Islands, ordered by generations ascending
         -- Case A: Iterations Done, return empty results
-        islandSearch 0 _ _ _ _ = return []
+        islandSearch 0 _ _ = return []
         -- Case B: We have Iterations Left
-        islandSearch n currentTime conf iConf populations =
+        islandSearch n currentTime populations = do 
+            conf <- R.ask 
+            let iConf = fromJust $ islandConfiguration conf
             -- Check for Timeout
             if currentTime > maxTimeInMS conf
             then return []
             else do
-                start <- getCurrentTime
+                start <- lift $ lift $ lift $ getCurrentTime
                 let
                     -- Select the right mechanism according to Configuration (tournament vs. Environment)
                     selectionMechanism =
                         if isJust $ tournamentConfiguration conf
                         then tournamentSelectedGeneration
                         else environmentSelectedGeneration
-                    nextGens = map (selectionMechanism conf) populations
-                end <- getCurrentTime
-                let
-                    -- Determine Winners
-                    winners = concat [[species | (f,species) <- nextGen , f == 0] | nextGen <- nextGens]
+                nextGens <- sequence $ fmap selectionMechanism populations
+                end <-  lift $ lift $ lift $ getCurrentTime
+                
+                    -- Determine Winners (where fitness == 0)
+                winners <- sequence $ fmap (selectWinners 0) nextGens
+                let winners' = concat winners
                     -- We calculate the passed generations by substracting current remaining its from total its
-                    passedIterations = iterations conf - n
-                    -- We check whether we have a migration, by using modulo on the passed generations
-                    nextPops = if mod passedIterations (migrationInterval iConf) == 0
-                        then [map snd gen | gen <- migrate (seed conf) iConf nextGens]
-                        else [map snd gen | gen <- nextGens]
+                let passedIterations = iterations conf - n
+                -- We check whether we have a migration, by using modulo on the passed generations
+                nextPops <- if mod passedIterations (migrationInterval iConf) == 0
+                    then migrate nextGens 
+                    else return nextGens
+                let
                     -- Calculate passed time in ms
                     timediff :: Int
                     timediff = round $ diffUTCTime end start * 1000
                 -- End Early when any result is ok
                 -- when (not (null winners) && stopOnResults conf) (return winners)
                 -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
-                recursiveResults <- islandSearch (n-1) (currentTime + timediff) conf iConf nextPops
-                return (winners ++ recursiveResults)
+                recursiveResults <- islandSearch (n-1) (currentTime + timediff) nextPops
+                return (winners' ++ recursiveResults)
 
-        -- | Process a single generation of the GA, without filtering or checking for any times.
-        -- We pass the fitness out with the next generation, to save us some computations upstream
-        environmentSelectedGeneration :: (Chromosome g) => GeneticConfiguration -> [g] -> [(Double,g)]
-        environmentSelectedGeneration conf existingPopulation =
+        -- | Process a single generation of the GA, without filtering or checking for any timeouts.
+        -- We expect the fitness function to be cached and 'fast'. 
+        -- The environment selection includes 'Elitism', which means that the offspring 
+        -- competes with the parents and the best N fitting amongst both generations make it to the next rounds.
+        environmentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad[g]
+        environmentSelectedGeneration pop = do 
+            conf <- R.ask
+            gen <- lift $ ST.get
             let
-                -- extract seed, to be shorter
-                seed' = seed conf
-                -- Partition into Pairs
-                parents = partitionInPairs seed' existingPopulation
-                -- Seggs
-                children = [crossover seed' x | x <- parents]
-                children' = [a | (a,b) <- children] ++ [b | (a,b) <- children]
-                -- For every new baby, coinFlip whether to mutate, mutate if true
-                mutatedChildren = [if coin (seed conf) (mutationRate conf) then mutate seed' x else x | x <- children']
+                -- Partition the parentGeneration into Pairs
+                (parents,gen') = partitionInPairs pop gen
+            -- Perform Crossover
+            children <- sequence $ [crossover x | x <- parents]
+            let children' = [a | (a,b) <- children] ++ [b | (a,b) <- children]
+            lift $ ST.put gen'
+            -- For every new baby, coinFlip whether to mutate, mutate if true
+            mutated_children <- performMutation children'
+            let 
                 -- Merge Parents & Offspring into an intermediate-population of size 2*N
-                mergedPopulation = mutatedChildren ++ existingPopulation
-                -- calculate fitness
-                fitnessedPopulation = [(fitness x, x) | x <- mergedPopulation]
+                mergedPop = pop ++ mutated_children
                 -- select best fitting N elements, we assume 0 (smaller) fitness is better
-            in take (populationSize conf) $ sortBy (\(f1,_) (f2,_) -> compare f1 f2) fitnessedPopulation
+            mergedPop' <- sortPopByFitness mergedPop
+            let nextPop = take (populationSize conf) mergedPop'
+            return nextPop
+       
         tournamentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]
         tournamentSelectedGeneration pop = do 
             conf <- R.ask
@@ -383,6 +399,7 @@ geneticSearch conf
                 tConf =  fromJust (tournamentConfiguration conf)
                 (parents,gen') = partitionInPairs champions gen
             children <- sequence $ [crossover x | x <- parents]
+            lift $ ST.put gen'
             let children' = [a | (a,b) <- children] ++ [b | (a,b) <- children]
                 -- Unlike Environment Selection, in Tournament the "Elitism" is done passively in the Tournament
                 -- The Parents are not merged and selected later, they are just discarded
@@ -398,7 +415,8 @@ geneticSearch conf
             conf <- R.ask
             gen <- lift $ ST.get 
             let iConf = fromJust $ islandConfiguration conf 
-                sortedIslands = (map (sortBy (\(s1) (s2) -> compare (fitness s1) (fitness s2))) islandPops)
+            sortedIslands <- sequence (map sortPopByFitness islandPops)
+            let
                 -- Select the best M species per island
                 migrators = [take (migrationSize iConf) pop | pop <- sortedIslands]
                 -- Drop the worst M species per Island
@@ -411,6 +429,24 @@ geneticSearch conf
                 newIslands = map (uncurry (++)) islandMigrationPairs
             lift $ ST.put gen'
             return newIslands
+
+-- TODO: I think I have to ... lift the fitness function somewhere? 
+sortPopByFitness :: Chromosome g => [g] -> GenMonad [g]
+sortPopByFitness gs = return gs
+
+selectWinners :: Chromosome g => 
+    Double -> -- ^ Best value to compare with, winners are the ones where fitness equal to this value
+    [g] -> -- ^ The species that might win 
+    GenMonad [g] -- ^ the Actual winners
+selectWinners _ [] = return []
+selectWinners win (g:gs) = do
+    f <- fitness g
+    if f == win 
+    then do 
+        recursiveWinners <- selectWinners win gs 
+        return (g:recursiveWinners)
+    else 
+        selectWinners win gs
 
 -- | Little Helper to perform tournament Selection n times 
 -- It hurt my head to do it in the monad 
@@ -512,7 +548,7 @@ pickByTournament population =
 -- Fitness is drawn from the GenMonads Fitness Cache
 fittest :: (Chromosome g) => [g] -> GenMonad (Maybe g)
 fittest gs = do 
-    let sorted = sortBy (\(s1) (s2) -> compare (fitness s1) (fitness s2)) gs
+    sorted <- sortPopByFitness gs
     return (listToMaybe sorted)
 
 -- ===============================================================
@@ -570,7 +606,7 @@ partitionInPairs as g =
                           in (pair:as',g'')
 
 -- | Returns the same list shuffled.
-shuffle :: (RandomGen g) => [a] -> g -> ([a],g)
+shuffle :: (RandomGen g, Eq a) => [a] -> g -> ([a],g)
 shuffle [] g = ([],g)
 shuffle as g = let 
                 Just (a,g') = pickElementUniform as g
@@ -579,7 +615,7 @@ shuffle as g = let
                 in (a:as'',g'')
 
 -- | Picks n random elements from u, can give duplicates (intentional behavior)
-pickRandomElements :: (RandomGen g) => Int -> g -> [a] -> ([a],g)
+pickRandomElements :: (RandomGen g,Eq a) => Int -> g -> [a] -> ([a],g)
 pickRandomElement 0 g _ = ([],g)
 pickRandomElements _ g [] = ([],g)
 pickRandomElements n g as = 
