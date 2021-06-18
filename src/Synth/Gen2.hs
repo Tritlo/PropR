@@ -90,17 +90,6 @@ import Synth.Traversals (replaceExpr)
 
 type RandomNumberProvider = StdGen   -- ^ Short Type to make Signatures a bit more readable when Types are used. Also, the seed shows clearly which parts have random elements.
 
--- | Merging fix-candidates is mostly applying the list of changes in order.
---   The only addressed special case is to discard the next change,
---   if the next change is also used at the same place in the second fix.
--- TODO: We want to use random parts here, where we randomly pick a crossover point to make the babies
-mergeFixes :: EFix -> EFix -> EFix
-mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
-  where
-    mf' [] xs = xs
-    mf' xs [] = xs
-    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
-
 
 -- Eq is required to remove elements from lists while partitioning.
 class Eq g => Chromosome g where
@@ -144,9 +133,7 @@ type GenMonad = R.ReaderT GeneticConfiguration (ST.StateT StdGen (ST.StateT Fitn
 
 
 instance Chromosome EFix where
-    -- TODO: add actual crossover point using the random, and make sure that
-    -- merge fixes is actually order dependent.
-    crossover (f1,f2) = return (mergeFixes f1 f2, mergeFixes f2 f1)
+    crossover (f1,f2) = efixCrossover f1 f2
     mutate e1 =
       do gen <- lift ST.get
          GConf{..} <- R.ask
@@ -201,6 +188,7 @@ instance Chromosome EFix where
 data GeneticConfiguration = GConf
   { seed :: RandomNumberProvider   -- ^ The Seed used for the random Elements. Should be initialized centrally, e.g. upfront in the main.
   , mutationRate :: Double         -- ^ The chance that any one element is mutated
+  , crossoverRate :: Double        -- ^ the chance that a crossover is performed per parent pair
   , iterations :: Int              -- ^ How many iterations to do max (or exit earlier, depending on "stopOnResults")
   , populationSize :: Int          -- ^ How many Chromosomes are in one Population. In case of Island Evolution, each Island will have this population.
   , timeoutInMinutes :: Double     -- ^ How long the process should run (in Minutes)
@@ -556,6 +544,65 @@ fittest :: (Chromosome g) => [g] -> GenMonad (Maybe g)
 fittest gs = do 
     sorted <- sortPopByFitness gs
     return (listToMaybe sorted)
+
+
+-- | A bit more sophisticated crossover for efixes.
+-- At first, it performs a coinflip whether crossover is performed, based on the crossover rate. 
+-- If not, duplicates of the parents are returned (this is common in Genetic Algorithms).
+-- These duplicates do not hurt too much, as they still are mutated. 
+-- If a crossover is performed, the Efixes are transformed to a list and 
+-- for each chromosome a crossover point is selected.
+-- Then the Efixes are re-combined by their genes according to the selected crossover point.
+efixCrossover :: EFix -> EFix -> GenMonad (EFix,EFix)
+efixCrossover a b = do 
+    GConf{..} <- R.ask
+    gen <- lift $ ST.get
+    let (performCrossover,gen') = coin crossoverRate gen
+    lift $ ST.put gen'  
+    if (not performCrossover) 
+        -- Case A: We do not do a crossover, just return a copy of the parents
+        then return (a,b)
+        -- Case B: We do do a crossover
+        else do 
+            gen <- lift $ ST.get
+            let 
+                (aGenotypes,bGenotypes) = (Map.toList a,Map.toList b)
+                (crossedAs,crossedBs,gen') = crossoverLists gen aGenotypes bGenotypes
+            lift $ ST.put gen'
+            return (Map.fromList crossedAs, Map.fromList crossedBs)
+    where
+        -- | Merges two lists of expressions, 
+        -- with the exception that it discards expressions if the position overlaps
+        mf' :: [(SrcSpan, (HsExpr GhcPs))] -> [(SrcSpan, (HsExpr GhcPs))] -> [(SrcSpan, (HsExpr GhcPs))] 
+        mf' [] xs = xs
+        mf' xs [] = xs
+        mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
+        -- | Makes the (randomized) pairing of the given lists for later merging
+        crossoverLists :: (RandomGen g) => g -> 
+            [(SrcSpan, (HsExpr GhcPs))] 
+            -> [(SrcSpan, (HsExpr GhcPs))] 
+            -> ([(SrcSpan, (HsExpr GhcPs))],[(SrcSpan, (HsExpr GhcPs))],g)
+        -- For empty chromosomes, there is no crossover possible
+        crossoverLists gen [] [] = ([],[],gen)
+        -- For single-gene chromosomes, there is no crossover possible 
+        crossoverLists gen [a] [b] = ([a],[b],gen)
+        crossoverLists gen as bs = 
+            let
+             (crossoverPointA, gen') = uniformR (1, length as) gen
+             (crossoverPointB, gen'') = uniformR (1, length bs) gen'
+             (part1A,part2A) = (take crossoverPointA as , drop crossoverPointA as)
+             (part1B,part2B) = (take crossoverPointB bs,drop crossoverPointB bs)
+            in (mf' part1A part2B, mf' part1B part2A,gen'')
+
+-- | Merging fix-candidates is mostly applying the list of changes in order.
+--   The only addressed special case is to discard the next change,
+--   if the next change is also used at the same place in the second fix.
+mergeFixes :: EFix -> EFix -> EFix
+mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
+  where
+    mf' [] xs = xs
+    mf' xs [] = xs
+    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
 
 -- ===============================================================
 -- "Non Genetic" Helpers
