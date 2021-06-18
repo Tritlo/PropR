@@ -88,7 +88,10 @@ import Synth.Repair (repairAttempt)
 import Synth.Util (progAtTy)
 import Synth.Traversals (replaceExpr)
 
-type RandomNumberProvider = StdGen   -- ^ Short Type to make Signatures a bit more readable when Types are used. Also, the seed shows clearly which parts have random elements.
+-- ===========                                    ==============
+-- ===                  Genetic Requirements                 ===
+-- === All Instances and Setups required for genetic search  ===
+-- ===========                                    ==============
 
 
 -- Eq is required to remove elements from lists while partitioning.
@@ -107,12 +110,6 @@ class Eq g => Chromosome g where
            Int                                     -- ^ The size of the population
         -> GenMonad [g]                            -- ^ The first population, represented as a list of genes.
 
--- | This instance is required to implement "EQ" for Efixes. 
--- The Efixes are a Map SrcSpan (HsExpr GhcPs), where the SrcSpan (location in the program) already has a suitable 
--- EQ instance. For our purposes, it is hence fine to just compare the "toString" of both Expressions.
--- We do not recommend using this as an implementation for other programs.
-instance Eq (HsExpr GhcPs) where
-    (==) = (==) `on` showSDocUnsafe .ppr
 
 -- | This FitnessCache is created to hold the known fitness values of Efixes. 
 -- When the fitness function is called, it performs a lookup here. 
@@ -132,62 +129,15 @@ type FitnessCache = [(EFix, Double)]
 type GenMonad = R.ReaderT GeneticConfiguration (ST.StateT StdGen (ST.StateT FitnessCache IO))
 
 
-instance Chromosome EFix where
-    crossover (f1,f2) = efixCrossover f1 f2
-    mutate e1 =
-      do gen <- lift ST.get
-         GConf{..} <- R.ask
-         let (should_drop, gen) = random gen
-         if should_drop < dropRate && not (Map.null e1)
-         then do let ks :: [SrcSpan]
-                     ks = Map.keys e1
-                     Just (key_to_drop, gen) = pickElementUniform ks gen
-                 lift (ST.put gen)
-                 return $ Map.delete key_to_drop e1
-         else do let EProb{..} = progProblem
-                     prog_at_ty = progAtTy e_prog e_ty
-                     n_prog = replaceExpr e1 prog_at_ty
-                     cc = compConf
-                     prob = progProblem
-                     ecfs = Just exprFitCands
-                 possibleFixes <-
-                    lift $ lift $ lift $ repairAttempt cc prob {e_prog = n_prog} ecfs
-                 case pickElementUniform possibleFixes gen of
-                     Nothing -> error "no possible fixes!!"
-                     -- Fix res here is:
-                     -- + Right True if all the properties are correct (perfect fitnesss!)
-                     -- + Right False if the program doesn't terminate (worst fitness)..
-                     --    Blacklist this fix?
-                     -- + Left [Bool] if it's somewhere in between.
-                     Just ((fix, fix_res), gen) ->
-                         do lift (ST.put gen)
-                            fc <- lift (lift ST.get)
-                            let mf = mergeFixes fix e1
-                            when (mf `notElem` map fst fc) $ do
-                                    let fitness_func = fromIntegral . length . filter id . snd
-                                    let nf = case fix_res of
-                                                Left bools -> 1 - (fitness_func (mf, bools) / fromIntegral (length bools))
-                                                Right True -> 0 -- Perfect fitness
-                                                Right False -> 1 -- The worst
-                                         -- here we should compute the fitness
-                                    lift (lift (ST.put (nf:fc)))
-                            return mf
 
-
-    fitness e1 = do fc <- lift (lift ST.get)
-                    let res = lookup e1 fc
-                    case res of
-                        Nothing -> error "Fitness not found"
-                        Just r -> return r
-
-    initialPopulation n = replicateM n (mutate Map.empty)
-
+-- ===========                 ==============
+-- ===      Genetic Configurations        ===
+-- ===========                 ==============
 
 -- | The GeneticConfiguration holds all elements and Flags for the genetic search,
 -- Used to slim down Signatures and provide a central lookup-point.
 data GeneticConfiguration = GConf
-  { seed :: RandomNumberProvider   -- ^ The Seed used for the random Elements. Should be initialized centrally, e.g. upfront in the main.
-  , mutationRate :: Double         -- ^ The chance that any one element is mutated
+  { mutationRate :: Double         -- ^ The chance that any one element is mutated
   , crossoverRate :: Double        -- ^ the chance that a crossover is performed per parent pair
   , iterations :: Int              -- ^ How many iterations to do max (or exit earlier, depending on "stopOnResults")
   , populationSize :: Int          -- ^ How many Chromosomes are in one Population. In case of Island Evolution, each Island will have this population.
@@ -220,6 +170,13 @@ data IslandConfiguration = IConf {
     migrationSize :: Int ,           -- ^ How many Chromosomes will make it from one Island to another
     ringwiseMigration :: Bool        -- ^ Whether the migration is done clockwise, True for ringwise, False for random pairs of migration
 }
+
+
+-- ===========                 ==============
+-- ===           Genetic Search           ===
+-- ===    All Parts to perform the GA     ===
+-- ===========                 ==============
+
 
 {- |
 This is the primary method of this module.
@@ -261,8 +218,7 @@ geneticSearch = do
         (Just iConf) -> do
         -- If yes: Split Iterations by MigrationInterval, create sub-configurations and run sub-genetic search per config
             --TODO: Log here time
-            let seed' = seed conf
-                its   = iterations conf
+            let its   = iterations conf
                 
             populations <- sequence $ [initialPopulation (populationSize conf) | _ <- [1 .. (islands iConf)]]
             --TODO: Log here time
@@ -546,6 +502,66 @@ fittest gs = do
     return (listToMaybe sorted)
 
 
+-- ===========                                    ==============
+-- ===             EFix Chromosome implementation            ===
+-- ===========                                    ==============
+
+-- | This instance is required to implement "EQ" for Efixes. 
+-- The Efixes are a Map SrcSpan (HsExpr GhcPs), where the SrcSpan (location in the program) already has a suitable 
+-- EQ instance. For our purposes, it is hence fine to just compare the "toString" of both Expressions.
+-- We do not recommend using this as an implementation for other programs.
+instance Eq (HsExpr GhcPs) where
+    (==) = (==) `on` showSDocUnsafe .ppr
+
+instance Chromosome EFix where
+    crossover (f1,f2) = efixCrossover f1 f2
+    mutate e1 =
+      do gen <- lift ST.get
+         GConf{..} <- R.ask
+         let (should_drop, gen) = random gen
+         if should_drop < dropRate && not (Map.null e1)
+         then do let ks :: [SrcSpan]
+                     ks = Map.keys e1
+                     Just (key_to_drop, gen) = pickElementUniform ks gen
+                 lift (ST.put gen)
+                 return $ Map.delete key_to_drop e1
+         else do let EProb{..} = progProblem
+                     prog_at_ty = progAtTy e_prog e_ty
+                     n_prog = replaceExpr e1 prog_at_ty
+                     cc = compConf
+                     prob = progProblem
+                     ecfs = Just exprFitCands
+                 possibleFixes <-
+                    lift $ lift $ lift $ repairAttempt cc prob {e_prog = n_prog} ecfs
+                 case pickElementUniform possibleFixes gen of
+                     Nothing -> error "no possible fixes!!"
+                     -- Fix res here is:
+                     -- + Right True if all the properties are correct (perfect fitnesss!)
+                     -- + Right False if the program doesn't terminate (worst fitness)..
+                     --    Blacklist this fix?
+                     -- + Left [Bool] if it's somewhere in between.
+                     Just ((fix, fix_res), gen) ->
+                         do lift (ST.put gen)
+                            fc <- lift (lift ST.get)
+                            let mf = mergeFixes fix e1
+                            when (mf `notElem` map fst fc) $ do
+                                    let fitness_func = fromIntegral . length . filter id . snd
+                                    let nf = case fix_res of
+                                                Left bools -> 1 - (fitness_func (mf, bools) / fromIntegral (length bools))
+                                                Right True -> 0 -- Perfect fitness
+                                                Right False -> 1 -- The worst
+                                         -- here we should compute the fitness
+                                    lift (lift (ST.put (nf:fc)))
+                            return mf
+
+    fitness e1 = do fc <- lift (lift ST.get)
+                    let res = lookup e1 fc
+                    case res of
+                        Nothing -> error "Fitness not found"
+                        Just r -> return r
+
+    initialPopulation n = replicateM n (mutate Map.empty)
+
 -- | A bit more sophisticated crossover for efixes.
 -- At first, it performs a coinflip whether crossover is performed, based on the crossover rate. 
 -- If not, duplicates of the parents are returned (this is common in Genetic Algorithms).
@@ -578,6 +594,8 @@ efixCrossover a b = do
         mf' xs [] = xs
         mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
         -- | Makes the (randomized) pairing of the given lists for later merging
+        -- TODO: Doublecheck if this can create a merge from as ++ [] depending on the crossoverpoint logic,
+        -- Or if it needs to be: uniformR (1, length as - 1) gen
         crossoverLists :: (RandomGen g) => g -> 
             [(SrcSpan, (HsExpr GhcPs))] 
             -> [(SrcSpan, (HsExpr GhcPs))] 
@@ -604,10 +622,10 @@ mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
     mf' xs [] = xs
     mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
 
--- ===============================================================
--- "Non Genetic" Helpers
--- ===============================================================
 
+-- ===========                 ==============
+-- ===      "Non Genetic" Helpers         ===
+-- ===========                 ==============
 
 -- | Reads the timeOutInMinutes of a configuration and rounds it to the nearest ms
 maxTimeInMS :: GeneticConfiguration -> Int
