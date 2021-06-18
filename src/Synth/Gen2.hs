@@ -78,7 +78,7 @@ import System.IO.Unsafe (unsafePerformIO)
 import Synth.Types (EFix, GenConf (GenConf), EProblem (EProb, e_prog, e_ty), CompileConfig, ExprFitCand)
 import GHC (SrcSpan, HsExpr, GhcPs, isSubspanOf)
 import qualified Data.Map as Map
-import GhcPlugins (ppr, showSDocUnsafe)
+import GhcPlugins (ppr, showSDocUnsafe, liftIO)
 import Data.Function (on)
 
 import qualified Control.Monad.Trans.Reader as R
@@ -87,6 +87,7 @@ import Control.Monad.Trans.Class (lift)
 import Synth.Repair (repairAttempt)
 import Synth.Util (progAtTy)
 import Synth.Traversals (replaceExpr)
+import Synth.Eval (checkFixes)
 
 -- ===========                                    ==============
 -- ===                  Genetic Requirements                 ===
@@ -545,22 +546,38 @@ instance Chromosome EFix where
                             fc <- lift (lift ST.get)
                             let mf = mergeFixes fix e1
                             when (mf `notElem` map fst fc) $ do
-                                    let fitness_func = fromIntegral . length . filter id . snd
-                                    let nf = case fix_res of
-                                                Left bools -> 1 - (fitness_func (mf, bools) / fromIntegral (length bools))
-                                                Right True -> 0 -- Perfect fitness
-                                                Right False -> 1 -- The worst
                                          -- here we should compute the fitness
+                                    let nf = basicFitness mf fix_res
                                     lift (lift (ST.put ((mf,nf):fc)))
                             return mf
 
     fitness e1 = do fc <- lift (lift ST.get)
                     let res = lookup e1 fc
                     case res of
-                        Nothing -> error "Fitness not found"
+                        Nothing -> do
+                            GConf{..} <- R.ask
+                            let EProb{..} = progProblem
+                                prog_at_ty = progAtTy e_prog e_ty
+                                n_prog = replaceExpr e1 prog_at_ty
+                                cc = compConf
+                            -- TODO: is n_prog the right thing to do here?
+                            res <- liftIO $ checkFixes cc progProblem [n_prog]
+                            let nf = case res of
+                                         [r] -> basicFitness e1 r
+                                         _ -> 0
+                            lift (lift (ST.put ((e1,nf):fc)))
+                            return nf
                         Just r -> return r
 
     initialPopulation n = replicateM n (mutate Map.empty)
+
+basicFitness :: EFix -> Either [Bool] Bool -> Double
+basicFitness mf fix_res =
+     case fix_res of
+            Left bools -> 1 - (fitness_func (mf, bools) / fromIntegral (length bools))
+            Right True -> 0 -- Perfect fitness
+            Right False -> 1 -- The worst
+    where fitness_func = fromIntegral . length . filter id . snd
 
 -- | A bit more sophisticated crossover for efixes.
 -- At first, it performs a coinflip whether crossover is performed, based on the crossover rate.
