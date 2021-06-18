@@ -28,18 +28,18 @@ See: https://hackage.haskell.org/package/random-1.2.0/docs/System-Random.html
 
 **GenMonad**
 
-We happened to come accross some challenges nicely designing this library, in particular 
-we needed some re-occurring parts in nearly all functions. 
+We happened to come accross some challenges nicely designing this library, in particular
+we needed some re-occurring parts in nearly all functions.
 This is why we decided to declare the "GenMonad", that holds
 
 - the configuration
-- a random number provider 
+- a random number provider
 - a cache for the fitness function
 - IO (as the search logs and takes times)
 
 **Genetic - Naming**
 A Chromosome is made up by Genotypes, which are the building bricks of changes/diffs.
-In our Context, a Genotype is a set of diffs we apply to the Code resembled by an pair of (SourceSpan,Expression), 
+In our Context, a Genotype is a set of diffs we apply to the Code resembled by an pair of (SourceSpan,Expression),
 and the Chromosome is a EFix (A map of those).
 A Phenotype is the "physical implementation" of a Chromosome, in our context that is the program with all the patches applied.
 That is, our EFix turns from its Genotype to a Phenotype once it is run against the properties.
@@ -111,20 +111,20 @@ class Eq g => Chromosome g where
         -> GenMonad [g]                            -- ^ The first population, represented as a list of genes.
 
 
--- | This FitnessCache is created to hold the known fitness values of Efixes. 
--- When the fitness function is called, it performs a lookup here. 
--- In it's current implementation, the Cache is updated at the mutate step, when a new EFix is created. 
--- In it's current implementation, the Cache is never cleared. 
+-- | This FitnessCache is created to hold the known fitness values of Efixes.
+-- When the fitness function is called, it performs a lookup here.
+-- In it's current implementation, the Cache is updated at the mutate step, when a new EFix is created.
+-- In it's current implementation, the Cache is never cleared.
 type FitnessCache = [(EFix, Double)]
 
--- | The GenMonad resembles the environment in which we run our Genetic Search and it's parts. 
--- It was introduced to reduce the load on various signatures and provide caching easier. 
--- It consists (in this order) of 
+-- | The GenMonad resembles the environment in which we run our Genetic Search and it's parts.
+-- It was introduced to reduce the load on various signatures and provide caching easier.
+-- It consists (in this order) of
 -- - A Read only GeneticConfiguration
 -- - A Read-Write random number provider
 -- - A Read-Write cache for Fitness values
 -- - IO, to perform logging and Time-Tasks
--- The order of these is not particularly important, but we moved them in order of their occurrence (that is, 
+-- The order of these is not particularly important, but we moved them in order of their occurrence (that is,
 -- configuration is used the most, while IO and caching are used the least)
 type GenMonad = R.ReaderT GeneticConfiguration (ST.StateT StdGen (ST.StateT FitnessCache IO))
 
@@ -186,22 +186,22 @@ It runs a genetic search that terminates in three cases:
     c) solutions found (optionally with early exit)
 It will return an empty List in case of no found solutions.
 
-The search consists of 
+The search consists of
     - Generation of Initial Population
     - Configuring / Using the right GA Algorithm
     - Genetic Search (See methods for detail)
     - Extraction of Results
     - TODO: Logging
 
-It also optionally runs Island Evolution depending on the Configuration. 
+It also optionally runs Island Evolution depending on the Configuration.
 See module comment on more information.
 -}
 geneticSearch ::
     (Chromosome g) =>
     GenMonad [g] -- ^ The solutions found for the problems. Empty if none are found.
-geneticSearch = do 
+geneticSearch = do
     conf <- R.ask
-    case islandConfiguration conf of 
+    case islandConfiguration conf of
         -- Case A: We do not have an Island Configuration - we do a "normal" genetic Search with Environment Selection (Best )
         Nothing -> do
         -- If no: Proceed normal Evolution
@@ -219,7 +219,7 @@ geneticSearch = do
         -- If yes: Split Iterations by MigrationInterval, create sub-configurations and run sub-genetic search per config
             --TODO: Log here time
             let its   = iterations conf
-                
+
             populations <- sequence $ [initialPopulation (populationSize conf) | _ <- [1 .. (islands iConf)]]
             --TODO: Log here time
             results <- islandSearch its 0 populations
@@ -237,7 +237,7 @@ geneticSearch = do
         -- Case A: Iterations Done, return empty results
         geneticSearch' 0 _ _ = return []
         -- Case B: Iterations left, check on other abortion criteria
-        geneticSearch' n currentTime pop = do 
+        geneticSearch' n currentTime pop = do
             conf <- R.ask
             if currentTime > maxTimeInMS conf
             then return []
@@ -263,7 +263,7 @@ geneticSearch = do
                 return (winners ++ recursiveResults)
 
         -- | recursive step of genetic search with Islands.
-        -- Basically, it performs the same steps as normal genetic evolution but per island, 
+        -- Basically, it performs the same steps as normal genetic evolution but per island,
         -- And every so often a migration takes place (see "migrate" for information)
         islandSearch ::  (Chromosome g) =>
             Int         -- ^ The remaining iterations to perform before abort, stops on 0
@@ -273,8 +273,8 @@ geneticSearch = do
         -- Case A: Iterations Done, return empty results
         islandSearch 0 _ _ = return []
         -- Case B: We have Iterations Left
-        islandSearch n currentTime populations = do 
-            conf <- R.ask 
+        islandSearch n currentTime populations = do
+            conf <- R.ask
             let iConf = fromJust $ islandConfiguration conf
             -- Check for Timeout
             if currentTime > maxTimeInMS conf
@@ -289,7 +289,7 @@ geneticSearch = do
                         else environmentSelectedGeneration
                 nextGens <- sequence $ fmap selectionMechanism populations
                 end <-  lift $ lift $ lift $ getCurrentTime
-                
+
                     -- Determine Winners (where fitness == 0)
                 winners <- sequence $ fmap (selectWinners 0) nextGens
                 let winners' = concat winners
@@ -297,7 +297,7 @@ geneticSearch = do
                 let passedIterations = iterations conf - n
                 -- We check whether we have a migration, by using modulo on the passed generations
                 nextPops <- if mod passedIterations (migrationInterval iConf) == 0
-                    then migrate nextGens 
+                    then migrate nextGens
                     else return nextGens
                 let
                     -- Calculate passed time in ms
@@ -310,11 +310,11 @@ geneticSearch = do
                 return (winners' ++ recursiveResults)
 
         -- | Process a single generation of the GA, without filtering or checking for any timeouts.
-        -- We expect the fitness function to be cached and 'fast'. 
-        -- The environment selection includes 'Elitism', which means that the offspring 
+        -- We expect the fitness function to be cached and 'fast'.
+        -- The environment selection includes 'Elitism', which means that the offspring
         -- competes with the parents and the best N fitting amongst both generations make it to the next rounds.
         environmentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad[g]
-        environmentSelectedGeneration pop = do 
+        environmentSelectedGeneration pop = do
             conf <- R.ask
             gen <- lift $ ST.get
             let
@@ -326,16 +326,16 @@ geneticSearch = do
             lift $ ST.put gen'
             -- For every new baby, coinFlip whether to mutate, mutate if true
             mutated_children <- performMutation children'
-            let 
+            let
                 -- Merge Parents & Offspring into an intermediate-population of size 2*N
                 mergedPop = pop ++ mutated_children
                 -- select best fitting N elements, we assume 0 (smaller) fitness is better
             mergedPop' <- sortPopByFitness mergedPop
             let nextPop = take (populationSize conf) mergedPop'
             return nextPop
-       
+
         tournamentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]
-        tournamentSelectedGeneration pop = do 
+        tournamentSelectedGeneration pop = do
             conf <- R.ask
             gen <- lift $ ST.get
             champions <- pickNByTournament (populationSize conf) pop
@@ -355,16 +355,16 @@ geneticSearch = do
         migrate :: Chromosome g =>
             [[g]]                -- ^ The populations in which the migration will take place
             -> GenMonad [[g]]       -- ^ The populations after migration, the very best species of every island are duplicated to the receiving island (intended behaviour)
-        migrate islandPops = do 
+        migrate islandPops = do
             conf <- R.ask
-            gen <- lift $ ST.get 
-            let iConf = fromJust $ islandConfiguration conf 
+            gen <- lift $ ST.get
+            let iConf = fromJust $ islandConfiguration conf
             sortedIslands <- sequence (map sortPopByFitness islandPops)
             let
                 -- Select the best M species per island
                 migrators = [take (migrationSize iConf) pop | pop <- sortedIslands]
                 -- Drop the worst M species per Island
-                receivers = [drop (migrationSize iConf) pop | pop <- sortedIslands]    
+                receivers = [drop (migrationSize iConf) pop | pop <- sortedIslands]
                 -- Rearrange the migrating species either by moving one clockwise, or by shuffling them
                 (migrators',gen') = if ringwiseMigration iConf
                              then (tail migrators ++ [head migrators],gen)
@@ -375,54 +375,54 @@ geneticSearch = do
             return newIslands
 
 sortPopByFitness :: Chromosome g => [g] -> GenMonad [g]
-sortPopByFitness gs = do 
+sortPopByFitness gs = do
     fitnesses <- mapM (\x-> fitness x) gs
-    let 
-        fitnessedGs = zip fitnesses gs 
+    let
+        fitnessedGs = zip fitnesses gs
         -- TODO: Check if this is ascending!
         sorted = sortBy (\(f1,_) (f2,_) -> compare f1 f2) fitnessedGs
         extracted = map snd sorted
     return extracted
 
-selectWinners :: Chromosome g => 
+selectWinners :: Chromosome g =>
     Double -> -- ^ Best value to compare with, winners are the ones where fitness equal to this value
-    [g] -> -- ^ The species that might win 
+    [g] -> -- ^ The species that might win
     GenMonad [g] -- ^ the Actual winners
 selectWinners _ [] = return []
 selectWinners win (g:gs) = do
     f <- fitness g
-    if f == win 
-    then do 
-        recursiveWinners <- selectWinners win gs 
+    if f == win
+    then do
+        recursiveWinners <- selectWinners win gs
         return (g:recursiveWinners)
-    else 
+    else
         selectWinners win gs
 
--- | Little Helper to perform tournament Selection n times 
--- It hurt my head to do it in the monad 
+-- | Little Helper to perform tournament Selection n times
+-- It hurt my head to do it in the monad
 pickNByTournament :: Chromosome g => Int -> [g] -> GenMonad [g]
 pickNByTournament 0 _ = return []
 pickNByTournament _ [] = return []
-pickNByTournament n gs = do 
+pickNByTournament n gs = do
     champ <- pickByTournament gs
     recursiveChampions <- pickNByTournament (n-1) gs
     return ((maybeToList champ) ++ recursiveChampions)
 
--- | Helper to perform mutation on a list of Chromosomes. 
+-- | Helper to perform mutation on a list of Chromosomes.
 -- For every element, it checks whether to mutate, and if yes it mutates.
--- It hurt my head to do in the monad 
+-- It hurt my head to do in the monad
 performMutation :: Chromosome g => [g] -> GenMonad [g]
 performMutation [] = return []
-performMutation (g:gs) = do 
+performMutation (g:gs) = do
     GConf{..} <- R.ask
     gen <- lift $ ST.get
     let (doMutate,gen') = coin mutationRate gen
     lift $ ST.put gen' -- This must be this early, as mutate needs StdGen too
-    doneElement <- if doMutate 
+    doneElement <- if doMutate
         then (mutate g)
         else return g
     recursiveMutated <- performMutation gs
-    return (doneElement:recursiveMutated) 
+    return (doneElement:recursiveMutated)
 
 -- TODO: Add Reasoning when to use Tournaments, and suggested params
 pickByTournament :: Chromosome g => [g] -> GenMonad (Maybe g)
@@ -432,10 +432,10 @@ pickByTournament [] =  return Nothing
 pickByTournament [a] =  return (Just a)
 --- Case C: Actual Tournament Selection taking place, including Fitness Function
 pickByTournament population =
-    do 
+    do
         -- Ask for Tournament Rounds m
         GConf{..} <- R.ask
-        let 
+        let
             (Just tConf) = tournamentConfiguration
             tournamentRounds = rounds tConf
         -- Perform Tournament with m rounds and no initial champion
@@ -453,11 +453,11 @@ pickByTournament population =
         pickByTournament'  0 _ Nothing = return Nothing
         -- Case 3: We are in the last iteration, and do not have a champion.
         -- Have n random elements compete, return best
-        pickByTournament' 1 population Nothing = 
-            do 
+        pickByTournament' 1 population Nothing =
+            do
                 gen <- lift $ ST.get
                 GConf{..} <- R.ask
-                let 
+                let
                     (Just tConf) = tournamentConfiguration
                     tournamentSize = size tConf
                     (tParticipants,gen') = pickRandomElements tournamentSize gen population
@@ -466,38 +466,38 @@ pickByTournament population =
                 champion
         -- Case 4: We are in the last iteration, and have a champion
         -- Pick n random elements to compete with the Champion, return best
-        pickByTournament' 1 population (Just currentChampion) = 
+        pickByTournament' 1 population (Just currentChampion) =
             do
                 gen <- lift $ ST.get
                 GConf{..} <- R.ask
-                let 
+                let
                     (Just tConf) = tournamentConfiguration
                     tournamentSize = size tConf
                     (tParticipants,gen') = pickRandomElements tournamentSize gen population
                     champion = fittest (currentChampion:tParticipants)
                 lift $ ST.put gen'
                 champion
-        -- Case 5: "normal" recursive Case 
-        -- At iteration i ask for the champion of i-1 
+        -- Case 5: "normal" recursive Case
+        -- At iteration i ask for the champion of i-1
         -- Let the current Champion, n random elements and champion from i-1 compete
         -- Return best
         pickByTournament' n population champ =
             do
                 gen <- lift $ ST.get
                 GConf{..} <- R.ask
-                let 
+                let
                     (Just tConf) = tournamentConfiguration
                     tournamentSize = size tConf
                     (tParticipants,gen') = pickRandomElements tournamentSize gen population
                 recursiveChampion <-  pickByTournament' (n-1) population champ
                 lift $ ST.put gen'
                 fittest ((maybeToList recursiveChampion)++(maybeToList champ) ++ tParticipants)
-                
+
 -- | For a given list of cromosomes, applies the fitness function and returns the
 -- very fittest (head of the sorted list) if the list is non-empty.
 -- Fitness is drawn from the GenMonads Fitness Cache
 fittest :: (Chromosome g) => [g] -> GenMonad (Maybe g)
-fittest gs = do 
+fittest gs = do
     sorted <- sortPopByFitness gs
     return (listToMaybe sorted)
 
@@ -506,8 +506,8 @@ fittest gs = do
 -- ===             EFix Chromosome implementation            ===
 -- ===========                                    ==============
 
--- | This instance is required to implement "EQ" for Efixes. 
--- The Efixes are a Map SrcSpan (HsExpr GhcPs), where the SrcSpan (location in the program) already has a suitable 
+-- | This instance is required to implement "EQ" for Efixes.
+-- The Efixes are a Map SrcSpan (HsExpr GhcPs), where the SrcSpan (location in the program) already has a suitable
 -- EQ instance. For our purposes, it is hence fine to just compare the "toString" of both Expressions.
 -- We do not recommend using this as an implementation for other programs.
 instance Eq (HsExpr GhcPs) where
@@ -551,7 +551,7 @@ instance Chromosome EFix where
                                                 Right True -> 0 -- Perfect fitness
                                                 Right False -> 1 -- The worst
                                          -- here we should compute the fitness
-                                    lift (lift (ST.put (nf:fc)))
+                                    lift (lift (ST.put ((mf,nf):fc)))
                             return mf
 
     fitness e1 = do fc <- lift (lift ST.get)
@@ -563,48 +563,48 @@ instance Chromosome EFix where
     initialPopulation n = replicateM n (mutate Map.empty)
 
 -- | A bit more sophisticated crossover for efixes.
--- At first, it performs a coinflip whether crossover is performed, based on the crossover rate. 
+-- At first, it performs a coinflip whether crossover is performed, based on the crossover rate.
 -- If not, duplicates of the parents are returned (this is common in Genetic Algorithms).
--- These duplicates do not hurt too much, as they still are mutated. 
--- If a crossover is performed, the Efixes are transformed to a list and 
+-- These duplicates do not hurt too much, as they still are mutated.
+-- If a crossover is performed, the Efixes are transformed to a list and
 -- for each chromosome a crossover point is selected.
 -- Then the Efixes are re-combined by their genes according to the selected crossover point.
 efixCrossover :: EFix -> EFix -> GenMonad (EFix,EFix)
-efixCrossover a b = do 
+efixCrossover a b = do
     GConf{..} <- R.ask
     gen <- lift $ ST.get
     let (performCrossover,gen') = coin crossoverRate gen
-    lift $ ST.put gen'  
-    if (not performCrossover) 
+    lift $ ST.put gen'
+    if (not performCrossover)
         -- Case A: We do not do a crossover, just return a copy of the parents
         then return (a,b)
         -- Case B: We do do a crossover
-        else do 
+        else do
             gen <- lift $ ST.get
-            let 
+            let
                 (aGenotypes,bGenotypes) = (Map.toList a,Map.toList b)
                 (crossedAs,crossedBs,gen') = crossoverLists gen aGenotypes bGenotypes
             lift $ ST.put gen'
             return (Map.fromList crossedAs, Map.fromList crossedBs)
     where
-        -- | Merges two lists of expressions, 
+        -- | Merges two lists of expressions,
         -- with the exception that it discards expressions if the position overlaps
-        mf' :: [(SrcSpan, (HsExpr GhcPs))] -> [(SrcSpan, (HsExpr GhcPs))] -> [(SrcSpan, (HsExpr GhcPs))] 
+        mf' :: [(SrcSpan, (HsExpr GhcPs))] -> [(SrcSpan, (HsExpr GhcPs))] -> [(SrcSpan, (HsExpr GhcPs))]
         mf' [] xs = xs
         mf' xs [] = xs
         mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
         -- | Makes the (randomized) pairing of the given lists for later merging
         -- TODO: Doublecheck if this can create a merge from as ++ [] depending on the crossoverpoint logic,
         -- Or if it needs to be: uniformR (1, length as - 1) gen
-        crossoverLists :: (RandomGen g) => g -> 
-            [(SrcSpan, (HsExpr GhcPs))] 
-            -> [(SrcSpan, (HsExpr GhcPs))] 
+        crossoverLists :: (RandomGen g) => g ->
+            [(SrcSpan, (HsExpr GhcPs))]
+            -> [(SrcSpan, (HsExpr GhcPs))]
             -> ([(SrcSpan, (HsExpr GhcPs))],[(SrcSpan, (HsExpr GhcPs))],g)
         -- For empty chromosomes, there is no crossover possible
         crossoverLists gen [] [] = ([],[],gen)
-        -- For single-gene chromosomes, there is no crossover possible 
+        -- For single-gene chromosomes, there is no crossover possible
         crossoverLists gen [a] [b] = ([a],[b],gen)
-        crossoverLists gen as bs = 
+        crossoverLists gen as bs =
             let
              (crossoverPointA, gen') = uniformR (1, length as) gen
              (crossoverPointB, gen'') = uniformR (1, length bs) gen'
@@ -651,13 +651,13 @@ removePairFromList as (x,y) = [a | a <- as, a /= x, a /= y]
 -- This leads e.g. that (coin 0.5) returns true and false in 50:50
 -- While (coin 0.25) returns true and false in 25:75 ratio
 coin ::
-    (RandomGen g) =>            
+    (RandomGen g) =>
     Double                   -- ^ The Probabilty of passing, between 0 (never) and 1 (always).
-    -> g                        -- ^ The Random number provider 
+    -> g                        -- ^ The Random number provider
     -> (Bool,g)                     -- ^ Whether or not the event occured
 coin 0 gen = (False,gen) -- Shortcut for false, no random used
 coin 1 gen = (True,gen) -- Shortcut for true, no random used
-coin th gen = 
+coin th gen =
     let (val, gen') = randomR (0,1) gen
     in  (val<th,gen')
 
@@ -669,9 +669,9 @@ partitionInPairs [] g = ([],g)
 partitionInPairs [a] g = ([],g)
 partitionInPairs as g =
     let nextPair = pickRandomPair as g
-    in case nextPair of 
+    in case nextPair of
         Nothing -> ([],g)
-        Just (pair,g') -> let 
+        Just (pair,g') -> let
                             reducedList = removePairFromList as pair
                             (as',g'') = partitionInPairs reducedList g'
                           in (pair:as',g'')
@@ -679,25 +679,25 @@ partitionInPairs as g =
 -- | Returns the same list shuffled.
 shuffle :: (RandomGen g, Eq a) => [a] -> g -> ([a],g)
 shuffle [] g = ([],g)
-shuffle as g = let 
+shuffle as g = let
                 Just (a,g') = pickElementUniform as g
-                as' = delete a as 
-                (as'',g'') = shuffle as' g' 
+                as' = delete a as
+                (as'',g'') = shuffle as' g'
                 in (a:as'',g'')
 
 -- | Picks n random elements from u, can give duplicates (intentional behavior)
 pickRandomElements :: (RandomGen g,Eq a) => Int -> g -> [a] -> ([a],g)
 pickRandomElement 0 g _ = ([],g)
 pickRandomElements _ g [] = ([],g)
-pickRandomElements n g as = 
-    let 
+pickRandomElements n g as =
+    let
         (asShuffled,g') = shuffle as g
         (recursiveResults,g'') = pickRandomElements (n-1) g' as
         x = head asShuffled
     in (x:recursiveResults,g'')
 
--- | Helper to clearer use "randomR" of the RandomPackage for our GenMonad. 
-getRandomDouble :: 
+-- | Helper to clearer use "randomR" of the RandomPackage for our GenMonad.
+getRandomDouble ::
     Double                  -- ^ lower bound, included in the possible values
     -> Double               -- ^ upper bound, included in the possible values
     -> GenMonad Double      -- ^ a values chosen from a uniform distribution (low,high), and the updated GenMonad with the new Generator
@@ -714,8 +714,8 @@ pickRandomPair :: (Eq a, RandomGen g) => [a] -> g -> Maybe ((a,a),g)
 pickRandomPair [] _ = Nothing     -- ^ not supported!
 pickRandomPair [a] _ = Nothing    -- ^ not supported!
 pickRandomPair as g = if even (length as)
-    then 
-        let  
+    then
+        let
             -- We only get justs, because we have taken care of empty lists beforehand
             Just (elem1,g') = pickElementUniform as g
             as' = delete elem1 as
@@ -724,7 +724,7 @@ pickRandomPair as g = if even (length as)
     else Nothing
 
 -- | Picks a random element from a list, given the list has elements.
--- All elements have the same likeliness to be drawn. 
+-- All elements have the same likeliness to be drawn.
 -- Returns Just (element,updatedStdGen) for lists with elements, or Nothing otherwise
 pickElementUniform :: (RandomGen g) => [a] -> g -> Maybe (a,g)
 pickElementUniform [] _ = Nothing

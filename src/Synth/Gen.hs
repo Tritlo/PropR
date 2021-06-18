@@ -173,3 +173,13 @@ deDupOn f as = map snd $ filter (\(i, a) -> i `Set.member` grouped) zas
     zas = zip [(0 :: Int) ..] as
     zbs = zip [(0 :: Int) ..] $ map f as
     grouped = Set.fromList $ map (fst . head) $ groupBy ((==) `on` snd) $ sortOn snd zbs
+
+-- | Merging fix-candidates is mostly applying the list of changes in order.
+--   The only addressed special case is to discard the next change,
+--   if the next change is also used at the same place in the second fix.
+mergeFixes :: EFix -> EFix -> EFix
+mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
+  where
+    mf' [] xs = xs
+    mf' xs [] = xs
+    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
