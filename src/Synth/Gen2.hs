@@ -153,6 +153,8 @@ data GeneticConfiguration = GConf
   , progProblem :: EProblem         -- ^ The problem we're trying to solve
   , compConf :: CompileConfig       -- ^ The compiler configuration, required to retrieve mutated EFixes
   , exprFitCands :: [ExprFitCand]   -- ^ The sum of all potentially replaced elements, required to retrieve mutated EFixes
+  
+  , tryMinimizeFixes :: Bool        -- ^ Whether or not to try to minimize the successfull fixes. This step is performed after search as postprocessing and does not affect initial search runtime.
   }
 
 -- Holds all attributes for the tournament selection process
@@ -209,13 +211,16 @@ geneticSearch = do
         Nothing -> do
         -- If no: Proceed normal Evolution
             -- TODO: Log start time, to catch time for initial Population Generation
-            let its = iterations conf
+            let 
+                its = iterations conf
+                minimize = tryMinimizeFixes conf
                 -- Create Initial Population
             firstPop <- initialPopulation (populationSize conf)
             -- TODO: Some log Info here
             results <- geneticSearch' its 0 firstPop
             -- TODO: Some Log Info here too
-            return results
+            -- TODO: The Minimization cannot be done here, as this is too generic (it's for Chromosomes, not for EFixes)
+            return results'
 
         -- Case B: We do have an Island Configuration - we go all out for the coolest algorithms
         (Just iConf) -> do
@@ -653,6 +658,23 @@ mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
     mf' xs [] = xs
     mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
 
+-- | This method tries to reduce a Fix to a smaller, but yet still correct Fix. 
+-- To achieve this, the Parts of a Fix are tried to be removed and the fitness function is re-run. 
+-- If the reduced Fix still has a perfect fitness, it is returned in a list of potential fixes. 
+-- The output list is sorted by length of the fixes, the head is the smallest found fix. 
+minimizeFix :: EFix -> GenMonad [EFix]
+minimizeFix bigFix = do 
+    fitnesses <- sequence $ map fitness candidateFixes
+    let 
+        fitnessedCandidates = zip fitnesses candidateFixes
+        reducedWinners = filter (\(f,c)->f==0) fitnessedCandidates
+        reducedWinners' = map snd reducedWinners
+    return reducedWinners'
+    where
+        candidates = powerset $ Map.toList bigFix
+        candidates' = sortBy (\c1 c2-> compare (length c1) (length c2)) candidates
+        -- TODO: If I do fitness, are they still ... sorted? 
+        candidateFixes = map Map.fromList candidates'
 
 -- ===========                 ==============
 -- ===      "Non Genetic" Helpers         ===
@@ -670,6 +692,10 @@ maxTimeInMS conf = round $ 1000 * 60 * timeoutInMinutes conf
 -- Used to remove a drafted set from parents from the population for further drafting pairs.
 removePairFromList :: (Eq a) => [a] -> (a,a) -> [a]
 removePairFromList as (x,y) = [a | a <- as, a /= x, a /= y]
+
+powerset :: [a] -> [[a]]
+powerset [] = [[]]
+powerset (x:xs) = [x:ps | ps <- powerset xs] ++ powerset xs
 
 -- ===========                 ==============
 -- ===           Random Parts             ===
