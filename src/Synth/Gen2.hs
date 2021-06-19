@@ -14,9 +14,9 @@ The primary building brick is an EFix (See "Synth.Types") that resembles a set o
 changes done to the Code. The goodness of a certain fix is expressed by the
 failing and succeeding properties, which are a list of boolean values (true for passing properties, false for failing).
 
-The methods often require a StdGen for the random parts. A StdGen is, for non-haskellers, a random number provider.
+The methods often require a RandomGen for the random parts. A RandomGen is, for non-haskellers, a random number provider.
 It is expressed in Haskell as an infinite list of next-random-values.
-We expect that the StdGen is generated e.g. in the Main Method from a Seed and passed here.
+We expect that the RandomGen is generated e.g. in the Main Method from a Seed and passed here.
 See: https://hackage.haskell.org/package/random-1.2.0/docs/System-Random.html
 
 **Prefixes**
@@ -63,6 +63,7 @@ https://neo.lcc.uma.es/Articles/WRH98.pdf
       That can lead to a heavy plus above the specified timeout, e.g. by big populations on Islands.
       Can we do this better?
     - we NEED the un-cached fitness, otherwise we run into issues by dop-mutate and crossover!
+    - Currently the mutate is "always hit" and wether it is done is called, but the crossover is with built-in-probability which should be the same behaviour for both
 -}
 {-# LANGUAGE FlexibleInstances #-}
 module Synth.Gen2 where
@@ -97,7 +98,7 @@ import Synth.Traversals (replaceExpr)
 -- Eq is required to remove elements from lists while partitioning.
 class Eq g => Chromosome g where
     -- | TODO: We could also move the crossover to the configuration
-    crossover :: (g,g) -> GenMonad (g,g) -- ^ The Crossover Function to produce a new Chromosome from two Genes, in a seeded Fashion
+    crossover :: (g,g) -> GenMonad (g,g) -- ^ The Crossover Function to produce a new Chromosome from two Genes. This Crossover must "always hit", taking care of whether to do crossover or not is done in genetic search.
     mutate :: g -> GenMonad g            -- ^ The Mutation Function, in a seeded Fashion. This is a mutation that always "hits", taking care of not mutating every generation is done in genetic search.
     -- | TODO: Do we want to move Fitness out,
     -- and just require a Function (Fitness :: Chromosome g, Ord a => g -> a) in the Method Signatures?
@@ -321,7 +322,7 @@ geneticSearch = do
                 -- Partition the parentGeneration into Pairs
                 (parents,gen') = partitionInPairs pop gen
             -- Perform Crossover
-            children <- sequence $ [crossover x | x <- parents]
+            children <- performCrossover parents
             let children' = [a | (a,b) <- children] ++ [b | (a,b) <- children]
             lift $ ST.put gen'
             -- For every new baby, coinFlip whether to mutate, mutate if true
@@ -342,7 +343,7 @@ geneticSearch = do
             let
                 tConf =  fromJust (tournamentConfiguration conf)
                 (parents,gen') = partitionInPairs champions gen
-            children <- sequence $ [crossover x | x <- parents]
+            children <- performCrossover parents
             lift $ ST.put gen'
             let children' = [a | (a,b) <- children] ++ [b | (a,b) <- children]
                 -- Unlike Environment Selection, in Tournament the "Elitism" is done passively in the Tournament
@@ -410,7 +411,6 @@ pickNByTournament n gs = do
 
 -- | Helper to perform mutation on a list of Chromosomes. 
 -- For every element, it checks whether to mutate, and if yes it mutates.
--- It hurt my head to do in the monad 
 performMutation :: Chromosome g => [g] -> GenMonad [g]
 performMutation [] = return []
 performMutation (g:gs) = do 
@@ -423,6 +423,27 @@ performMutation (g:gs) = do
         else return g
     recursiveMutated <- performMutation gs
     return (doneElement:recursiveMutated) 
+
+
+-- | Helper to perform crossover on a list of paired Chromosomes. 
+-- At first, it performs a coinflip whether crossover is performed, based on the crossover rate. 
+-- If not, duplicates of the parents are returned (this is common in Genetic Algorithms).
+-- These duplicates do not hurt too much, as they still are mutated. 
+performCrossover :: Chromosome g => [(g,g)] -> GenMonad [(g,g)]
+-- Termination Step: Empty lists do not need any action
+performCrossover [] = return []
+-- Recursive Step: Maybe Crossover first pair (or return id), and merge it with recursive results 
+performCrossover (pair:remainders) = do 
+    GConf{..} <- R.ask
+    gen <- lift $ ST.get
+    let (doCrossOver,gen') = coin crossoverRate gen
+    lift $ ST.put gen' -- This must be this early, as mutate needs StdGen too
+    recursiveResults <- performCrossover remainders
+    if doCrossOver
+        then do
+            crossedOver <- crossover pair
+            return (crossedOver : recursiveResults)
+        else return (pair : recursiveResults)
 
 -- TODO: Add Reasoning when to use Tournaments, and suggested params
 pickByTournament :: Chromosome g => [g] -> GenMonad (Maybe g)
@@ -563,29 +584,17 @@ instance Chromosome EFix where
     initialPopulation n = replicateM n (mutate Map.empty)
 
 -- | A bit more sophisticated crossover for efixes.
--- At first, it performs a coinflip whether crossover is performed, based on the crossover rate. 
--- If not, duplicates of the parents are returned (this is common in Genetic Algorithms).
--- These duplicates do not hurt too much, as they still are mutated. 
--- If a crossover is performed, the Efixes are transformed to a list and 
--- for each chromosome a crossover point is selected.
+-- The Efixes are transformed to a list and for each chromosome a crossover point is selected.
 -- Then the Efixes are re-combined by their genes according to the selected crossover point.
 efixCrossover :: EFix -> EFix -> GenMonad (EFix,EFix)
 efixCrossover a b = do 
-    GConf{..} <- R.ask
+    GConf{..} <- R.ask 
     gen <- lift $ ST.get
-    let (performCrossover,gen') = coin crossoverRate gen
-    lift $ ST.put gen'  
-    if (not performCrossover) 
-        -- Case A: We do not do a crossover, just return a copy of the parents
-        then return (a,b)
-        -- Case B: We do do a crossover
-        else do 
-            gen <- lift $ ST.get
-            let 
-                (aGenotypes,bGenotypes) = (Map.toList a,Map.toList b)
-                (crossedAs,crossedBs,gen') = crossoverLists gen aGenotypes bGenotypes
-            lift $ ST.put gen'
-            return (Map.fromList crossedAs, Map.fromList crossedBs)
+    let 
+        (aGenotypes,bGenotypes) = (Map.toList a,Map.toList b)
+        (crossedAs,crossedBs,gen') = crossoverLists gen aGenotypes bGenotypes
+    lift $ ST.put gen'
+    return (Map.fromList crossedAs, Map.fromList crossedBs)
     where
         -- | Merges two lists of expressions, 
         -- with the exception that it discards expressions if the position overlaps
