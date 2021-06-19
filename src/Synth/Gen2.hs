@@ -220,7 +220,7 @@ geneticSearch = do
             results <- geneticSearch' its 0 firstPop
             -- TODO: Some Log Info here too
             -- TODO: The Minimization cannot be done here, as this is too generic (it's for Chromosomes, not for EFixes)
-            return results'
+            return results
 
         -- Case B: We do have an Island Configuration - we go all out for the coolest algorithms
         (Just iConf) -> do
