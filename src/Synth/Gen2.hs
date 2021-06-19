@@ -79,8 +79,8 @@ import System.IO.Unsafe (unsafePerformIO)
 import Synth.Types (EFix, GenConf (GenConf), EProblem (EProb, e_prog, e_ty), CompileConfig, ExprFitCand)
 import GHC (SrcSpan, HsExpr, GhcPs, isSubspanOf)
 import qualified Data.Map as Map
-import GhcPlugins (ppr, showSDocUnsafe)
 import Data.Function (on)
+import GhcPlugins (ppr, showSDocUnsafe, liftIO)
 
 import qualified Control.Monad.Trans.Reader as R
 import qualified Control.Monad.Trans.State.Lazy as ST
@@ -88,6 +88,8 @@ import Control.Monad.Trans.Class (lift)
 import Synth.Repair (repairAttempt)
 import Synth.Util (progAtTy)
 import Synth.Traversals (replaceExpr)
+import Synth.Eval (checkFixes)
+
 
 -- ===========                                    ==============
 -- ===                  Genetic Requirements                 ===
@@ -565,23 +567,43 @@ instance Chromosome EFix where
                          do lift (ST.put gen)
                             fc <- lift (lift ST.get)
                             let mf = mergeFixes fix e1
-                            when (mf `notElem` map fst fc) $ do
-                                    let fitness_func = fromIntegral . length . filter id . snd
-                                    let nf = case fix_res of
-                                                Left bools -> 1 - (fitness_func (mf, bools) / fromIntegral (length bools))
-                                                Right True -> 0 -- Perfect fitness
-                                                Right False -> 1 -- The worst
-                                         -- here we should compute the fitness
-                                    lift (lift (ST.put (nf:fc)))
+                            when (mf `notElem` (map fst fc)) $ do
+                                let nf = basicFitness mf fix_res
+                                lift (lift (ST.put ((mf,nf):fc)))
                             return mf
 
     fitness e1 = do fc <- lift (lift ST.get)
                     let res = lookup e1 fc
                     case res of
-                        Nothing -> error "Fitness not found"
+                        Nothing -> do
+                            GConf{..} <- R.ask
+                            fc <- lift (lift ST.get)
+
+                            let EProb{..} = progProblem
+                                prog_at_ty = progAtTy e_prog e_ty
+                                n_prog = replaceExpr e1 prog_at_ty
+                                cc = compConf
+                            -- TODO: is n_prog the right thing to do here?
+                            res <- liftIO $ checkFixes cc progProblem [n_prog]
+                            let nf = case res of
+                                         [r] -> basicFitness e1 r
+                                         _ -> 0
+                            lift (lift (ST.put ((e1,nf):fc)))
+                            return nf
                         Just r -> return r
 
     initialPopulation n = replicateM n (mutate Map.empty)
+
+-- | Calculates the fitness of an EFix by checking it's FixResults (=The Results of the property-tests).
+-- It is intended to be cached using the Fitness Cache in the GenMonad.
+basicFitness :: 
+    EFix -> Either [Bool] Bool -> Double
+basicFitness mf fix_res =
+     case fix_res of
+            Left bools -> 1 - (fitness_func (mf, bools) / fromIntegral (length bools))
+            Right True -> 0 -- Perfect fitness
+            Right False -> 1 -- The worst
+    where fitness_func = fromIntegral . length . filter id . snd
 
 -- | A bit more sophisticated crossover for efixes.
 -- The Efixes are transformed to a list and for each chromosome a crossover point is selected.
@@ -739,3 +761,4 @@ pickElementUniform :: (RandomGen g) => [a] -> g -> Maybe (a,g)
 pickElementUniform [] _ = Nothing
 pickElementUniform xs g = let (ind, g') = uniformR (0, length xs) g
                           in Just (xs !! ind, g')
+
