@@ -80,13 +80,13 @@ import Synth.Types (EFix, GenConf (GenConf), EProblem (EProb, e_prog, e_ty), Com
 import GHC (SrcSpan, HsExpr, GhcPs, isSubspanOf)
 import qualified Data.Map as Map
 import Data.Function (on)
-import GhcPlugins (ppr, showSDocUnsafe, liftIO)
+import GhcPlugins (HasCallStack,ppr, showSDocUnsafe, liftIO)
 
 import qualified Control.Monad.Trans.Reader as R
 import qualified Control.Monad.Trans.State.Lazy as ST
 import Control.Monad.Trans.Class (lift)
 import Synth.Repair (repairAttempt)
-import Synth.Util (progAtTy)
+import Synth.Util
 import Synth.Traversals (replaceExpr)
 import Synth.Eval (checkFixes)
 
@@ -196,7 +196,6 @@ The search consists of
     - Configuring / Using the right GA Algorithm
     - Genetic Search (See methods for detail)
     - Extraction of Results
-    - TODO: Logging
 
 It also optionally runs Island Evolution depending on the Configuration. 
 See module comment on more information.
@@ -210,30 +209,37 @@ geneticSearch = do
         -- Case A: We do not have an Island Configuration - we do a "normal" genetic Search with Environment Selection (Best )
         Nothing -> do
         -- If no: Proceed normal Evolution
-            -- TODO: Log start time, to catch time for initial Population Generation
+            start <- lift $ lift $ lift $ getCurrentTime
+            logStr' INFO ("Starting Genetic Search at "++ show start)
+            logStr' INFO ("Running " ++ (show $ iterations conf) ++ " Generations with a population of " ++ (show $ populationSize conf))
             let 
                 its = iterations conf
                 minimize = tryMinimizeFixes conf
                 -- Create Initial Population
             firstPop <- initialPopulation (populationSize conf)
-            -- TODO: Some log Info here
+            logStr' DEBUG ("Finished creating initial population, starting search")
             results <- geneticSearch' its 0 firstPop
-            -- TODO: Some Log Info here too
+            end <- lift $ lift $ lift $ getCurrentTime
+            logStr' INFO ("Genetic Search finished at "++ (show end) ++ " with " ++ (show $ length results) ++" results")
             -- TODO: The Minimization cannot be done here, as this is too generic (it's for Chromosomes, not for EFixes)
             return results
 
         -- Case B: We do have an Island Configuration - we go all out for the coolest algorithms
         (Just iConf) -> do
         -- If yes: Split Iterations by MigrationInterval, create sub-configurations and run sub-genetic search per config
-            --TODO: Log here time
             let its   = iterations conf
+            start <- lift $ lift $ lift $ getCurrentTime
+            logStr' INFO ("Starting Genetic Search with Islands at "++ show start)
+            logStr' INFO ("Running " ++ (show $ iterations conf) ++ " Generations with a population of " ++ (show $ populationSize conf) ++ " on " ++ (show $ islands iConf) ++ " Islands")
                 
             populations <- sequence $ [initialPopulation (populationSize conf) | _ <- [1 .. (islands iConf)]]
-            --TODO: Log here time
-            results <- islandSearch its 0 populations
-            --TODO: Log here time again!
-            return results
+            
+            logStr' DEBUG ("Finished creating initial populations, starting search")
             -- Careful: Timer is max timer of all Island Timers?
+            results <- islandSearch its 0 populations
+            end <- lift $ lift $ lift $ getCurrentTime
+            logStr' INFO ("Genetic Search finished at "++ (show end) ++ " with " ++ (show $ length results) ++" results")
+            return results
 
     where
         -- | Recursive Step of Genetic Search without Islands, based on environmental selection (best fit elements survive, every element is tested)
@@ -251,6 +257,8 @@ geneticSearch = do
             then return []
             else do
                 start <- lift $ lift $ lift $ getCurrentTime
+                let currentGen = (iterations conf) - n 
+                logStr' DEBUG ("Starting Generation " ++ (show currentGen) ++ " at "++ show start)
                 let
                     -- Select the right mechanism according to Configuration (tournament vs. Environment)
                     selectionMechanism =
@@ -266,6 +274,7 @@ geneticSearch = do
                     timediff = round $ diffUTCTime end start * 1000
                 -- End Early when any result is ok
                 -- when (not (null winners) && stopOnResults conf) (return winners)
+                logStr' INFO ("Finished Generation " ++ (show currentGen) ++ " at "++ show end ++ "(" ++ (show $ length winners) ++" Results)")
                 -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
                 recursiveResults <- geneticSearch' (n-1) (currentTime + timediff) nextPop
                 return (winners ++ recursiveResults)
@@ -289,6 +298,8 @@ geneticSearch = do
             then return []
             else do
                 start <- lift $ lift $ lift $ getCurrentTime
+                let currentGen = (iterations conf) - n 
+                logStr' DEBUG ("Starting Generation " ++ (show currentGen) ++ " at "++ show start)
                 let
                     -- Select the right mechanism according to Configuration (tournament vs. Environment)
                     selectionMechanism =
@@ -311,9 +322,9 @@ geneticSearch = do
                     -- Calculate passed time in ms
                     timediff :: Int
                     timediff = round $ diffUTCTime end start * 1000
-                -- End Early when any result is ok
                 -- when (not (null winners) && stopOnResults conf) (return winners)
                 -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
+                logStr' INFO ("Finished Generation " ++ (show currentGen) ++ " at "++ show end ++ "(" ++ (show $ length winners) ++" Results)")
                 recursiveResults <- islandSearch (n-1) (currentTime + timediff) nextPops
                 return (winners' ++ recursiveResults)
 
@@ -469,7 +480,6 @@ pickByTournament population =
         -- Perform Tournament with m rounds and no initial champion
         pickByTournament' tournamentRounds population Nothing
     where
-        -- TODO: Explain that I carry the fitness around to save computations. Maybe remove this with cached fitness
         pickByTournament' :: (Chromosome g) =>
             Int                         -- ^ (Remaining) Tournament Rounds
             -> [g]                      -- ^ Population from which to draw from
@@ -696,6 +706,15 @@ removePairFromList as (x,y) = [a | a <- as, a /= x, a /= y]
 powerset :: [a] -> [[a]]
 powerset [] = [[]]
 powerset (x:xs) = [x:ps | ps <- powerset xs] ++ powerset xs
+
+
+-- | The normal LogSTR is in IO () and cannot be easily used in GenMonad 
+-- So this is a wrapper to ease the usage given that the GenMonad is completely local 
+-- in this module.
+logStr' :: HasCallStack => LogLevel -> String -> GenMonad ()
+logStr' level str = do 
+    lift $lift $lift $logStr level str 
+    return ()
 
 -- ===========                 ==============
 -- ===           Random Parts             ===
