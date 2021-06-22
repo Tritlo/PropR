@@ -238,7 +238,8 @@ geneticSearch = do
         -- Case A: We do not have an Island Configuration - we do a "normal" genetic Search with Environment Selection (Best )
         Nothing -> do
         -- If no: Proceed normal Evolution
-            start <- lift $ lift $ lift $ getCurrentTime
+            start <- liftIO getCurrentTime
+
             logStr' INFO ("Starting Genetic Search at "++ show start)
             logStr' INFO ("Running " ++ (show $ iterations conf) ++ " Generations with a population of " ++ (show $ populationSize conf))
             let
@@ -520,45 +521,63 @@ pickByTournament population =
         pickByTournament'  0 _ Nothing = return Nothing
         -- Case 3: We are in the last iteration, and do not have a champion.
         -- Have n random elements compete, return best
-        pickByTournament' 1 population Nothing =
-            do
+        pickByTournament n population curChamp = do
                 gen <- lift $ ST.get
                 GConf{..} <- R.ask
-                let
-                    (Just tConf) = tournamentConfiguration
+                let (Just tConf) = tournamentConfiguration
                     tournamentSize = size tConf
                     (tParticipants,gen') = pickRandomElements tournamentSize gen population
-                    champion = fittest tParticipants
                 lift $ ST.put gen'
-                champion
-        -- Case 4: We are in the last iteration, and have a champion
-        -- Pick n random elements to compete with the Champion, return best
-        pickByTournament' 1 population (Just currentChampion) =
-            do
-                gen <- lift $ ST.get
-                GConf{..} <- R.ask
-                let
-                    (Just tConf) = tournamentConfiguration
-                    tournamentSize = size tConf
-                    (tParticipants,gen') = pickRandomElements tournamentSize gen population
-                    champion = fittest (currentChampion:tParticipants)
-                lift $ ST.put gen'
-                champion
-        -- Case 5: "normal" recursive Case
-        -- At iteration i ask for the champion of i-1
-        -- Let the current Champion, n random elements and champion from i-1 compete
-        -- Return best
-        pickByTournament' n population champ =
-            do
-                gen <- lift $ ST.get
-                GConf{..} <- R.ask
-                let
-                    (Just tConf) = tournamentConfiguration
-                    tournamentSize = size tConf
-                    (tParticipants,gen') = pickRandomElements tournamentSize gen population
-                recursiveChampion <-  pickByTournament' (n-1) population champ
-                lift $ ST.put gen'
-                fittest ((maybeToList recursiveChampion)++(maybeToList champ) ++ tParticipants)
+                if n > 1
+                then do recursiveChampion <-  pickByTournament' (n-1) population curChamp
+                        fittest (maybeToList recursiveChampion++maybeToList curChamp ++ tParticipants)
+                else do let newChamp = case curChamp of
+                                         Nothing -> fittest tParticipants
+                                         (Just champ) -> fittest (champ:tParticipants)
+                        newChamp
+
+
+
+
+        -- pickByTournament' 1 population Nothing =
+        --     do
+        --         gen <- lift $ ST.get
+        --         GConf{..} <- R.ask
+        --         let
+        --             (Just tConf) = tournamentConfiguration
+        --             tournamentSize = size tConf
+        --             (tParticipants,gen') = pickRandomElements tournamentSize gen population
+        --             champion = fittest tParticipants
+        --         lift $ ST.put gen'
+        --         champion
+        -- -- Case 4: We are in the last iteration, and have a champion
+        -- -- Pick n random elements to compete with the Champion, return best
+        -- pickByTournament' 1 population (Just currentChampion) =
+        --     do
+        --         gen <- lift $ ST.get
+        --         GConf{..} <- R.ask
+        --         let
+        --             (Just tConf) = tournamentConfiguration
+        --             tournamentSize = size tConf
+        --             (tParticipants,gen') = pickRandomElements tournamentSize gen population
+        --             champion = fittest (currentChampion:tParticipants)
+        --         lift $ ST.put gen'
+        --         champion
+        -- -- Case 5: "normal" recursive Case
+        -- -- At iteration i ask for the champion of i-1
+        -- -- Let the current Champion, n random elements and champion from i-1 compete
+        -- -- Return best
+        -- pickByTournament' n population champ =
+        --     do
+        --         gen <- lift $ ST.get
+        --         GConf{..} <- R.ask
+        --         let
+        --             (Just tConf) = tournamentConfiguration
+        --             tournamentSize = size tConf
+        --             (tParticipants,gen') = pickRandomElements tournamentSize gen population
+        --         recursiveChampion <-  pickByTournament' (n-1) population champ
+        --         lift $ ST.put gen'
+        --         fittest ((maybeToList recursiveChampion)++(maybeToList champ) ++ tParticipants)
 
 -- | For a given list of cromosomes, applies the fitness function and returns the
 -- very fittest (head of the sorted list) if the list is non-empty.
@@ -585,12 +604,12 @@ instance Chromosome EFix where
     mutate e1 =
       do gen <- lift ST.get
          GConf{..} <- R.ask
-         let (should_drop, gen) = random gen
+         let (should_drop, gen') = random gen
          if should_drop < dropRate && not (Map.null e1)
          then do let ks :: [SrcSpan]
                      ks = Map.keys e1
-                     Just (key_to_drop, gen) = pickElementUniform ks gen
-                 lift (ST.put gen)
+                     Just (key_to_drop, gen'') = pickElementUniform ks gen'
+                 lift (ST.put gen'')
                  return $ Map.delete key_to_drop e1
          else do let EProb{..} = progProblem
                      prog_at_ty = progAtTy e_prog e_ty
@@ -607,8 +626,8 @@ instance Chromosome EFix where
                      -- + Right False if the program doesn't terminate (worst fitness)..
                      --    Blacklist this fix?
                      -- + Left [Bool] if it's somewhere in between.
-                     Just ((fix, fix_res), gen) ->
-                         do lift (ST.put gen)
+                     Just ((fix, fix_res), gen''') ->
+                         do lift (ST.put gen''')
                             fc <- lift (lift ST.get)
                             let mf = mergeFixes fix e1
                             when (mf `notElem` (map fst fc)) $ do
@@ -825,7 +844,7 @@ pickRandomPair as g = if even (length as)
             Just (elem1,g') = pickElementUniform as g
             as' = delete elem1 as
             Just (elem2,g'') = pickElementUniform as' g'
-        in Just $ ((elem1,elem2),g)
+        in Just $ ((elem1,elem2),g'')
     else Nothing
 
 -- | Picks a random element from a list, given the list has elements.
