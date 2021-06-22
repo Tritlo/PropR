@@ -14,7 +14,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Tree
-import GhcPlugins (GenLocated (..), getLoc, unLoc)
+import GhcPlugins (GenLocated (..), getLoc, unLoc, noLoc)
 import Synth.Check
 import Synth.Diff
 import Synth.Eval
@@ -30,6 +30,9 @@ import System.Process
 import Text.ParserCombinators.ReadP
 import Text.Printf
 import Trace.Hpc.Mix (BoxLabel (ExpBox))
+import GHC (HsExpr(HsLet), NoExtField)
+import GHC.Hs (NoExtField(NoExtField))
+import Synth.Gen2 (mkDefaultConf, geneticSearch, runGenMonad)
 
 -- The time we allow for a check to finish. Measured in microseconds.
 
@@ -242,26 +245,28 @@ main = do
                 }
           }
   putStrLn "REPAIRING..."
-  (t, fixes) <- time $ genRepair cc' tp
+  expr_fit_cands <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  let gconf = mkDefaultConf tp cc' expr_fit_cands
+  (t, fixes) <- time $ runGenMonad gconf 69420 (geneticSearch @EFix)
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
-  getArgs >>= print
-  logStr AUDIT "STATS:"
-  reportStats
-  putStrLn "REPAIRS:"
-  let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
-      fbs = map getFixBinds newProgs
-  mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
-  error "ABORT BEFORE SYNTHESIS"
-  putStrLn "SYNTHESIZING..."
-  memo <- newIORef Map.empty
-  putStr' "GENERATING CANDIDATES..."
-  (t, r) <- time $ synthesizeSatisfying cc synth_depth memo r_ctxt r_props r_ty
-  putStrLn $ "DONE! (" ++ showTime t ++ ")"
-  case r of
-    [] -> putStrLn "NO MATCH FOUND!"
-    [xs] -> do
-      putStrLn "FOUND MATCH:"
-      putStrLn xs
-    xs -> do
-      putStrLn $ "FOUND " ++ show (length xs) ++ " MATCHES:"
-      mapM_ putStrLn xs
+  -- getArgs >>= print
+  -- logStr AUDIT "STATS:"
+  -- reportStats
+  -- putStrLn "REPAIRS:"
+  -- let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+  --     fbs = map getFixBinds newProgs
+  -- mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
+  -- error "ABORT BEFORE SYNTHESIS"
+  -- putStrLn "SYNTHESIZING..."
+  -- memo <- newIORef Map.empty
+  -- putStr' "GENERATING CANDIDATES..."
+  -- (t, r) <- time $ synthesizeSatisfying cc synth_depth memo r_ctxt r_props r_ty
+  -- putStrLn $ "DONE! (" ++ showTime t ++ ")"
+  -- case r of
+  --   [] -> putStrLn "NO MATCH FOUND!"
+  --   [xs] -> do
+  --     putStrLn "FOUND MATCH:"
+  --     putStrLn xs
+  --   xs -> do
+  --     putStrLn $ "FOUND " ++ show (length xs) ++ " MATCHES:"
+  --     mapM_ putStrLn xs
