@@ -705,6 +705,8 @@ readHole hf@HoleFit {..} =
     map (showSDocUnsafe . ppr) hfMatches
   )
 
+-- TODO: DOCUMENT
+-- When does it return an empty list?
 checkFixes :: CompileConfig -> EProblem -> [EExpr] -> IO [Either [Bool] Bool]
 checkFixes cc tp@EProb {..} fixes = do
   let CompConf {repConf = RepConf {..}} = cc

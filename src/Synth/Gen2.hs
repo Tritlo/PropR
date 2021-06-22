@@ -81,7 +81,7 @@ import Synth.Types (EFix, GenConf (GenConf), EProblem (EProb, e_prog, e_ty), Com
 import GHC (SrcSpan, HsExpr, GhcPs, isSubspanOf)
 import qualified Data.Map as Map
 import Data.Function (on)
-import GhcPlugins (HasCallStack,ppr, showSDocUnsafe, liftIO, getOrigNameCache, CompilerInfo (UnknownCC))
+import GhcPlugins (HasCallStack,ppr, showSDocUnsafe, liftIO, getOrigNameCache, CompilerInfo (UnknownCC), Outputable(..))
 
 import qualified Control.Monad.Trans.Reader as R
 import qualified Control.Monad.Trans.State.Lazy as ST
@@ -99,7 +99,7 @@ import Synth.Eval (checkFixes)
 
 
 -- Eq is required to remove elements from lists while partitioning.
-class Eq g => Chromosome g where
+class (Eq g, Outputable g) => Chromosome g where
     -- | TODO: We could also move the crossover to the configuration
     crossover :: (g,g) -> GenMonad (g,g) -- ^ The Crossover Function to produce a new Chromosome from two Genes. This Crossover must "always hit", taking care of whether to do crossover or not is done in genetic search.
     mutate :: g -> GenMonad g            -- ^ The Mutation Function, in a seeded Fashion. This is a mutation that always "hits", taking care of not mutating every generation is done in genetic search.
@@ -166,12 +166,12 @@ data GeneticConfiguration = GConf
   , tryMinimizeFixes :: Bool        -- ^ Whether or not to try to minimize the successfull fixes. This step is performed after search as postprocessing and does not affect initial search runtime.
   }
 
-mkDefaultConf :: EProblem -> CompileConfig -> [ExprFitCand] -> GeneticConfiguration
-mkDefaultConf prob cc ecands = GConf {..}
+mkDefaultConf ::Int -> Int -> EProblem -> CompileConfig -> [ExprFitCand] -> GeneticConfiguration
+mkDefaultConf pops its prob cc ecands = GConf {..}
     where mutationRate = 0.2
           crossoverRate = 0.05
-          iterations = 20
-          populationSize = 32
+          iterations = its
+          populationSize = pops
           timeoutInMinutes = 5
           stopOnResults = True
           tournamentConfiguration = Nothing
@@ -620,42 +620,74 @@ instance Chromosome EFix where
                  possibleFixes <-
                     lift $ lift $ lift $ repairAttempt cc prob {e_prog = n_prog} ecfs
                  case pickElementUniform possibleFixes gen of
-                     Nothing -> error "no possible fixes!!"
+                     Nothing -> 
+                        -- No possible fix, meaning we don't have any locations
+                        -- to change... which means we've already solved it!
+                        -- TODO: is this always the case when we get Nothing
+                        -- here?
+                        return e1
                      -- Fix res here is:
                      -- + Right True if all the properties are correct (perfect fitnesss!)
                      -- + Right False if the program doesn't terminate (worst fitness)..
                      --    Blacklist this fix?
                      -- + Left [Bool] if it's somewhere in between.
-                     Just ((fix, fix_res), gen''') ->
-                         do lift (ST.put gen''')
-                            fc <- lift (lift ST.get)
-                            let mf = mergeFixes fix e1
-                            when (mf `notElem` (map fst fc)) $ do
-                                let nf = basicFitness mf fix_res
-                                lift (lift (ST.put ((mf,nf):fc)))
-                            return mf
+                     Just ((fix, fix_res), gen''') -> do
+                        let mf = mergeFixes fix e1
+                        -- We have the fix_res already here, so we just pretend
+                        -- to compute it to make sure it gets cached.
+                        _ <- computeFitness mf (Just fix_res)
+                        lift (ST.put gen''')
+                        return mf
 
-    fitness e1 = do fc <- lift (lift ST.get)
-                    let res = lookup e1 fc
-                    case res of
-                        Nothing -> do
-                            GConf{..} <- R.ask
-                            fc <- lift (lift ST.get)
+    fitness e1 = computeFitness e1 Nothing
 
-                            let EProb{..} = progProblem
-                                prog_at_ty = progAtTy e_prog e_ty
-                                n_prog = replaceExpr e1 prog_at_ty
-                                cc = compConf
-                            -- TODO: is n_prog the right thing to do here?
-                            res <- liftIO $ checkFixes cc progProblem [n_prog]
-                            let nf = case res of
-                                         [r] -> basicFitness e1 r
-                                         _ -> 0
-                            lift (lift (ST.put ((e1,nf):fc)))
-                            return nf
-                        Just r -> return r
+    initialPopulation n = 
+         do GConf{..} <- R.ask
+            let EProb{..} = progProblem
+                cc = compConf
+                prob = progProblem
+                ecfs = Just exprFitCands
+            possibleFixes <- liftIO $ repairAttempt cc prob ecfs
+            replicateM n $ do
+               gen <- lift ST.get
+               case pickElementUniform possibleFixes gen of
+                  Nothing -> error "WASN'T BROKEN??"
+                  -- Fix res here is:
+                  -- + Right True if all the properties are correct (perfect fitnesss!)
+                  -- + Right False if the program doesn't terminate (worst fitness)..
+                  --    Blacklist this fix?
+                  -- + Left [Bool] if it's somewhere in between.
+                  Just ((fix, fix_res), gen''') -> do
+                     -- We have the fix_res already here, so we just pretend
+                     -- to compute it to make sure it gets cached.
+                     _ <- computeFitness fix (Just fix_res)
+                     lift (ST.put gen''')
+                     return fix
+                     
 
-    initialPopulation n = replicateM n (mutate Map.empty)
+-- | Compute fitness computes the fitness of an EFix, using the provided
+-- results of checking the fix if available, otherwise running checkFix.
+-- It also makes sure to cache the result.
+computeFitness :: EFix -> Maybe (Either [Bool] Bool) -> GenMonad Double
+computeFitness mf mb_res = do
+    fc <- lift (lift ST.get)
+    let mb_nf = lookup mf fc
+    case mb_nf of
+        Just nf -> return nf
+        Nothing -> do
+            fix_res <- case mb_res of
+                Just fix_res -> return fix_res
+                Nothing -> do -- We have to compute the fitness over again
+                    GConf{..} <- R.ask
+                    let EProb{..} = progProblem
+                        prog_at_ty = progAtTy e_prog e_ty
+                        n_prog = replaceExpr mf prog_at_ty
+                        cc = compConf
+                    [fix_res] <- liftIO $ checkFixes cc progProblem [n_prog]
+                    return fix_res
+            let nf = basicFitness mf fix_res
+            lift (lift (ST.put ((mf,nf):fc)))
+            return nf
 
 -- | Calculates the fitness of an EFix by checking it's FixResults (=The Results of the property-tests).
 -- It is intended to be cached using the Fitness Cache in the GenMonad.
@@ -760,9 +792,7 @@ powerset (x:xs) = [x:ps | ps <- powerset xs] ++ powerset xs
 -- So this is a wrapper to ease the usage given that the GenMonad is completely local
 -- in this module.
 logStr' :: HasCallStack => LogLevel -> String -> GenMonad ()
-logStr' level str = do
-    lift $lift $lift $logStr level str
-    return ()
+logStr' level str = liftIO $ logStr level str
 
 -- ===========                 ==============
 -- ===           Random Parts             ===
@@ -852,6 +882,6 @@ pickRandomPair as g = if even (length as)
 -- Returns Just (element,updatedStdGen) for lists with elements, or Nothing otherwise
 pickElementUniform :: (RandomGen g) => [a] -> g -> Maybe (a,g)
 pickElementUniform [] _ = Nothing
-pickElementUniform xs g = let (ind, g') = uniformR (0, length xs) g
+pickElementUniform xs g = let (ind, g') = uniformR (0, length xs - 1) g
                           in Just (xs !! ind, g')
 

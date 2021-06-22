@@ -246,8 +246,11 @@ main = do
           }
   putStrLn "REPAIRING..."
   expr_fit_cands <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-  let gconf = mkDefaultConf tp cc' expr_fit_cands
+  let gconf = mkDefaultConf 64 50 tp cc' expr_fit_cands
   (t, fixes) <- time $ runGenMonad gconf 69420 (geneticSearch @EFix)
+  let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+      fbs = map getFixBinds newProgs
+  mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
   -- getArgs >>= print
   -- logStr AUDIT "STATS:"
