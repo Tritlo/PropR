@@ -302,12 +302,17 @@ geneticSearch = do
                 let -- Calculate passed time in ms
                     timediff :: Int
                     timediff = round $ diffUTCTime end start * 1000
-                -- End Early when any result is ok
                 -- when (not (null winners) && stopOnResults conf) (return winners)
                 logStr' INFO ("Finished Generation " ++ (show currentGen) ++ " at "++ show end ++ "(" ++ (show $ length winners) ++" Results)")
-                -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
-                recursiveResults <- geneticSearch' (n-1) (currentTime + timediff) nextPop
-                return (winners ++ recursiveResults)
+                -- End Early when any result is ok
+                if (not $ null winners) && (stopOnResults conf) 
+                then do 
+                    return winners
+                -- Otherwise do recursive step
+                else do
+                    -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
+                    recursiveResults <- geneticSearch' (n-1) (currentTime + timediff) nextPop
+                    return (winners ++ recursiveResults)
 
         -- | recursive step of genetic search with Islands.
         -- Basically, it performs the same steps as normal genetic evolution but per island,
@@ -342,7 +347,7 @@ geneticSearch = do
                     -- Determine Winners (where fitness == 0)
                 winners <- sequence $ fmap (selectWinners 0) nextGens
                 let winners' = concat winners
-                    -- We calculate the passed generations by substracting current remaining its from total its
+                -- We calculate the passed generations by substracting current remaining its from total its
                 let passedIterations = iterations conf - n
                 -- We check whether we have a migration, by using modulo on the passed generations
                 nextPops <- if mod passedIterations (migrationInterval iConf) == 0
@@ -352,11 +357,16 @@ geneticSearch = do
                     -- Calculate passed time in ms
                     timediff :: Int
                     timediff = round $ diffUTCTime end start * 1000
-                -- when (not (null winners) && stopOnResults conf) (return winners)
-                -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
                 logStr' INFO ("Finished Generation " ++ (show currentGen) ++ " at "++ show end ++ "(" ++ (show $ length winners) ++" Results)")
-                recursiveResults <- islandSearch (n-1) (currentTime + timediff) nextPops
-                return (winners' ++ recursiveResults)
+                -- End Early when any result is ok
+                if (not $ null winners) && (stopOnResults conf) 
+                then do 
+                    return winners'
+                -- Otherwise do recursive step
+                else do
+                    -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
+                    recursiveResults <- islandSearch (n-1) (currentTime + timediff) nextPops
+                    return (winners' ++ recursiveResults)
 
         -- | Process a single generation of the GA, without filtering or checking for any timeouts.
         -- We expect the fitness function to be cached and 'fast'.
