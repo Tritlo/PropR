@@ -164,9 +164,13 @@ data GeneticConfiguration = GConf
   , exprFitCands :: [ExprFitCand]   -- ^ The sum of all potentially replaced elements, required to retrieve mutated EFixes
 
   , tryMinimizeFixes :: Bool        -- ^ Whether or not to try to minimize the successfull fixes. This step is performed after search as postprocessing and does not affect initial search runtime.
+  , replaceWinners :: Bool          -- ^ Whether successfull candidates will be removed from the populations, replaced with a new-full-random element.
   }
 
-mkDefaultConf ::Int -> Int -> EProblem -> CompileConfig -> [ExprFitCand] -> GeneticConfiguration
+mkDefaultConf ::
+    Int -- ^ The Size of the Population, must be even 
+    -> Int -- ^ The number of generations to be run, must be 1 or higher 
+    -> EProblem -> CompileConfig -> [ExprFitCand] -> GeneticConfiguration
 mkDefaultConf pops its prob cc ecands = GConf {..}
     where mutationRate = 0.2
           crossoverRate = 0.05
@@ -182,7 +186,7 @@ mkDefaultConf pops its prob cc ecands = GConf {..}
           compConf = cc
           exprFitCands = ecands
           tryMinimizeFixes = False  -- Not implemented
-
+          replaceWinners = True
 
 
 
@@ -310,8 +314,18 @@ geneticSearch = do
                     return winners
                 -- Otherwise do recursive step
                 else do
+                    -- If we replace winners, we make for every winner a new element and replace it in the population
+                    nextPop' <- 
+                        if (replaceWinners conf)
+                        then 
+                            let reducedpop = deleteAll winners nextPop
+                            in do 
+                                replacers <- initialPopulation (length winners)
+                                return (replacers ++ reducedpop) 
+                        -- If we don't replace winners, just keep the population
+                        else return nextPop
                     -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
-                    recursiveResults <- geneticSearch' (n-1) (currentTime + timediff) nextPop
+                    recursiveResults <- geneticSearch' (n-1) (currentTime + timediff) nextPop'
                     return (winners ++ recursiveResults)
 
         -- | recursive step of genetic search with Islands.
@@ -364,6 +378,21 @@ geneticSearch = do
                     return winners'
                 -- Otherwise do recursive step
                 else do
+                    nextPops' <- 
+                        if not (replaceWinners conf)
+                        -- If we don't replace winners, just keep the population
+                        then do 
+                            return nextPops
+                        -- If we replace winners, we make for every winner a new element and replace it in the population
+                        else 
+                            let 
+                                reducedPops = map (deleteAll winners') nextPops
+                                -- unlike in non island search, the winners could be on some islands while not on others (obviously)
+                                -- So we have to re-fill the islands individually
+                                numReplacers = map (\pop ->(populationSize conf) - length pop ) reducedPops 
+                            in do 
+                                replacers <- (sequence $ map (\x -> initialPopulation x) numReplacers)
+                                return (zipWith (++) replacers reducedPops)
                     -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
                     recursiveResults <- islandSearch (n-1) (currentTime + timediff) nextPops
                     return (winners' ++ recursiveResults)
@@ -545,49 +574,6 @@ pickByTournament population =
                                          Nothing -> fittest tParticipants
                                          (Just champ) -> fittest (champ:tParticipants)
                         newChamp
-
-
-
-
-        -- pickByTournament' 1 population Nothing =
-        --     do
-        --         gen <- lift $ ST.get
-        --         GConf{..} <- R.ask
-        --         let
-        --             (Just tConf) = tournamentConfiguration
-        --             tournamentSize = size tConf
-        --             (tParticipants,gen') = pickRandomElements tournamentSize gen population
-        --             champion = fittest tParticipants
-        --         lift $ ST.put gen'
-        --         champion
-        -- -- Case 4: We are in the last iteration, and have a champion
-        -- -- Pick n random elements to compete with the Champion, return best
-        -- pickByTournament' 1 population (Just currentChampion) =
-        --     do
-        --         gen <- lift $ ST.get
-        --         GConf{..} <- R.ask
-        --         let
-        --             (Just tConf) = tournamentConfiguration
-        --             tournamentSize = size tConf
-        --             (tParticipants,gen') = pickRandomElements tournamentSize gen population
-        --             champion = fittest (currentChampion:tParticipants)
-        --         lift $ ST.put gen'
-        --         champion
-        -- -- Case 5: "normal" recursive Case
-        -- -- At iteration i ask for the champion of i-1
-        -- -- Let the current Champion, n random elements and champion from i-1 compete
-        -- -- Return best
-        -- pickByTournament' n population champ =
-        --     do
-        --         gen <- lift $ ST.get
-        --         GConf{..} <- R.ask
-        --         let
-        --             (Just tConf) = tournamentConfiguration
-        --             tournamentSize = size tConf
-        --             (tParticipants,gen') = pickRandomElements tournamentSize gen population
-        --         recursiveChampion <-  pickByTournament' (n-1) population champ
-        --         lift $ ST.put gen'
-        --         fittest ((maybeToList recursiveChampion)++(maybeToList champ) ++ tParticipants)
 
 -- | For a given list of cromosomes, applies the fitness function and returns the
 -- very fittest (head of the sorted list) if the list is non-empty.
@@ -803,6 +789,16 @@ powerset (x:xs) = [x:ps | ps <- powerset xs] ++ powerset xs
 -- in this module.
 logStr' :: HasCallStack => LogLevel -> String -> GenMonad ()
 logStr' level str = liftIO $ logStr level str
+
+-- | Deletes a list of elements from another list.
+-- > deletaAll [1,2] [1,2,3,4,3,2,1] 
+-- > [3,4,3]
+deleteAll :: Eq a => 
+    [a]         -- ^ the elements to be removed  
+    -> [a]      -- ^ the list of the elements to be removed
+    -> [a]
+deleteAll [] bs = bs
+deleteAll (a:as) bs = deleteAll as (delete a bs)
 
 -- ===========                 ==============
 -- ===           Random Parts             ===
