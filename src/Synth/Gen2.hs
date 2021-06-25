@@ -58,12 +58,11 @@ https://neo.lcc.uma.es/Articles/WRH98.pdf
 
 **Open Questions // Points**
 
-    - Do we want to have unique elements in populations? Do we want this as a flag?
     - Timeouts are not actually interrupting - the are checked after a generation.
       That can lead to a heavy plus above the specified timeout, e.g. by big populations on Islands.
       Can we do this better?
-    - we NEED the un-cached fitness, otherwise we run into issues by dop-mutate and crossover!
-    - Currently the mutate is "always hit" and wether it is done is called, but the crossover is with built-in-probability which should be the same behaviour for both
+    - This file is growing quite big, we could consider splitting it up in "Genetic" and "EfixGeneticImplementation" or something like that.
+      Similarly, we could maybe move some of the helpers out.
 -}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -461,6 +460,24 @@ geneticSearch = do
                 newIslands = map (uncurry (++)) islandMigrationPairs
             lift $ ST.put gen'
             return newIslands
+
+-- | This Method performs mostly the Genetic Search, but it adds some Efix-Specific Post-Processing. 
+-- As we wanted to keep the genetic search nicely generic for chromosomes, some methods like minimizing Efixes where not applicable within it. 
+-- This is why there is a small wrapper around it. 
+-- TODO: Maybe change name ?  
+geneticSearchPlusPostprocessing :: GenMonad [EFix]
+geneticSearchPlusPostprocessing = do 
+    GConf{..} <- R.ask
+    -- Step 0: Do the normal search
+    results <- geneticSearch
+    -- Step 1: Dedup Results
+    -- TODO
+    let results' = results
+    -- Step 2: Minimize dedubbed Results
+    results'' <- if tryMinimizeFixes
+        then fmap (concat) $ sequence $ map minimizeFix results'
+        else do return results'
+    return results''
 
 sortPopByFitness :: Chromosome g => [g] -> GenMonad [g]
 sortPopByFitness gs = do

@@ -32,7 +32,7 @@ import Text.Printf
 import Trace.Hpc.Mix (BoxLabel (ExpBox))
 import GHC (HsExpr(HsLet), NoExtField)
 import GHC.Hs (NoExtField(NoExtField))
-import Synth.Gen2 (mkDefaultConf, geneticSearch, runGenMonad)
+import Synth.Gen2 (mkDefaultConf, geneticSearch, runGenMonad,geneticSearchPlusPostprocessing)
 
 -- The time we allow for a check to finish. Measured in microseconds.
 
@@ -247,7 +247,7 @@ main = do
   putStrLn "REPAIRING..."
   expr_fit_cands <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
   let gconf = mkDefaultConf 64 50 tp cc' expr_fit_cands
-  (t, fixes) <- time $ runGenMonad gconf 69420 (geneticSearch @EFix)
+  (t, fixes) <- time $ runGenMonad gconf 69420 (geneticSearchPlusPostprocessing)
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
       fbs = map getFixBinds newProgs
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
