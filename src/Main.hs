@@ -201,36 +201,7 @@ main = do
   putStrLn $ "  MAX DEPTH: " ++ show synth_depth
   putStrLn "PROGRAM TO REPAIR: "
   putStrLn $ showUnsafe e_prog
-  -- putStrLn "FAILING PROPS:"
-  -- failing_props <- failingProps cc tp
-  -- mapM_ (putStrLn . ("  " ++) . showUnsafe) failing_props
-  -- putStrLn "COUNTER EXAMPLES:"
-  -- counter_examples <- mapM (propCounterExample cc tp) failing_props
-  -- mapM_ (putStrLn . (++) "  " . (\t -> if t == "" then "<none>" else t) . unwords) $ catMaybes counter_examples
-  -- eMap <-
-  --   Map.fromList . map (getLoc &&& showUnsafe) . flattenExpr
-  --     <$> runJustParseExpr cc r_prog
 
-  -- let hasCE (p, Just ce) = Just (p, ce)
-  --     hasCE _ = Nothing
-  -- reses <-
-  --   mapM (uncurry $ traceTarget cc e_prog) $
-  --     mapMaybe hasCE $ zip failing_props counter_examples
-  -- let trcs =
-  --       map
-  --         ( map
-  --             ( \(s, r) ->
-  --                 ( s,
-  --                   eMap Map.!? mkInteractive s,
-  --                   r,
-  --                   maximum $ map snd r
-  --                 )
-  --             )
-  --             . flatten
-  --         )
-  --         $ catMaybes reses
-  -- putStrLn "TRACE OF COUNTER EXAMPLES:"
-  -- mapM_ (putStrLn . unlines . map ((++) "  " . show)) trcs
   no_par_gen <- ("--no-par-gen" `elem`) <$> getArgs
   no_par_rep <- ("--no-par-rep" `elem`) <$> getArgs
   no_rep_interpreted <- ("--no-rep-interpreted" `elem`) <$> getArgs
@@ -251,25 +222,5 @@ main = do
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
       fbs = map getFixBinds newProgs
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
+  
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
-  -- getArgs >>= print
-  -- logStr AUDIT "STATS:"
-  -- reportStats
-  -- putStrLn "REPAIRS:"
-  -- let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
-  --     fbs = map getFixBinds newProgs
-  -- mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
-  -- error "ABORT BEFORE SYNTHESIS"
-  -- putStrLn "SYNTHESIZING..."
-  -- memo <- newIORef Map.empty
-  -- putStr' "GENERATING CANDIDATES..."
-  -- (t, r) <- time $ synthesizeSatisfying cc synth_depth memo r_ctxt r_props r_ty
-  -- putStrLn $ "DONE! (" ++ showTime t ++ ")"
-  -- case r of
-  --   [] -> putStrLn "NO MATCH FOUND!"
-  --   [xs] -> do
-  --     putStrLn "FOUND MATCH:"
-  --     putStrLn xs
-  --   xs -> do
-  --     putStrLn $ "FOUND " ++ show (length xs) ++ " MATCHES:"
-  --     mapM_ putStrLn xs

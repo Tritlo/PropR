@@ -287,7 +287,9 @@ geneticSearch = do
         geneticSearch' n currentTime pop = do
             conf <- R.ask
             if currentTime > maxTimeInMS conf
-            then return []
+            then do 
+                logStr' INFO "Time Budget used up - ending genetic search"
+                return []
             else do
                 start <- lift $ lift $ lift $ getCurrentTime
                 let currentGen = (iterations conf) - n
@@ -343,7 +345,9 @@ geneticSearch = do
             let iConf = fromJust $ islandConfiguration conf
             -- Check for Timeout
             if currentTime > maxTimeInMS conf
-            then return []
+            then do 
+                logStr' INFO "Time Budget used up - ending genetic search"
+                return []
             else do
                 start <- lift $ lift $ lift $ getCurrentTime
                 let currentGen = (iterations conf) - n

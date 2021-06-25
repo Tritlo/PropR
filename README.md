@@ -23,8 +23,10 @@ This program requires version `3.4` or higher of `cabal`, and version `8.10` or
 higher of `ghc`. A complete environment required to run (minus the `QuickCheck`)
 is defined in `shell.nix`, and can be activated using `nix-shell`, if installed.
 
+**MacOS** users have to use `cabal configure --enable-optimization --enable-executable-dynamic`. Windows users might find some help [here](https://www.linux.org/pages/download/).
+
 To run the program, ensure that `QuickCheck` is installed by running
-`$ cabal install --lib QuickCheck `. You can then run
+`$ cabal install --lib QuickCheck `. You can then run 
 
 ```
 $ cabal run henprog -- examples/BrokenModule.hs
