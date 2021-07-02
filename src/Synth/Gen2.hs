@@ -204,6 +204,7 @@ data GeneticConfiguration = GConf
 
   , tryMinimizeFixes :: Bool        -- ^ Whether or not to try to minimize the successfull fixes. This step is performed after search as postprocessing and does not affect initial search runtime.
   , replaceWinners :: Bool          -- ^ Whether successfull candidates will be removed from the populations, replaced with a new-full-random element.
+  , useParallelMap :: Bool          -- ^ Whether to use as much parallelism as possible
   }
 
 mkDefaultConf ::
@@ -226,6 +227,7 @@ mkDefaultConf pops its prob cc ecands = GConf {..}
           exprFitCands = ecands
           tryMinimizeFixes = False  -- Not implemented
           replaceWinners = True
+          useParallelMap = True
 
 
 
@@ -705,7 +707,10 @@ instance Chromosome EFix where
                        let mf = mergeFixes fix p
                        updateCache (mf, basicFitness mf fix_res)
                        return mf
-        possibleFixes <- liftIO $ mapConcurrently (\p -> repairAttempt cc prob {e_prog = p} ecfs) n_progs
+            mapGen = if useParallelMap then mapConcurrently else mapM
+        possibleFixes <- collectStats $
+                if null n_progs then return []
+                else liftIO $ mapGen (\p -> repairAttempt cc prob {e_prog = p} ecfs) n_progs
         mutated <- mapM selection (zip (zip to_mutate possibleFixes) gens')
         putGen gen''
         return $ map snd $ sortOn fst $ zip to_mutate_inds mutated ++ zip to_drop_inds dropped
