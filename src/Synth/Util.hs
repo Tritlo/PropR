@@ -200,3 +200,10 @@ reportStats = liftIO $ do
   res <- Map.toList <$> readIORef statsRef
   let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
   mapM_ (logStr AUDIT . pp) res
+
+reportStats' :: MonadIO m => LogLevel -> m ()
+reportStats' lvl = liftIO $ do
+  logStr lvl "SUMMARY"
+  res <- Map.toList <$> readIORef statsRef
+  let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
+  mapM_ (logStr lvl . pp) res

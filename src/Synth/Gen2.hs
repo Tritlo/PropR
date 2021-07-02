@@ -630,7 +630,7 @@ instance Eq (HsExpr GhcPs) where
 
 instance Chromosome EFix where
     crossover (f1,f2) = efixCrossover f1 f2
-    mutate e1 =
+    mutate e1 = collectStats $
       do gen <- lift ST.get
          GConf{..} <- R.ask
          let (should_drop, gen') = random gen
@@ -667,9 +667,10 @@ instance Chromosome EFix where
                         lift (ST.put gen''')
                         return mf
 
-    fitness e1 = computeFitness e1 Nothing
+    fitness e1 = collectStats $ computeFitness e1 Nothing
 
-    initialPopulation n =
+    initialPopulation 0 = return []
+    initialPopulation n = collectStats $
          do GConf{..} <- R.ask
             let EProb{..} = progProblem
                 cc = compConf
@@ -697,7 +698,7 @@ instance Chromosome EFix where
 -- results of checking the fix if available, otherwise running checkFix.
 -- It also makes sure to cache the result.
 computeFitness :: EFix -> Maybe (Either [Bool] Bool) -> GenMonad Double
-computeFitness mf mb_res = do
+computeFitness mf mb_res = collectStats $ do
     fc <- lift (lift ST.get)
     let mb_nf = lookup mf fc
     case mb_nf of
