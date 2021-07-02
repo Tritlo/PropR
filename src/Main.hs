@@ -222,5 +222,7 @@ main = do
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
       fbs = map getFixBinds newProgs
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
-  
+
+  reportStats
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
+  reportStats
