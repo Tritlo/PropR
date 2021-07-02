@@ -719,17 +719,18 @@ instance Chromosome EFix where
                 (done_w_inds, to_compute_w_inds) = partition (isJust . snd . snd) $ zip [0..] lookups
                 (to_compute_inds, to_compute) = map fst <$> unzip to_compute_w_inds
                 (done_inds, done) = map (\(d, Just r) -> (d,r)) <$> unzip done_w_inds
-            res <- do GConf{..} <- R.ask
-                      let EProb{..} = progProblem
-                          prog_at_ty = progAtTy e_prog e_ty
-                          cc = compConf
-                          n_progs = map (`replaceExpr` prog_at_ty) to_compute
-                      results <- zipWith (\e f -> (e, basicFitness e f)) to_compute <$>
+            if null to_compute
+            then return $ map snd done
+            else do GConf{..} <- R.ask
+                    let EProb{..} = progProblem
+                        prog_at_ty = progAtTy e_prog e_ty
+                        cc = compConf
+                        n_progs = map (`replaceExpr` prog_at_ty) to_compute
+                    res <- zipWith (\e f -> (e, basicFitness e f)) to_compute <$>
                                     liftIO (checkFixes cc progProblem n_progs)
-                      putCache (Map.fromList results <> fc)
-                      return results
-            -- we restore the original order
-            return $ map (snd . snd) $ sortOn fst $ zip to_compute_inds res ++ zip done_inds done
+                    putCache (Map.fromList res `Map.union` fc)
+                    return $ map (snd . snd) $ sortOn fst $
+                             zip to_compute_inds res ++ zip done_inds done
 
 
     initialPopulation 0 = return [] -- We don't want to do any work if there's no work to do.
