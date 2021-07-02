@@ -1,5 +1,3 @@
-{-# LANGUAGE RecordWildCards #-}
-
 {-|
 Module      : Synth.Gen2
 Description : Holds the (revamped) Genetic Algorithm Parts of HenProg
@@ -64,6 +62,7 @@ https://neo.lcc.uma.es/Articles/WRH98.pdf
     - This file is growing quite big, we could consider splitting it up in "Genetic" and "EfixGeneticImplementation" or something like that.
       Similarly, we could maybe move some of the helpers out.
 -}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 module Synth.Gen2 where
@@ -167,8 +166,8 @@ data GeneticConfiguration = GConf
   }
 
 mkDefaultConf ::
-    Int -- ^ The Size of the Population, must be even 
-    -> Int -- ^ The number of generations to be run, must be 1 or higher 
+    Int -- ^ The Size of the Population, must be even
+    -> Int -- ^ The number of generations to be run, must be 1 or higher
     -> EProblem -> CompileConfig -> [ExprFitCand] -> GeneticConfiguration
 mkDefaultConf pops its prob cc ecands = GConf {..}
     where mutationRate = 0.2
@@ -244,16 +243,19 @@ geneticSearch = do
             start <- liftIO getCurrentTime
 
             logStr' INFO ("Starting Genetic Search at "++ show start)
-            logStr' INFO ("Running " ++ (show $ iterations conf) ++ " Generations with a population of " ++ (show $ populationSize conf))
+            logStr' INFO ("Running " ++ show (iterations conf)
+                       ++ " Generations with a population of "
+                       ++ show (populationSize conf))
             let
                 its = iterations conf
                 minimize = tryMinimizeFixes conf
                 -- Create Initial Population
             firstPop <- initialPopulation (populationSize conf)
-            logStr' DEBUG ("Finished creating initial population, starting search")
+            logStr' DEBUG "Finished creating initial population, starting search"
             results <- geneticSearch' its 0 firstPop
-            end <- lift $ lift $ lift $ getCurrentTime
-            logStr' INFO ("Genetic Search finished at "++ (show end) ++ " with " ++ (show $ length results) ++" results")
+            end <- liftIO getCurrentTime
+            logStr' INFO ("Genetic Search finished at " ++ show end ++ " with "
+                       ++ show (length results) ++" results")
             -- TODO: The Minimization cannot be done here, as this is too generic (it's for Chromosomes, not for EFixes)
             return results
 
@@ -261,17 +263,21 @@ geneticSearch = do
         (Just iConf) -> do
         -- If yes: Split Iterations by MigrationInterval, create sub-configurations and run sub-genetic search per config
             let its   = iterations conf
-            start <- lift $ lift $ lift $ getCurrentTime
+            start <- liftIO getCurrentTime
             logStr' INFO ("Starting Genetic Search with Islands at "++ show start)
-            logStr' INFO ("Running " ++ (show $ iterations conf) ++ " Generations with a population of " ++ (show $ populationSize conf) ++ " on " ++ (show $ islands iConf) ++ " Islands")
+            logStr' INFO ("Running " ++ show (iterations conf)
+                       ++ " Generations with a population of "
+                       ++ show (populationSize conf) ++ " on "
+                       ++ show (islands iConf) ++ " Islands")
 
             populations <- sequence $ [initialPopulation (populationSize conf) | _ <- [1 .. (islands iConf)]]
 
-            logStr' DEBUG ("Finished creating initial populations, starting search")
+            logStr' DEBUG "Finished creating initial populations, starting search"
             -- Careful: Timer is max timer of all Island Timers?
             results <- islandSearch its 0 populations
-            end <- lift $ lift $ lift $ getCurrentTime
-            logStr' INFO ("Genetic Search finished at "++ (show end) ++ " with " ++ (show $ length results) ++" results")
+            end <- liftIO getCurrentTime
+            logStr' INFO ("Genetic Search finished at " ++ show end ++ " with "
+                       ++ show (length results) ++" results")
             return results
 
     where
@@ -287,42 +293,45 @@ geneticSearch = do
         geneticSearch' n currentTime pop = do
             conf <- R.ask
             if currentTime > maxTimeInMS conf
-            then do 
+            then do
                 logStr' INFO "Time Budget used up - ending genetic search"
                 return []
             else do
-                start <- lift $ lift $ lift $ getCurrentTime
-                let currentGen = (iterations conf) - n
-                logStr' DEBUG ("Starting Generation " ++ (show currentGen) ++ " at "++ show start)
-                let
-                    -- Select the right mechanism according to Configuration (tournament vs. Environment)
+                start <- liftIO getCurrentTime
+                let currentGen = iterations conf - n
+                logStr' DEBUG ("Starting Generation " ++ show currentGen
+                            ++ " at "++ show start)
+                let -- Select the right mechanism according to
+                    -- Configuration (tournament vs. Environment)
                     selectionMechanism =
                         if isJust $ tournamentConfiguration conf
                         then tournamentSelectedGeneration
                         else environmentSelectedGeneration
                 nextPop <- selectionMechanism pop
-                end <- lift $ lift $ lift $ getCurrentTime
+                end <- liftIO getCurrentTime
                     -- Determine Winners
                 winners <- selectWinners 0 nextPop
                 let -- Calculate passed time in ms
                     timediff :: Int
                     timediff = round $ diffUTCTime end start * 1000
                 -- when (not (null winners) && stopOnResults conf) (return winners)
-                logStr' INFO ("Finished Generation " ++ (show currentGen) ++ " at "++ show end ++ "(" ++ (show $ length winners) ++" Results)")
+                logStr' INFO ("Finished Generation " ++ show currentGen ++ " at "
+                           ++ show end ++ "(" ++ show (length winners)
+                           ++ " Results)")
                 -- End Early when any result is ok
-                if (not $ null winners) && (stopOnResults conf) 
-                then do 
+                if not (null winners) && stopOnResults conf
+                then do
                     return winners
                 -- Otherwise do recursive step
                 else do
                     -- If we replace winners, we make for every winner a new element and replace it in the population
-                    nextPop' <- 
-                        if (replaceWinners conf)
-                        then 
+                    nextPop' <-
+                        if replaceWinners conf
+                        then
                             let reducedpop = deleteAll winners nextPop
-                            in do 
+                            in do
                                 replacers <- initialPopulation (length winners)
-                                return (replacers ++ reducedpop) 
+                                return (replacers ++ reducedpop)
                         -- If we don't replace winners, just keep the population
                         else return nextPop
                     -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
@@ -345,24 +354,25 @@ geneticSearch = do
             let iConf = fromJust $ islandConfiguration conf
             -- Check for Timeout
             if currentTime > maxTimeInMS conf
-            then do 
+            then do
                 logStr' INFO "Time Budget used up - ending genetic search"
                 return []
             else do
-                start <- lift $ lift $ lift $ getCurrentTime
-                let currentGen = (iterations conf) - n
-                logStr' DEBUG ("Starting Generation " ++ (show currentGen) ++ " at "++ show start)
+                start <- liftIO getCurrentTime
+                let currentGen = iterations conf - n
+                logStr' DEBUG ("Starting Generation " ++ show currentGen
+                            ++ " at "++ show start)
                 let
                     -- Select the right mechanism according to Configuration (tournament vs. Environment)
                     selectionMechanism =
                         if isJust $ tournamentConfiguration conf
                         then tournamentSelectedGeneration
                         else environmentSelectedGeneration
-                nextGens <- sequence $ fmap selectionMechanism populations
-                end <-  lift $ lift $ lift $ getCurrentTime
+                nextGens <- mapM selectionMechanism populations
+                end <-  liftIO getCurrentTime
 
                     -- Determine Winners (where fitness == 0)
-                winners <- sequence $ fmap (selectWinners 0) nextGens
+                winners <- mapM (selectWinners 0) nextGens
                 let winners' = concat winners
                 -- We calculate the passed generations by substracting current remaining its from total its
                 let passedIterations = iterations conf - n
@@ -374,27 +384,29 @@ geneticSearch = do
                     -- Calculate passed time in ms
                     timediff :: Int
                     timediff = round $ diffUTCTime end start * 1000
-                logStr' INFO ("Finished Generation " ++ (show currentGen) ++ " at "++ show end ++ "(" ++ (show $ length winners) ++" Results)")
+                logStr' INFO ("Finished Generation " ++ show currentGen
+                           ++ " at "++ show end ++ "(" ++ show (length winners)
+                           ++ " Results)")
                 -- End Early when any result is ok
-                if (not $ null winners) && (stopOnResults conf) 
-                then do 
+                if not (null winners) && stopOnResults conf
+                then do
                     return winners'
                 -- Otherwise do recursive step
                 else do
-                    nextPops' <- 
+                    nextPops' <-
                         if not (replaceWinners conf)
                         -- If we don't replace winners, just keep the population
-                        then do 
+                        then do
                             return nextPops
                         -- If we replace winners, we make for every winner a new element and replace it in the population
-                        else 
-                            let 
+                        else
+                            let
                                 reducedPops = map (deleteAll winners') nextPops
                                 -- unlike in non island search, the winners could be on some islands while not on others (obviously)
                                 -- So we have to re-fill the islands individually
-                                numReplacers = map (\pop ->(populationSize conf) - length pop ) reducedPops 
-                            in do 
-                                replacers <- (sequence $ map (\x -> initialPopulation x) numReplacers)
+                                numReplacers = map ((populationSize conf -) . length) reducedPops
+                            in do
+                                replacers <- mapM initialPopulation numReplacers
                                 return (zipWith (++) replacers reducedPops)
                     -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
                     recursiveResults <- islandSearch (n-1) (currentTime + timediff) nextPops
@@ -448,9 +460,9 @@ geneticSearch = do
             -> GenMonad [[g]]       -- ^ The populations after migration, the very best species of every island are duplicated to the receiving island (intended behaviour)
         migrate islandPops = do
             conf <- R.ask
-            gen <- lift $ ST.get
+            gen <- lift ST.get
             let iConf = fromJust $ islandConfiguration conf
-            sortedIslands <- sequence (map sortPopByFitness islandPops)
+            sortedIslands <- mapM sortPopByFitness islandPops
             let
                 -- Select the best M species per island
                 migrators = [take (migrationSize iConf) pop | pop <- sortedIslands]
@@ -465,12 +477,12 @@ geneticSearch = do
             lift $ ST.put gen'
             return newIslands
 
--- | This Method performs mostly the Genetic Search, but it adds some Efix-Specific Post-Processing. 
--- As we wanted to keep the genetic search nicely generic for chromosomes, some methods like minimizing Efixes where not applicable within it. 
--- This is why there is a small wrapper around it. 
--- TODO: Maybe change name ?  
+-- | This Method performs mostly the Genetic Search, but it adds some Efix-Specific Post-Processing.
+-- As we wanted to keep the genetic search nicely generic for chromosomes, some methods like minimizing Efixes where not applicable within it.
+-- This is why there is a small wrapper around it.
+-- TODO: Maybe change name ?
 geneticSearchPlusPostprocessing :: GenMonad [EFix]
-geneticSearchPlusPostprocessing = do 
+geneticSearchPlusPostprocessing = do
     GConf{..} <- R.ask
     -- Step 0: Do the normal search
     results <- geneticSearch
@@ -478,14 +490,13 @@ geneticSearchPlusPostprocessing = do
     -- TODO
     let results' = results
     -- Step 2: Minimize dedubbed Results
-    results'' <- if tryMinimizeFixes
-        then fmap (concat) $ sequence $ map minimizeFix results'
+    if tryMinimizeFixes
+        then concat <$> mapM minimizeFix results'
         else do return results'
-    return results''
 
 sortPopByFitness :: Chromosome g => [g] -> GenMonad [g]
 sortPopByFitness gs = do
-    fitnesses <- mapM (\x-> fitness x) gs
+    fitnesses <- mapM fitness gs
     let
         fitnessedGs = zip fitnesses gs
         -- TODO: Check if this is ascending!
@@ -493,10 +504,11 @@ sortPopByFitness gs = do
         extracted = map snd sorted
     return extracted
 
-selectWinners :: Chromosome g =>
-    Double -> -- ^ Best value to compare with, winners are the ones where fitness equal to this value
-    [g] -> -- ^ The species that might win
-    GenMonad [g] -- ^ the Actual winners
+selectWinners :: Chromosome g
+              => Double -- ^ Best value to compare with, winners are the ones
+                        -- where fitness equal to this value
+              -> [g]    -- ^ The species that might win
+              -> GenMonad [g] -- ^ the Actual winners
 selectWinners _ [] = return []
 selectWinners win (g:gs) = do
     f <- fitness g
@@ -515,7 +527,7 @@ pickNByTournament _ [] = return []
 pickNByTournament n gs = do
     champ <- pickByTournament gs
     recursiveChampions <- pickNByTournament (n-1) gs
-    return ((maybeToList champ) ++ recursiveChampions)
+    return (maybeToList champ ++ recursiveChampions)
 
 -- | Helper to perform mutation on a list of Chromosomes.
 -- For every element, it checks whether to mutate, and if yes it mutates.
@@ -523,11 +535,11 @@ performMutation :: Chromosome g => [g] -> GenMonad [g]
 performMutation [] = return []
 performMutation (g:gs) = do
     GConf{..} <- R.ask
-    gen <- lift $ ST.get
+    gen <- lift ST.get
     let (doMutate,gen') = coin mutationRate gen
     lift $ ST.put gen' -- This must be this early, as mutate needs StdGen too
     doneElement <- if doMutate
-        then (mutate g)
+        then mutate g
         else return g
     recursiveMutated <- performMutation gs
     return (doneElement:recursiveMutated)
@@ -543,7 +555,7 @@ performCrossover [] = return []
 -- Recursive Step: Maybe Crossover first pair (or return id), and merge it with recursive results
 performCrossover (pair:remainders) = do
     GConf{..} <- R.ask
-    gen <- lift $ ST.get
+    gen <- lift ST.get
     let (doCrossOver,gen') = coin crossoverRate gen
     lift $ ST.put gen' -- This must be this early, as mutate needs StdGen too
     recursiveResults <- performCrossover remainders
@@ -582,7 +594,7 @@ pickByTournament population =
         -- Case 3: We are in the last iteration, and do not have a champion.
         -- Have n random elements compete, return best
         pickByTournament n population curChamp = do
-                gen <- lift $ ST.get
+                gen <- lift ST.get
                 GConf{..} <- R.ask
                 let (Just tConf) = tournamentConfiguration
                     tournamentSize = size tConf
@@ -634,10 +646,9 @@ instance Chromosome EFix where
                      cc = compConf
                      prob = progProblem
                      ecfs = Just exprFitCands
-                 possibleFixes <-
-                    lift $ lift $ lift $ repairAttempt cc prob {e_prog = n_prog} ecfs
+                 possibleFixes <- liftIO $ repairAttempt cc prob {e_prog = n_prog} ecfs
                  case pickElementUniform possibleFixes gen of
-                     Nothing -> 
+                     Nothing ->
                         -- No possible fix, meaning we don't have any locations
                         -- to change... which means we've already solved it!
                         -- TODO: is this always the case when we get Nothing
@@ -658,7 +669,7 @@ instance Chromosome EFix where
 
     fitness e1 = computeFitness e1 Nothing
 
-    initialPopulation n = 
+    initialPopulation n =
          do GConf{..} <- R.ask
             let EProb{..} = progProblem
                 cc = compConf
@@ -680,7 +691,7 @@ instance Chromosome EFix where
                      _ <- computeFitness fix (Just fix_res)
                      lift (ST.put gen''')
                      return fix
-                     
+
 
 -- | Compute fitness computes the fitness of an EFix, using the provided
 -- results of checking the fix if available, otherwise running checkFix.
@@ -812,14 +823,13 @@ logStr' :: HasCallStack => LogLevel -> String -> GenMonad ()
 logStr' level str = liftIO $ logStr level str
 
 -- | Deletes a list of elements from another list.
--- > deletaAll [1,2] [1,2,3,4,3,2,1] 
+-- > deletaAll [1,2] [1,2,3,4,3,2,1]
 -- > [3,4,3]
-deleteAll :: Eq a => 
-    [a]         -- ^ the elements to be removed  
+deleteAll :: Eq a =>
+    [a]         -- ^ the elements to be removed
     -> [a]      -- ^ the list of the elements to be removed
     -> [a]
-deleteAll [] bs = bs
-deleteAll (a:as) bs = deleteAll as (delete a bs)
+deleteAll as bs = foldl (flip delete) bs as
 
 -- ===========                 ==============
 -- ===           Random Parts             ===
@@ -892,8 +902,8 @@ getRandomDouble lo hi =
 -- The pair is not removed from the List.
 -- Must be given a List with an even Number of Elements.
 pickRandomPair :: (Eq a, RandomGen g) => [a] -> g -> Maybe ((a,a),g)
-pickRandomPair [] _ = Nothing     -- ^ not supported!
-pickRandomPair [a] _ = Nothing    -- ^ not supported!
+pickRandomPair [] _ = Nothing     -- not supported!
+pickRandomPair [a] _ = Nothing    -- not supported!
 pickRandomPair as g = if even (length as)
     then
         let
