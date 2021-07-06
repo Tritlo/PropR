@@ -1,11 +1,11 @@
 {-|
 Module      : Synth.Gen2
-Description : Holds the (revamped) Genetic Algorithm Parts of HenProg
+Description : Holds the (revamped) Genetic Algorithm Parts of Endemic
 License     : MIT
 Stability   : experimental
 Portability : POSIX
 
-This module holds the (reworked) genetic Algorithm parts of the HenProg Library.
+This module holds the (reworked) genetic Algorithm parts of the Endemic Library.
 The algorithms are more advanced and sophisticated than the initial implementation.
 
 The primary building brick is an EFix (See "Synth.Types") that resembles a set of

@@ -3,7 +3,7 @@
 
 -- |
 -- Module      : Synth.Plugin
--- Description : Moves some of the HenProg into the GHC compilation
+-- Description : Moves some of the Endemic into the GHC compilation
 -- License     : MIT
 -- Stability   : experimental
 -- This module introduces the Synth-Plugin to fasten up checking for the correct

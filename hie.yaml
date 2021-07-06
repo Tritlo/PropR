@@ -7,7 +7,7 @@ cradle:
     - path: "./examples"
       component: "lib:synth"
     - path: "./src/Main.hs"
-      component: "exe:henprog"
+      component: "exe:endemic"
     - path: "./tests/Tests.hs"
       component: "test:test"
     - path: "./tests/SlowTests.hs"

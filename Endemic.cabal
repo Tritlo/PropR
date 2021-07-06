@@ -1,4 +1,4 @@
-name: HenProg
+name: Endemic
 cabal-version: 1.24
 build-type: Simple
 version: 0.0.1
@@ -49,7 +49,7 @@ library synth
                  monad-par-extras >= 0.3 && < 0.4,
                  deepseq >= 1.4 && < 1.5
 
-executable henprog
+executable endemic
   default-language: Haskell2010
   main-is: src/Main.hs
   ghc-options: -threaded -O2

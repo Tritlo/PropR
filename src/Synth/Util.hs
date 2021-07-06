@@ -2,7 +2,7 @@
 
 -- |
 -- Module      : Synth.Util
--- Description : Contains general and other orphaned functions of HenProg
+-- Description : Contains general and other orphaned functions of Endemic
 -- License     : MIT
 -- Stability   : experimental
 -- Your everyday Util file.

@@ -2,11 +2,11 @@
 
 -- |
 -- Module      : Synth.Types
--- Description : Holds the types used throughout the HenProg Library
+-- Description : Holds the types used throughout the Endemic Library
 -- License     : MIT
 -- Stability   : experimental
 --
--- This module holds common / shared types throughout the HenProg library.
+-- This module holds common / shared types throughout the Endemic library.
 -- Prefixes / Naming Convention:
 -- - "R": Unparsed Elements, given by properties e.g. from console input or in
 --        the first steps of test-evaluation

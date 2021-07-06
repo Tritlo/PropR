@@ -1,6 +1,6 @@
-[![Haskell CI](https://github.com/Tritlo/HenProg/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/HenProg/actions/workflows/haskell.yml)
+[![Haskell CI](https://github.com/Tritlo/Endemic/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/Endemic/actions/workflows/haskell.yml)
 
-HenProg: Genetic Program repair using GHC 🐣
+Endemic: Genetic Program repair using GHC 🐣
 ===================
 
 Inspired by GenProg.
@@ -29,7 +29,7 @@ To run the program, ensure that `QuickCheck` is installed by running
 `$ cabal install --lib QuickCheck `. You can then run 
 
 ```
-$ cabal run henprog -- examples/BrokenModule.hs
+$ cabal run endemic -- examples/BrokenModule.hs
 ```
 
 to see it in action on the `foldl (-) 0` example. This produces the following:
@@ -108,7 +108,7 @@ Showing how it works.
 For the `BrokenGCD` module, we get an interesting result:
 
 ```
-$ cabal run henprog -- examples/BrokenGCD.hs
+$ cabal run endemic -- examples/BrokenGCD.hs
 ```
 
 gives us:
@@ -148,7 +148,7 @@ expressions, `1` we synthesize a top-level expression with holes in it, and then
 fill those holes with top-level expressions, for `2` we allow holes in the
 sub-expressions one level deep etc.
 
-To get a better idea of what's going on, you can run HenProg with `--log=<LEVEL>`, where `level` is one of:
+To get a better idea of what's going on, you can run Endemic with `--log=<LEVEL>`, where `level` is one of:
 
 + `DEBUG` to see absolutely everything that's logged,
 + `AUDIT` to see a little less than Debug, but still a lot (this includes e.g. the run-time of hotspots and such)

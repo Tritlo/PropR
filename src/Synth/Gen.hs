@@ -2,11 +2,11 @@
 
 -- |
 -- Module      : Synth.Gen
--- Description : Holds the Genetic Programming Parts of HenProg
+-- Description : Holds the Genetic Programming Parts of Endemic
 -- License     : MIT
 -- Stability   : experimental
 --
--- This module holds simple genetic operators used to find fixes in HenProg. The
+-- This module holds simple genetic operators used to find fixes in Endemic. The
 -- primary building brick is an EFix (See Synth.Types) that resembles a set of
 -- changes done to the Code. The goodness of a certain fix is expressed by the
 -- failing and succeeding properties, which are a list of boolean values (true
