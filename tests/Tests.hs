@@ -13,8 +13,8 @@ import Data.Maybe (isJust, mapMaybe)
 import Data.Tree
 import Data.Tuple (swap)
 import GhcPlugins (GenLocated (L), getLoc, unLoc)
-import Synth.Diff
-import Synth.Eval
+import Endemic.Diff
+import Endemic.Eval
   ( buildTraceCorrel,
     compileParsedCheck,
     defaultConf,
@@ -22,17 +22,16 @@ import Synth.Eval
     runJustParseExpr,
     traceTarget,
   )
-import Synth.Gen (genRepair)
-import Synth.Repair
+import Endemic.Repair
   ( failingProps,
     getExprFitCands,
     propCounterExample,
     repair,
     translate,
   )
-import Synth.Traversals
-import Synth.Types
-import Synth.Util
+import Endemic.Traversals
+import Endemic.Types
+import Endemic.Util
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit

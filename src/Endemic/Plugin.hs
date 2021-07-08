@@ -2,13 +2,13 @@
 {-# LANGUAGE TupleSections #-}
 
 -- |
--- Module      : Synth.Plugin
+-- Module      : Endemic.Plugin
 -- Description : Moves some of the Endemic into the GHC compilation
 -- License     : MIT
 -- Stability   : experimental
--- This module introduces the Synth-Plugin to fasten up checking for the correct
+-- This module introduces the Endemic-Plugin to fasten up checking for the correct
 -- expressions in GHC. It also introduces heuristic caching.
-module Synth.Plugin where
+module Endemic.Plugin where
 
 import Bag
 import Constraint
@@ -19,8 +19,8 @@ import Data.Maybe (isJust)
 import GHC
 import GhcPlugins hiding (TcPlugin)
 import RnExpr
-import Synth.Types
-import Synth.Util (LogLevel (AUDIT, DEBUG), logOut, logStr)
+import Endemic.Types
+import Endemic.Util (LogLevel (AUDIT, DEBUG), logOut, logStr)
 import System.IO.Unsafe (unsafePerformIO)
 import TcExpr
 import TcHoleErrors

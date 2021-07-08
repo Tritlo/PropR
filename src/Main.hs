@@ -15,14 +15,14 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe
 import Data.Tree
 import GhcPlugins (GenLocated (..), getLoc, unLoc, noLoc)
-import Synth.Check
-import Synth.Diff
-import Synth.Eval
-import Synth.Gen
-import Synth.Repair
-import Synth.Traversals
-import Synth.Types
-import Synth.Util
+import Endemic.Check
+import Endemic.Diff
+import Endemic.Eval
+import Endemic.Search.PseudoGenetic
+import Endemic.Repair
+import Endemic.Traversals
+import Endemic.Types
+import Endemic.Util
 import System.CPUTime
 import System.Environment (getArgs)
 import System.IO
@@ -32,7 +32,7 @@ import Text.Printf
 import Trace.Hpc.Mix (BoxLabel (ExpBox))
 import GHC (HsExpr(HsLet), NoExtField)
 import GHC.Hs (NoExtField(NoExtField))
-import Synth.Gen2 (mkDefaultConf, geneticSearch, runGenMonad,geneticSearchPlusPostprocessing)
+import Endemic.Search.Genetic (mkDefaultConf, geneticSearch, runGenMonad,geneticSearchPlusPostprocessing)
 
 -- The time we allow for a check to finish. Measured in microseconds.
 
@@ -205,10 +205,10 @@ main = do
   no_par_gen <- ("--no-par-gen" `elem`) <$> getArgs
   no_par_rep <- ("--no-par-rep" `elem`) <$> getArgs
   no_rep_interpreted <- ("--no-rep-interpreted" `elem`) <$> getArgs
-  let CompConf {genConf = gc, repConf = rp} = cc
+  let CompConf {pseudoGenConf = gc, repConf = rp} = cc
       cc' =
         cc
-          { genConf = gc {genPar = not no_par_gen},
+          { pseudoGenConf = gc {genPar = not no_par_gen},
             repConf =
               rp
                 { repParChecks = not no_par_rep,

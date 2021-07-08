@@ -1,14 +1,14 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
--- Module      : Synth.Util
+-- Module      : Endemic.Util
 -- Description : Contains general and other orphaned functions of Endemic
 -- License     : MIT
 -- Stability   : experimental
 -- Your everyday Util file.
 -- Most of the functions contained are about logging.
 -- This is a pure module.
-module Synth.Util where
+module Endemic.Util where
 
 import Control.Exception (assert)
 import Control.Monad (when)
@@ -26,7 +26,7 @@ import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
 import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
 import SrcLoc
-import Synth.Types
+import Endemic.Types
 import System.CPUTime
 import System.Environment (getArgs)
 import System.IO

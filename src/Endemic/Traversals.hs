@@ -8,7 +8,7 @@
 {-# LANGUAGE UndecidableInstances #-}
 
 -- |
--- Module      : Synth.Traversal
+-- Module      : Endemic.Traversal
 -- Description : Replaces holes in functions with other found expressions.
 -- License     : MIT
 -- Stability   : experimental
@@ -22,7 +22,7 @@
 --
 -- Both happens on a low level, not on the module/compilation level.
 -- This is a pure module.
-module Synth.Traversals where
+module Endemic.Traversals where
 
 import Control.Comonad.Store.Class
 import Control.Lens

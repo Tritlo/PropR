@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module      : Synth.Check
+-- Module      : Endemic.Check
 -- Description : Interfaces the Program and its variants towards QuickCheck.
 -- License     : MIT
 -- Stability   : experimental
@@ -11,7 +11,7 @@
 -- This module handles calls and configurations of QuickCheck.
 -- It only builds the checks - it does not execute them.
 -- This module is a pure module.
-module Synth.Check where
+module Endemic.Check where
 
 import Bag
 import BasicTypes (IntegralLit (..), Origin (..), PromotionFlag (..), SourceText (..))
@@ -21,8 +21,8 @@ import FastString
 import GHC
 import OccName (NameSpace, dataName, mkVarOcc, tcName)
 import RdrName
-import Synth.Types
-import Synth.Util
+import Endemic.Types
+import Endemic.Util
 import TcEvidence (idHsWrapper)
 import TysWiredIn
 

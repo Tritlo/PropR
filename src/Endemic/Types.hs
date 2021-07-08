@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
--- Module      : Synth.Types
+-- Module      : Endemic.Types
 -- Description : Holds the types used throughout the Endemic Library
 -- License     : MIT
 -- Stability   : experimental
@@ -19,7 +19,7 @@
 -- - "Ps": Parsed, as a pass in GHC before compilation
 -- - "Ty": Type
 -- - "Wc": WildCard, for our purposes the "holes"
-module Synth.Types where
+module Endemic.Types where
 
 import Constraint
 import Data.Map (Map)
@@ -92,7 +92,7 @@ data CompileConfig = CompConf
     -- | the "depth" of the wholes, see general notes on this
     hole_lvl :: Int,
     -- | The Configuration for the Genetic Algorithm
-    genConf :: GenConf,
+    pseudoGenConf :: PseudoGenConf,
     -- | The Configuration for the Repair
     repConf :: RepConf
   }
@@ -106,15 +106,13 @@ data RepConf = RepConf
   }
   deriving (Show, Eq, Read)
 
--- | GenConf represents a set of configurations for the Genetic Experiment
-data GenConf = GenConf
+-- | GenConf represents a set of configurations for the Pseudo Genetic Experiment
+data PseudoGenConf = PseudoGenConf
   { -- | The number of individuals in a generation
     genIndividuals :: Int,
     -- | The number of generations processed
     genRounds :: Int,
     -- | Whether or not to use parallelisation in genetic search parts
-    genPar :: Bool,
-    -- | Seed for random mutations
-    genSeed :: Maybe (Vector Word32)
+    genPar :: Bool
   }
   deriving (Show, Eq, Read)

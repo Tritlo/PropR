@@ -3,7 +3,7 @@
 {-# LANGUAGE TupleSections #-}
 
 -- |
--- Module      : Synth.Repair
+-- Module      : Endemic.Repair
 -- Description : Replaces holes in functions with other found expressions.
 -- License     : MIT
 -- Stability   : experimental
@@ -17,7 +17,7 @@
 --   1. An expression and it's (new) hole
 --   2. An expression and it's (possible) fix/patch (where fix means candidate, not
 --      definitely solved)
-module Synth.Repair where
+module Endemic.Repair where
 
 import Bag
 import Constraint
@@ -70,12 +70,12 @@ import GhcPlugins
     tyCoFVsOfType,
   )
 import RnExpr
-import Synth.Check
-import Synth.Diff (colorizeDiff, ppFix)
-import Synth.Eval
-import Synth.Traversals
-import Synth.Types
-import Synth.Util
+import Endemic.Check
+import Endemic.Diff (colorizeDiff, ppFix)
+import Endemic.Eval
+import Endemic.Traversals
+import Endemic.Types
+import Endemic.Util
 import TcExpr
 import TcHoleErrors (HoleFit (..), TypedHole (..))
 import TcSimplify

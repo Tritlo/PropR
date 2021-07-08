@@ -3,7 +3,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module      : Synth.Diff
+-- Module      : Endemic.Diff
 -- Description : This module pretty-prints the output of the repair.
 -- License     : MIT
 -- Stability   : experimental
@@ -14,7 +14,7 @@
 --
 -- Abbreviations:
 -- - pp: PrettyPrint
-module Synth.Diff where
+module Endemic.Diff where
 
 import Bag
 import Control.Arrow
@@ -25,10 +25,10 @@ import Data.Maybe
 import FastString
 import GHC
 import GhcPlugins (Outputable)
-import Synth.Eval
-import Synth.Traversals
-import Synth.Types
-import Synth.Util (showUnsafe)
+import Endemic.Eval
+import Endemic.Traversals
+import Endemic.Types
+import Endemic.Util (showUnsafe)
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
 getFixBinds parsed =

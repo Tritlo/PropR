@@ -12,20 +12,27 @@ license: MIT
 license-file: LICENSE
 
 
-library synth
+library
   default-language: Haskell2010
   ghc-options: -O2
   hs-source-dirs: src/
-  exposed-modules: Synth.Eval,
-                   Synth.Plugin,
-                   Synth.Repair,
-                   Synth.Gen,
-                   Synth.Check,
-                   Synth.Traversals,
-                   Synth.Types,
-                   Synth.Diff,
-                   Synth.Util,
-                   Synth.Gen2
+  exposed-modules: Endemic
+                   Endemic.Eval,
+                   Endemic.Plugin,
+                   Endemic.Repair,
+                   Endemic.Check,
+                   Endemic.Traversals,
+                   Endemic.Types,
+                   Endemic.Diff,
+                   Endemic.Util,
+                   Endemic.Search,
+                   Endemic.Search.PseudoGenetic,
+                   Endemic.Search.Genetic,
+                   Endemic.Search.Genetic.Configuration
+                   Endemic.Search.Genetic.GenMonad,
+                   Endemic.Search.Genetic.Search,
+                   Endemic.Search.Genetic.Types,
+                   Endemic.Search.Genetic.Utils
   build-depends: base >= 4 && < 5,
                  ghc >= 8 && < 9,
                  ghc-boot >= 8 && < 9,
@@ -59,7 +66,7 @@ executable endemic
                  unix >= 2.7.2 && < 2.8,
                  hpc >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
-                 synth
+                 Endemic
 
 test-suite test
   default-language: Haskell2010
@@ -75,7 +82,7 @@ test-suite test
                  containers >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,
-                 synth,
+                 Endemic,
                  -- packages used in repair:
                  QuickCheck
 
@@ -94,6 +101,6 @@ test-suite slow-test
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,
                  vector >= 0.12 && < 0.13,
-                 synth,
+                 Endemic,
                  -- packages used in repair:
                  QuickCheck

@@ -8,7 +8,7 @@
 {-# LANGUAGE TypeFamilies #-}
 
 -- |
--- Module      : Synth.Eval
+-- Module      : Endemic.Eval
 -- Description : Contains most parts that directly rely on GHC Compilation
 -- License     : MIT
 -- Stability   : experimental
@@ -21,7 +21,7 @@
 -- 2. Compiling given expression and their types, e.g. to check for hole fits later
 -- 3. Finding Candidates for Genetic Programming
 -- 4. Configuration for this and other parts of the project
-module Synth.Eval where
+module Endemic.Eval where
 
 -- GHC API
 
@@ -74,11 +74,11 @@ import HscTypes (SourceError, srcErrorMessages)
 import Outputable hiding (char)
 import PrelNames (mkMainModule, toDynName)
 import StringBuffer
-import Synth.Check
-import Synth.Plugin
-import Synth.Traversals
-import Synth.Types
-import Synth.Util
+import Endemic.Check
+import Endemic.Plugin
+import Endemic.Traversals
+import Endemic.Types
+import Endemic.Util
 import System.Directory
 import System.Environment
 import System.Exit
@@ -136,12 +136,11 @@ defaultConf =
     { hole_lvl = 0,
       packages = ["base", "process", "QuickCheck"],
       importStmts = ["import Prelude"],
-      genConf =
-        GenConf
+      pseudoGenConf =
+        PseudoGenConf
           { genIndividuals = 4,
             genRounds = 5,
-            genPar = True,
-            genSeed = Nothing
+            genPar = True
           },
       repConf = RepConf {repParChecks = True, repUseInterpreted = True}
     }

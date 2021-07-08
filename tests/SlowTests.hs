@@ -6,12 +6,12 @@ module Main where
 
 import Data.Maybe (isJust, mapMaybe)
 import Data.Vector (fromList)
-import Synth.Diff (applyFixes, getFixBinds, ppDiff)
-import Synth.Eval
-import Synth.Gen (genRepair)
-import Synth.Traversals
-import Synth.Types
-import Synth.Util
+import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
+import Endemic.Eval
+import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
+import Endemic.Traversals
+import Endemic.Types
+import Endemic.Util
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -27,9 +27,8 @@ genTests =
     [ localOption (mkTimeout 120_000_000) $
         testCase "Repair TwoFixes" $ do
           let dcc = defaultConf
-              gc = genConf dcc
-              ngc = gc {genSeed = Just $ fromList (replicate 256 42)}
-              cc = dcc {genConf = ngc}
+              gc = pseudoGenConf dcc
+              cc = dcc {pseudoGenConf = gc}
               toFix = "tests/TwoFixes.hs"
               repair_target = Nothing
               expected =
@@ -44,16 +43,15 @@ genTests =
                   ]
 
           (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- genRepair cc' tp
+          fixes <- pseudoGeneticRepair cc' tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 75_000_000) $
         testCase "Repair ThreeFixes" $ do
           let dcc = defaultConf
-              gc = genConf dcc
-              ngc = gc {genSeed = Just $ fromList (replicate 256 42)}
-              cc = dcc {genConf = ngc}
+              gc = pseudoGenConf dcc
+              cc = dcc {pseudoGenConf = gc}
               toFix = "tests/ThreeFixes.hs"
               repair_target = Nothing
               expected =
@@ -68,16 +66,15 @@ genTests =
                   ]
 
           (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- genRepair cc' tp
+          fixes <- pseudoGeneticRepair cc' tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 90_000_000) $
         testCase "Repair FourFixes" $ do
           let dcc = defaultConf
-              gc = genConf dcc
-              ngc = gc {genSeed = Just $ fromList (replicate 256 42)}
-              cc = dcc {genConf = ngc}
+              gc = pseudoGenConf dcc
+              cc = dcc {pseudoGenConf = gc}
               toFix = "tests/FourFixes.hs"
               repair_target = Nothing
               expected =
@@ -92,7 +89,7 @@ genTests =
                   ]
 
           (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- genRepair cc' tp
+          fixes <- pseudoGeneticRepair cc' tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected

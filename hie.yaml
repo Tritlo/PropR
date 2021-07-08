@@ -1,11 +1,13 @@
 cradle:
   cabal:
-    - path: "./src/Synth"
-      component: "lib:synth"
+    - path: "./src/Endemic"
+      component: "lib:endemic"
+    - path: "./src/Endemic/Search"
+      component: "lib:endemic"
     - path: "./tests"
-      component: "lib:synth"
+      component: "lib:endemic"
     - path: "./examples"
-      component: "lib:synth"
+      component: "lib:endemic"
     - path: "./src/Main.hs"
       component: "exe:endemic"
     - path: "./tests/Tests.hs"

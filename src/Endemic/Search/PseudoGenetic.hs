@@ -1,17 +1,18 @@
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
--- Module      : Synth.Gen
--- Description : Holds the Genetic Programming Parts of Endemic
+-- Module      : Endemic.Search.PseudoGen
+-- Description : Holds the PseudoGenetic Programming Parts of Endemic
 -- License     : MIT
 -- Stability   : experimental
 --
 -- This module holds simple genetic operators used to find fixes in Endemic. The
--- primary building brick is an EFix (See Synth.Types) that resembles a set of
+-- primary building brick is an EFix (See Endemic.Types) that resembles a set of
 -- changes done to the Code. The goodness of a certain fix is expressed by the
 -- failing and succeeding properties, which are a list of boolean values (true
 -- for passing properties, false for failing).
-module Synth.Gen where
+module Endemic.Search.PseudoGenetic
+    ( pseudoGeneticRepair ) where
 
 import Control.Concurrent.Async
 import Data.Function (on)
@@ -22,12 +23,11 @@ import Data.Ord
 import qualified Data.Set as Set
 import GHC
 import GhcPlugins (isSubspanOf, noLoc)
-import Synth.Eval
-import Synth.Repair
-import Synth.Traversals
-import Synth.Types
-import Synth.Util
-import System.Random.MWC
+import Endemic.Eval
+import Endemic.Repair
+import Endemic.Traversals
+import Endemic.Types
+import Endemic.Util
 
 -- |
 --   An Individual consists of a "Fix", that is a change to be applied,
@@ -45,7 +45,7 @@ fitness = fromIntegral . length . filter id . snd
 -- |
 --   This method computes the estimated fitness of the offspring of two individuals.
 --   WARNING: The fitness of the offspring is only estimated, not evaluated.
-complementary :: GenConf -> Individual -> Individual -> Float
+complementary :: PseudoGenConf -> Individual -> Individual -> Float
 complementary gc a b = avg $ map fitness $ crossover gc a b
 
 individuals :: [(EFix, Either [Bool] Bool)] -> [Individual]
@@ -59,15 +59,15 @@ individuals = mapMaybe fromHelpful
 -- descending order.  I.E. the first element of the returned list will be the pair
 -- of individuals that produces the offspring with the best fitness.
 -- TODO: remove self-pairing, atleast if self-mating does not affect the fix
-makePairings :: GenConf -> [Individual] -> [(Individual, Individual)]
+makePairings :: PseudoGenConf -> [Individual] -> [(Individual, Individual)]
 makePairings gc indivs =
   sortOn (Down . uncurry (complementary gc)) $
     [(x, y) | (x : ys) <- tails indivs, y <- ys]
 
 -- TODO: Better heuristics
-pruneGeneration :: GenConf -> [Individual] -> [Individual]
-pruneGeneration GenConf {..} new_gen =
-  -- genIndividuals is the number of individuals pro generation, and is provided in GenConf
+pruneGeneration :: PseudoGenConf -> [Individual] -> [Individual]
+pruneGeneration PseudoGenConf {..} new_gen =
+  -- genIndividuals is the number of individuals pro generation, and is provided in PseudoGenConf
   take genIndividuals $ mapMaybe isFit new_gen
   where
     avg_fitness :: Float
@@ -84,7 +84,7 @@ successful = filter (\(_, r) -> r == Right True)
 --   The assumed properties of the offspring are the logically-or'd properties of
 --   the input individuals.
 --   WARNING: The assumed property-fullfillment is a heuristic.
-crossover :: GenConf -> Individual -> Individual -> [Individual]
+crossover :: PseudoGenConf -> Individual -> Individual -> [Individual]
 crossover _ i1 i2 = [breed i1 i2, breed i2 i1]
   where
     -- lor = logical or
@@ -95,18 +95,8 @@ crossover _ i1 i2 = [breed i1 i2, breed i2 i1]
     lor (_ : xs) (_ : ys) = True : lor xs ys
     lor [] [] = []
 
-mutation :: GenConf -> GenIO -> [Individual] -> IO [Individual]
-mutation gc rand_gen inds = do
-  r <- uniformR (0, length inds -1) rand_gen
-  -- TODO: Make configureable, e.g. how often, and such. This is very crude
-  return [inds !! r]
-
-selection :: GenConf -> GenIO -> [Individual] -> IO [Individual]
-selection gc rand_gen indivs = do
-  let new_gen = pruneGeneration gc de_duped
-  mut <- mutation gc rand_gen de_duped
-  -- TODO: There's something weird going on with the deduping here
-  return $ deDupOn (Map.keys . fst) (new_gen ++ mut)
+selection :: PseudoGenConf -> [Individual] -> IO [Individual]
+selection gc indivs = pure $ pruneGeneration gc de_duped
   where
     -- Compute the offsprigns of the best pairings
     pairings :: [Individual]
@@ -114,19 +104,10 @@ selection gc rand_gen indivs = do
     -- Deduplicate the pairings
     de_duped = deDupOn (Map.keys . fst) pairings
 
-genRepair :: CompileConfig -> EProblem -> IO [EFix]
-genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
+pseudoGeneticRepair :: CompileConfig -> EProblem -> IO [EFix]
+pseudoGeneticRepair cc@CompConf {pseudoGenConf = gc@PseudoGenConf {..}} prob@EProb {..} = do
   efcs <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
   first_attempt <- collectStats $ repairAttempt cc prob (Just efcs)
-  -- initialize generator
-  seed <- case genSeed of
-    -- TODO: This will return the same number again and again
-    Just gs -> return $ toSeed gs
-    _ -> do
-      s <- createSystemSeed
-      logStr INFO $ "Using seed " ++ show s
-      return s
-  rand_gen <- restore seed
   if not $ null $ successful first_attempt
     then return (map fst $ successful first_attempt)
     else do
@@ -144,7 +125,7 @@ genRepair cc@CompConf {genConf = gc@GenConf {..}} prob@EProb {..} = do
           loop _ rounds | rounds >= genRounds = return []
           loop attempt rounds = do
             let gen = individuals attempt
-            new_gen <- selection gc rand_gen gen
+            new_gen <- selection gc gen
             let ga = avg $ map fitness gen
                 nga = avg $ map fitness new_gen
             logStr INFO $ "GENERATION " ++ show rounds
