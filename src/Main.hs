@@ -4,35 +4,23 @@
 
 module Main where
 
-import Control.Arrow
-import Control.Concurrent
-import Control.Monad (filterM, when)
-import Data.Dynamic
-import Data.IORef
-import Data.List
+import Control.Monad (when)
+import Data.IORef (IORef, atomicModifyIORef', readIORef)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe
-import Data.Tree
-import GhcPlugins (GenLocated (..), getLoc, unLoc, noLoc)
-import Endemic.Check
+import Endemic.Check (buildSuccessCheck, checkImports)
 import Endemic.Diff
 import Endemic.Eval
-import Endemic.Search.PseudoGenetic
-import Endemic.Repair
-import Endemic.Traversals
+import Endemic.Repair (detranslate, getExprFitCands, translate)
+import Endemic.Search.Genetic.Configuration (mkDefaultConf)
+import Endemic.Search.Genetic.GenMonad (runGenMonad)
+import Endemic.Search.Genetic.Search (geneticSearchPlusPostprocessing)
+import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
-import System.CPUTime
+import GHC (HsExpr (HsLet), NoExtField (..))
+import GhcPlugins (noLoc)
 import System.Environment (getArgs)
-import System.IO
-import System.Process
-import Text.ParserCombinators.ReadP
-import Text.Printf
-import Trace.Hpc.Mix (BoxLabel (ExpBox))
-import GHC (HsExpr(HsLet), NoExtField)
-import GHC.Hs (NoExtField(NoExtField))
-import Endemic.Search.Genetic (mkDefaultConf, geneticSearch, runGenMonad,geneticSearchPlusPostprocessing)
 
 -- The time we allow for a check to finish. Measured in microseconds.
 

@@ -11,30 +11,27 @@
 -- changes done to the Code. The goodness of a certain fix is expressed by the
 -- failing and succeeding properties, which are a list of boolean values (true
 -- for passing properties, false for failing).
-module Endemic.Search.PseudoGenetic
-    ( pseudoGeneticRepair ) where
+module Endemic.Search.PseudoGenetic (pseudoGeneticRepair) where
 
-import Control.Concurrent.Async
+import Control.Concurrent.Async (mapConcurrently)
 import Data.Function (on)
-import Data.List (groupBy, nub, sortOn, tails)
+import Data.List (groupBy, sortOn, tails)
 import qualified Data.Map as Map
 import Data.Maybe (mapMaybe)
-import Data.Ord
+import Data.Ord (Down (Down))
 import qualified Data.Set as Set
-import GHC
-import GhcPlugins (isSubspanOf, noLoc)
-import Endemic.Eval
-import Endemic.Repair
-import Endemic.Traversals
+import Endemic.Repair (getExprFitCands, repairAttempt)
+import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
+import GHC (HsExpr (HsLet), NoExtField (NoExtField))
+import GhcPlugins (isSubspanOf, noLoc)
 
 -- |
 --   An Individual consists of a "Fix", that is a change to be applied,
 --   and a list of properties they fulfill or fail, expressed as an boolean array.
 --   A perfect candidate would have an array full of true, as every property is hold.
 type Individual = (EFix, [Bool])
-
 
 -- |
 --   This fitness is currently simply counting the hold properties.

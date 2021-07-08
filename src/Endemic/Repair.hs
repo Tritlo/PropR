@@ -19,66 +19,32 @@
 --      definitely solved)
 module Endemic.Repair where
 
-import Bag
+import Bag (bagToList, emptyBag, listToBag)
 import Constraint
-  ( Ct (..),
-    WantedConstraints,
-    ctPred,
-    holeOcc,
-    isHoleCt,
-    wc_simple,
-  )
-import Control.Monad (filterM, unless, when)
 import qualified CoreUtils
-import Data.Bifunctor
+import Data.Bifunctor (Bifunctor (first))
 import Data.Dynamic (fromDyn)
-import Data.Either
+import Data.Either (lefts)
 import Data.IORef (writeIORef)
 import Data.List (intercalate, sortOn)
 import qualified Data.Map as Map
-import Data.Maybe
-import Data.Set (Set)
+import Data.Maybe (catMaybes, fromJust, mapMaybe)
 import qualified Data.Set as Set
 import Data.Tree (flatten)
-import Desugar
-import FV
-import GHC
-import GHC.Paths (libdir)
-import GHC.Stack
-import GhcPlugins
-  ( HasCallStack,
-    HscEnv (hsc_IC),
-    InteractiveContext (ic_default),
-    OccName (..),
-    PluginWithArgs (..),
-    RdrName (..),
-    StaticPlugin (..),
-    VarSet,
-    appPrec,
-    concatFS,
-    fsLit,
-    getRdrName,
-    intersectVarSet,
-    isEmptyVarSet,
-    liftIO,
-    mkOccNameFS,
-    mkVarUnqual,
-    nameOccName,
-    occName,
-    showSDocUnsafe,
-    substTyWith,
-    tyCoFVsOfType,
-  )
-import RnExpr
+import Desugar (deSugarExpr)
 import Endemic.Check
-import Endemic.Diff (colorizeDiff, ppFix)
 import Endemic.Eval
-import Endemic.Traversals
+import Endemic.Traversals (fillHole, flattenExpr, sanctifyExpr)
 import Endemic.Types
 import Endemic.Util
-import TcExpr
-import TcHoleErrors (HoleFit (..), TypedHole (..))
-import TcSimplify
+import FV (fvVarSet)
+import GHC
+import GHC.Paths (libdir)
+import GhcPlugins
+import RnExpr (rnLExpr)
+import TcExpr (tcInferSigma)
+import TcHoleErrors (HoleFit (..))
+import TcSimplify (captureTopConstraints)
 
 -- | Provides a GHC without a ic_default set.
 -- IC is short for Interactive-Context (ic_default is set to empty list).

@@ -24,14 +24,25 @@
 -- This is a pure module.
 module Endemic.Traversals where
 
-import Control.Comonad.Store.Class
-import Control.Lens
-import Data.Data
-import Data.Data.Lens
+import Control.Comonad.Store.Class (ComonadStore (peek, pos))
+import Control.Lens (Plated (..), contexts, transform, universe)
+import Data.Data (Data)
+import Data.Data.Lens (uniplate)
 import Data.List (intercalate)
 import Data.Map (Map, member, (!))
-import Data.Maybe (listToMaybe, mapMaybe)
 import GHC
+  ( GenLocated (L),
+    GhcPs,
+    HsExpr (HsUnboundVar, HsVar),
+    LHsExpr,
+    SrcSpan (..),
+    UnboundVar (TrueExprHole),
+    noExtField,
+    srcSpanEndCol,
+    srcSpanEndLine,
+    srcSpanStartCol,
+    srcSpanStartLine,
+  )
 import GhcPlugins
   ( HasOccName (occName),
     OccName (occNameFS, occNameSpace),

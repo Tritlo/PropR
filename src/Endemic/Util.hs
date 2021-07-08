@@ -12,24 +12,23 @@ module Endemic.Util where
 
 import Control.Exception (assert)
 import Control.Monad (when)
-import Control.Monad.IO.Class
+import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bifunctor (second)
 import Data.Bits
 import Data.Char (isSpace, toUpper)
-import Data.Function (on)
-import Data.IORef
-import Data.List (groupBy, intercalate, sort)
+import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
+import Data.List (intercalate)
 import qualified Data.Map as Map
+import Endemic.Types (EExpr, EType)
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
 import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
 import SrcLoc
-import Endemic.Types
-import System.CPUTime
+import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
-import System.IO
+import System.IO (hFlush, stdout)
 import Text.Printf (printf)
 
 progAtTy :: EExpr -> EType -> EExpr

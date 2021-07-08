@@ -25,75 +25,47 @@ module Endemic.Eval where
 
 -- GHC API
 
-import Bag
+import Bag (bagToList, listToBag, unitBag)
 import Constraint (Ct (..), holeOcc)
-import Control.Concurrent.Async
+import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (when, (>=>))
-import Control.Monad.IO.Class (liftIO)
 import qualified Data.Bifunctor
 import Data.Bits (complement)
 import Data.Char (isAlphaNum)
-import Data.Data
-import Data.Dynamic
-import Data.Either
+import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
-import Data.IORef
-import Data.List
+import Data.IORef (IORef, newIORef, readIORef)
+import Data.List (groupBy, intercalate, partition)
 import qualified Data.Map as Map
-import Data.Maybe
+import Data.Maybe (catMaybes, isNothing, mapMaybe)
 import qualified Data.Set as Set
-import Data.Time.Clock
-import Data.Tree
-import Debug.Trace (traceShow)
-import DriverPhases (Phase (..))
+import Data.Time.Clock (getCurrentTime)
+import Data.Tree (Tree (Node, rootLabel))
 import DynFlags
-import ErrUtils (errDocImportant, errDocSupplementary, errMsgDoc)
+import Endemic.Check
+import Endemic.Plugin (synthPlug)
+import Endemic.Traversals (flattenExpr)
+import Endemic.Types
+import Endemic.Util
 import GHC
 import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
-import GHC.Stack (HasCallStack)
-import GhcPlugins
-  ( HscEnv (hsc_IC),
-    HscSource (..),
-    InteractiveContext (ic_default),
-    OccName (..),
-    PluginWithArgs (..),
-    StaticPlugin (..),
-    concatFS,
-    fsLit,
-    getRdrName,
-    interactiveSrcLoc,
-    mkOccName,
-    mkOccNameFS,
-    mkVarUnqual,
-    occName,
-    occNameString,
-    substTyWith,
-  )
-import HscTypes (SourceError, srcErrorMessages)
-import Outputable hiding (char)
+import GhcPlugins hiding (exprType)
 import PrelNames (mkMainModule, toDynName)
-import StringBuffer
-import Endemic.Check
-import Endemic.Plugin
-import Endemic.Traversals
-import Endemic.Types
-import Endemic.Util
-import System.Directory
-import System.Environment
-import System.Exit
-import System.FilePath
-import System.IO
+import StringBuffer (stringToStringBuffer)
+import System.Directory (createDirectoryIfMissing)
+import System.Environment ()
+import System.Exit (ExitCode (ExitFailure, ExitSuccess))
+import System.FilePath (dropExtension, takeFileName)
+import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
 import System.Posix.Signals
 import System.Process
-import System.Timeout
+import System.Timeout (timeout)
 import TcHoleErrors (HoleFit (..), TypedHole (..))
-import Text.Read (readMaybe)
 import Trace.Hpc.Mix
-import Trace.Hpc.Tix
-import Trace.Hpc.Util
-import TysWiredIn (unitTy)
+import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix)
+import Trace.Hpc.Util (HpcPos, fromHpcPos)
 
 -- Configuration and GHC setup
 

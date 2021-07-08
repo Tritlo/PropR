@@ -13,18 +13,16 @@
 -- This module is a pure module.
 module Endemic.Check where
 
-import Bag
+import Bag (listToBag, unionManyBags, unitBag)
 import BasicTypes (IntegralLit (..), Origin (..), PromotionFlag (..), SourceText (..))
-import Data.List (intercalate)
-import Data.Maybe
-import FastString
+import Data.Maybe (mapMaybe)
+import Endemic.Types (EExpr, EProblem (..), EProp)
+import Endemic.Util (progAtTy)
+import FastString (fsLit)
 import GHC
 import OccName (NameSpace, dataName, mkVarOcc, tcName)
-import RdrName
-import Endemic.Types
-import Endemic.Util
+import RdrName (mkUnqual, mkVarUnqual)
 import TcEvidence (idHsWrapper)
-import TysWiredIn
 
 -- TODO: Give a seed for reproducible experiments & tests.
 

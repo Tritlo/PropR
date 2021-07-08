@@ -16,19 +16,19 @@
 -- - pp: PrettyPrint
 module Endemic.Diff where
 
-import Bag
-import Control.Arrow
-import Control.Exception
+import Bag (bagToList)
+import Control.Arrow ()
+import Control.Exception (assert)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe
-import FastString
+import Data.Maybe (mapMaybe)
+import Endemic.Eval ()
+import Endemic.Traversals (replaceExpr)
+import Endemic.Types (EFix, RFix)
+import Endemic.Util (showUnsafe)
+import FastString (unpackFS)
 import GHC
 import GhcPlugins (Outputable)
-import Endemic.Eval
-import Endemic.Traversals
-import Endemic.Types
-import Endemic.Util (showUnsafe)
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
 getFixBinds parsed =

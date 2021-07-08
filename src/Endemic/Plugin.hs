@@ -10,22 +10,18 @@
 -- expressions in GHC. It also introduces heuristic caching.
 module Endemic.Plugin where
 
-import Bag
+import Bag (unionBags)
 import Constraint
 import Control.Monad (filterM)
-import Data.IORef
+import Data.IORef (modifyIORef, newIORef, readIORef)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
-import GHC
-import GhcPlugins hiding (TcPlugin)
-import RnExpr
-import Endemic.Types
-import Endemic.Util (LogLevel (AUDIT, DEBUG), logOut, logStr)
+import Endemic.Types (ExprFitCand (..))
+import Endemic.Util (LogLevel (DEBUG), logOut, logStr)
+import GhcPlugins
 import System.IO.Unsafe (unsafePerformIO)
-import TcExpr
 import TcHoleErrors
 import TcRnMonad
-import TcRnTypes
 import TyCoFVs (tyCoFVsOfTypes)
 
 -- We're running the same checks over and over again, so we make the (possibly

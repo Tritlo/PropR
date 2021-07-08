@@ -21,14 +21,11 @@
 -- - "Wc": WildCard, for our purposes the "holes"
 module Endemic.Types where
 
-import Constraint
+import Constraint (Cts)
 import Data.Map (Map)
-import Data.Vector (Vector)
-import Data.Word (Word32)
 import GHC
-import Outputable
+import Outputable (Outputable (ppr), text)
 import qualified Outputable as O
-import System.Random.MWC (Seed)
 
 -- |
 -- Properties as in QuickCheck Properties.  Properties are strings, for now. We
