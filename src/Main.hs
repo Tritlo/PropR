@@ -59,14 +59,13 @@ synthesizeSatisfying cc depth ioref context props ty = do
                 -- This ends the "GENERATING CANDIDATES..." message.
                 case mono_ty of
                   Nothing -> do
-                    putStrLn "FAILED!"
-                    putStrLn $ "COULD NOT MONOMORPHISE " ++ ty
-                    putStrLn "THIS MEANS QUICKCHECKS CANNOT BE DONE!"
+                    logStr INFO " Failed to generate !"
+                    logStr INFO $ "could not monomorphise " ++ ty ++ " - this means QuickCheck cannot be done"
                     return []
                   Just mty -> do
-                    putStrLn "DONE!"
-                    putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
-                    putStr' "COMPILING CANDIDATE CHECKS..."
+                    logStr DEBUG "Done monomorphising!"
+                    logStr DEBUG $ "generated " ++ show lv ++ " candaidates!"
+                    logStr DEBUG $ "compiling candidate checks..."
                     let imps' = checkImports ++ importStmts cc
                         cc'' = (cc {hole_lvl = 0, importStmts = imps'})
                         to_check_probs = map (rprob mty) cands
@@ -84,8 +83,8 @@ synthesizeSatisfying cc depth ioref context props ty = do
                     --        Just typ -> return $ map (bcat typ) cands
                     --        Nothing -> genCandTys cc' bcat cands
                     to_check <- zip cands <$> compileParsedChecks cc'' to_check_exprs
-                    putStrLn "DONE!"
-                    putStr' ("CHECKING " ++ show lv ++ " CANDIDATES...")
+                    logStr DEBUG "done compiling candidates"
+                    logStr DEBUG ("checking " ++ show lv ++ " candidates...")
                     fits <-
                       mapM
                         ( \(i, (v, c)) ->
@@ -94,7 +93,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                               (v,) . (Right True ==) <$> runCheck c
                         )
                         $ zip [1 :: Int ..] to_check
-                    putStrLn "DONE!"
+                    logStr DEBUG  "Done Checking candidates"
                     logStr INFO $ show inp ++ " fits done!"
                     let res = map fst $ filter snd fits
                     return res
@@ -121,7 +120,6 @@ synthesizeSatisfying cc depth ioref context props ty = do
       where
         combinations :: [[String]] -> [[String]]
         combinations [] = [[]]
-        -- List monad magic
         combinations (c : cs) = do
           x <- c
           xs <- combinations cs
@@ -146,8 +144,8 @@ getFlags = do
       synth_debug = "-fdebug" `Map.member` args
       repair_target = tail <$> args Map.!? "-ftarget"
 
-  when (synth_holes < 0) (error "NUMBER OF HOLES CANNOT BE NEGATIVE!")
-  when (synth_depth < 0) (error "DEPTH CANNOT BE NEGATIVE!")
+  when (synth_holes < 0) (error "Number of Holes cannot be negative")
+  when (synth_depth < 0) (error "Depth cannot be negative")
   return $ SFlgs {..}
 
 -- All the packages here need to be *globally* available. We should fix this
@@ -176,21 +174,21 @@ main = do
   (cc, modul, probs) <- moduleToProb cc_orig toFix repair_target
   let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
       RProb {..} = detranslate tp
-  putStrLn "TARGET:"
-  putStrLn ("  `" ++ r_target ++ "` in " ++ toFix)
-  putStrLn "SCOPE:"
-  mapM_ (putStrLn . ("  " ++)) (importStmts cc)
-  putStrLn "TARGET TYPE:"
-  putStrLn $ "  " ++ r_ty
-  putStrLn "MUST SATISFY:"
-  mapM_ (putStrLn . ("  " ++)) r_props
-  putStrLn "IN CONTEXT:"
-  mapM_ (putStrLn . ("  " ++)) r_ctxt
-  putStrLn "PARAMETERS:"
-  putStrLn $ "  MAX HOLES: " ++ show synth_holes
-  putStrLn $ "  MAX DEPTH: " ++ show synth_depth
-  putStrLn "PROGRAM TO REPAIR: "
-  putStrLn $ showUnsafe e_prog
+  logStr INFO "Target:"
+  logStr INFO ("  `" ++ r_target ++ "` in " ++ toFix)
+  logStr DEBUG "Scope:"
+  mapM_ (logStr DEBUG . ("  " ++)) (importStmts cc)
+  logStr INFO "Target Type:"
+  logStr INFO $ "  " ++ r_ty
+  logStr INFO "Must Satisfy:"
+  mapM_ (logStr INFO . ("  " ++)) r_props
+  logStr DEBUG "In Context:"
+  mapM_ (logStr DEBUG . ("  " ++)) r_ctxt
+  logStr DEBUG "Parameters:"
+  logStr DEBUG $ "  Max Holes: " ++ show synth_holes
+  logStr DEBUG $ "  Max Depth: " ++ show synth_depth
+  logStr INFO "Program to Repair: "
+  logStr INFO $ showUnsafe e_prog
 
   no_par_gen <- ("--no-par-gen" `elem`) <$> getArgs
   no_par_rep <- ("--no-par-rep" `elem`) <$> getArgs
@@ -205,7 +203,7 @@ main = do
                   repUseInterpreted = not no_rep_interpreted
                 }
           }
-  putStrLn "REPAIRING..."
+  logStr INFO "Repairing..."
   expr_fit_cands <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
   let gconf = mkDefaultConf 64 50 tp cc' expr_fit_cands
   (t, fixes) <- time $ runGenMonad gconf 69420 geneticSearchPlusPostprocessing
