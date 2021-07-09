@@ -67,7 +67,7 @@ logLevel = do
 -- provided by libraries, but we didn't want to introduce a dependency for
 -- 6 lines of code (this is not JS).
 split :: Eq a => a -> [a] -> [[a]]
-split a [] = []
+split _ [] = []
 split a as =
   t : case r of
     [] -> []
@@ -165,13 +165,13 @@ insertAt n a (x : xs) = x : insertAt (n -1) a xs
 
 -- | Transforms time given in ns (as measured by "time") into a string
 showTime :: Integer -> String
-showTime time =
+showTime time_i =
   if res > 1000
     then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
     else show res ++ "ms"
   where
     res :: Integer
-    res = floor $ fromIntegral time * 1e-9
+    res = floor $ fromIntegral time_i * (1e-9 :: Double)
 
 -- | Stopwatch for a given function, measures the time taken by a given act.
 time :: MonadIO m => m a -> m (Integer, a)

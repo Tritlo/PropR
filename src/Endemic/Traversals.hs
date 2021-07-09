@@ -31,28 +31,7 @@ import Data.Data.Lens (uniplate)
 import Data.List (intercalate)
 import Data.Map (Map, member, (!))
 import GHC
-  ( GenLocated (L),
-    GhcPs,
-    HsExpr (HsUnboundVar, HsVar),
-    LHsExpr,
-    SrcSpan (..),
-    UnboundVar (TrueExprHole),
-    noExtField,
-    srcSpanEndCol,
-    srcSpanEndLine,
-    srcSpanStartCol,
-    srcSpanStartLine,
-  )
 import GhcPlugins
-  ( HasOccName (occName),
-    OccName (occNameFS, occNameSpace),
-    concatFS,
-    fsLit,
-    isOneLineSpan,
-    mkOccNameFS,
-    mkVarOcc,
-    unpackFS,
-  )
 
 -- We use lenses to avoid having to manually write the traversals.
 instance Data (HsExpr id) => Plated (LHsExpr id) where
@@ -82,7 +61,7 @@ sanctifyExpr = map repl . contexts
         (L loc expr) = pos ctxt
         hole = HsUnboundVar noExtField $ TrueExprHole name
         name = case expr of
-          HsVar x (L _ v) ->
+          HsVar _ (L _ v) ->
             let (ns, fs) = (occNameSpace (occName v), occNameFS (occName v))
              in mkOccNameFS ns (concatFS $ fsLit "_" : [fs, fsLit $ locToStr loc])
           _ -> mkVarOcc $ "_" ++ locToStr loc

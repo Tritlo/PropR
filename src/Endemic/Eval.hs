@@ -54,7 +54,6 @@ import GhcPlugins hiding (exprType)
 import PrelNames (mkMainModule, toDynName)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing)
-import System.Environment ()
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import System.FilePath (dropExtension, takeFileName)
 import System.IO (Handle, hClose, hGetLine, openTempFile)
@@ -69,6 +68,7 @@ import Trace.Hpc.Util (HpcPos, fromHpcPos)
 
 -- Configuration and GHC setup
 
+holeFlags :: [GeneralFlag]
 holeFlags =
   [ Opt_ShowHoleConstraints,
     Opt_ShowProvOfHoleFits,
@@ -77,6 +77,7 @@ holeFlags =
     Opt_ShowTypeOfHoleFits
   ]
 
+setFlags :: [GeneralFlag]
 setFlags = [Opt_Hpc]
 
 config :: Int -> DynFlags -> DynFlags
@@ -135,10 +136,10 @@ initGhcCtxt' ::
   -- | The experiment configuration
   [ExprFitCand] ->
   Ghc (IORef [(TypedHole, [HoleFit])])
-initGhcCtxt' useCache CompConf {..} local_exprs = do
+initGhcCtxt' use_cache CompConf {..} local_exprs = do
+  -- First we have to add "base" to scope
   flags <- config hole_lvl <$> getSessionDynFlags
   --`dopt_set` Opt_D_dump_json
-  -- First we have to add "base" to scope
   plugRef <- liftIO $ newIORef []
   let flags' =
         flags
@@ -151,11 +152,11 @@ initGhcCtxt' useCache CompConf {..} local_exprs = do
         StaticPlugin $
           PluginWithArgs
             { paArguments = [],
-              paPlugin = synthPlug useCache local_exprs plugRef
+              paPlugin = synthPlug use_cache local_exprs plugRef
             }
-  toLink <- setSessionDynFlags flags'
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
-  --(hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
+  toLink <- setSessionDynFlags flags'
+  -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
   imports <- mapM (fmap IIDecl . parseImportDecl) importStmts
   getContext >>= setContext . (imports ++)
@@ -192,13 +193,13 @@ getHoleFitsFromError ::
   SourceError ->
   Ghc (Either [ValsAndRefs] b)
 getHoleFitsFromError plugRef err = do
-  flags <- getSessionDynFlags
   dbg <- liftIO hasDebug
   when dbg $ printException err
   res <- liftIO $ readIORef plugRef
   when (null res) (printException err)
   let gs = groupBy (sameHole `on` fst) res
       allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)
+      allFitsOfHole [] = error "no-fits!"
       valsAndRefs = map ((partition part . snd) . allFitsOfHole) gs
   return $ Left valsAndRefs
   where
@@ -219,9 +220,9 @@ monomorphiseType cc ty =
     let pp = showSDoc flags . ppr
     nothingOnError (pp . mono <$> exprType TM_Default ("undefined :: " ++ ty))
   where
-    mono ty = substTyWith tvs (replicate (length tvs) unitTy) base_ty
+    mono ty' = substTyWith tvs (replicate (length tvs) unitTy) base_ty
       where
-        (tvs, base_ty) = splitForAllTys ty
+        (tvs, base_ty) = splitForAllTys ty'
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
@@ -242,7 +243,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     _ <- load LoadAllTargets
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
     -- Retrieve the parsed module
-    mod@ParsedModule {..} <- getModSummary mname >>= parseModule
+    modul@ParsedModule {..} <- getModSummary mname >>= parseModule
     let (L _ HsModule {..}) = pm_parsed_source
         cc' = cc {importStmts = importStmts ++ imps'}
           where
@@ -300,12 +301,11 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                   }
             _ -> Nothing
           where
-            fix_target = t_name
             isTDef (L _ (SigD _ (TypeSig _ ids _))) = t_name `elem` map unLoc ids
             isTDef (L _ (ValD _ FunBind {..})) = t_name == unLoc fun_id
             isTDef _ = False
             -- We get the type of the program
-            getTType (L _ (SigD _ ts@(TypeSig _ ids sig)))
+            getTType (L _ (SigD _ ts@(TypeSig _ ids _)))
               | t_name `elem` map unLoc ids = Just ts
             getTType _ = Nothing
             -- takes prop :: t ==> prop' :: target_type -> t since our
@@ -314,18 +314,18 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             wrapProp :: LHsBind GhcPs -> LHsBind GhcPs
             wrapProp (L l fb@FunBind {..}) = L l fb {fun_id = nfid, fun_matches = nmatches fun_matches}
               where
-                mkFid (L l (Unqual occ)) = L l (Unqual (nocc occ))
-                mkFid (L l (Qual m occ)) = L l (Qual m (nocc occ))
+                mkFid (L l' (Unqual occ)) = L l' (Unqual (nocc occ))
+                mkFid (L l' (Qual m occ)) = L l' (Qual m (nocc occ))
                 nfid = mkFid fun_id
                 nocc o = mkOccName (occNameSpace o) $ insertAt 4 '\'' $ occNameString o
-                nmatches mg@MG {mg_alts = (L l alts)} = mg {mg_alts = L l $ map nalt alts}
+                nmatches mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
                   where
-                    nalt (L l m@Match {..}) = L l m {m_pats = nvpat : m_pats, m_ctxt = n_ctxt}
+                    nalt (L l'' m@Match {..}) = L l'' m {m_pats = nvpat : m_pats, m_ctxt = n_ctxt}
                       where
                         n_ctxt =
                           case m_ctxt of
-                            fh@FunRhs {mc_fun = L l _} ->
-                              fh {mc_fun = L l $ unLoc nfid}
+                            fh@FunRhs {mc_fun = L l''' _} ->
+                              fh {mc_fun = L l''' $ unLoc nfid}
                             o -> o
                     nvpat = noLoc $ VarPat NoExtField $ noLoc t_name
             wrapProp e = e
@@ -340,23 +340,23 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               (pt : _) -> Just pt
               _ -> Nothing
             prog_ty :: Sig GhcPs -> EType
-            prog_ty prog_sig = sig
+            prog_ty prog_sig' = sig
               where
-                (TypeSig _ _ sig) = prog_sig
+                (TypeSig _ _ sig) = prog_sig'
             wp_expr :: Sig GhcPs -> LHsExpr GhcPs
-            wp_expr prog_sig = noLoc $ HsLet noExtField (noLoc lbs) (noLoc le)
+            wp_expr prog_sig' = noLoc $ HsLet noExtField (noLoc lbs) (noLoc le)
               where
                 le = HsVar noExtField $ noLoc t_name
                 lbs =
                   HsValBinds noExtField $
-                    ValBinds noExtField prog_binds [noLoc prog_sig]
+                    ValBinds noExtField prog_binds [noLoc prog_sig']
         probs = case mb_target of
           Just t ->
             case getTarget (mkVarUnqual $ fsLit t) of
               Just r -> [r]
               _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
           Nothing -> mapMaybe getTarget fix_targets
-    return (cc', mod, probs)
+    return (cc', modul, probs)
 
 -- Create a fake base loc for a trace.
 fakeBaseLoc :: CompileConfig -> EExpr -> IO SrcSpan
@@ -402,15 +402,13 @@ traceTargets ::
 traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   let tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
-  (tf, handle) <- openTempFile tempDir "FakeTarget.hs"
+  (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   -- We generate the name of the module from the temporary file
-  let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
+  let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
       modTxt = exprToTraceModule cc mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
-      m_name = mkModuleName mname
-      mod = IIModule m_name
-      exeName = dropExtension tf
+      exeName = dropExtension the_f
       mixFilePath = tempDir
 
   logStr DEBUG modTxt
@@ -418,19 +416,20 @@ traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   -- only needs to exist. Otherwise we would have to write something like
   -- `hPutStr handle modTxt`
   hClose handle
-  liftIO $ mapM (logStr DEBUG) $ lines modTxt
+  _ <- liftIO $ mapM (logStr DEBUG) $ lines modTxt
   runGhc (Just libdir) $ do
-    plugRef <- initGhcCtxt cc
+    _ <- initGhcCtxt cc
     -- We set the module as the main module, which makes GHC generate
     -- the executable.
     dynFlags <- getSessionDynFlags
-    setSessionDynFlags $
-      dynFlags
-        { mainModIs = mkMainModule $ fsLit mname,
-          hpcDir = "./fake_targets"
-        }
+    _ <-
+      setSessionDynFlags $
+        dynFlags
+          { mainModIs = mkMainModule $ fsLit mname,
+            hpcDir = "./fake_targets"
+          }
     now <- liftIO getCurrentTime
-    let tid = TargetFile tf Nothing
+    let tid = TargetFile the_f Nothing
         target = Target tid True $ Just (strBuff, now)
 
     -- Adding and loading the target causes the compilation to kick
@@ -441,7 +440,7 @@ traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
     -- the run function so that it use the trace reflect functionality
     -- to timeout and dump the tix file if possible.
     let runTrace which = liftIO $ do
-          let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+          let tixFilePath = exeName ++ "_" ++ show @Integer which ++ ".tix"
           (_, _, _, ph) <-
             createProcess
               (proc exeName [show which])
@@ -453,13 +452,14 @@ traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
 
           let -- If it doesn't respond to signals, we can't do anything
               -- other than terminate
-              loop ec 0 = terminateProcess ph
-              loop ec n = when (isNothing ec) $ do
+              loop :: Maybe ExitCode -> Integer -> IO ()
+              loop _ 0 = terminateProcess ph
+              loop exit_code n = when (isNothing exit_code) $ do
                 -- If it's taking too long, it's probably stuck in a loop.
                 -- By sending the right signal though, it will dump the tix
                 -- file before dying.
-                pid <- getPid ph
-                case pid of
+                mb_pid <- getPid ph
+                case mb_pid of
                   Just pid ->
                     do
                       signalProcess keyboardSignal pid
@@ -479,7 +479,7 @@ traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
               -- the properties and the main function, and only look at
               -- the ticks for our expression
               [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
-              return $ Just (fmap (Data.Bifunctor.first (toFakeSpan tf root)) n)
+              return $ Just (fmap (Data.Bifunctor.first (toFakeSpan the_f root)) n)
             _ -> return Nothing
     removeTarget tid
     let (checks, _) = unzip $ zip [0 ..] ps_w_ce
@@ -488,16 +488,15 @@ traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
     toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
     toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
       createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
-    isTarget Node {rootLabel = (root, [(TopLevelBox ["fake_target"], _)])} =
-      True
+    isTarget Node {rootLabel = (_, [(TopLevelBox ["fake_target"], _)])} = True
     isTarget _ = False
     -- We convert the HpcPos to the equivalent span we would get if we'd
     -- parsed and compiled the expression directly.
     toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
-    toFakeSpan tf root sp = mkSrcSpan start end
+    toFakeSpan the_f root sp = mkSrcSpan start end
       where
-        fname = fsLit $ takeFileName tf
-        (rsl, rsc, rel, rec) = fromHpcPos root
+        fname = fsLit $ takeFileName the_f
+        (_, _, rel, rec) = fromHpcPos root
         eloff = rel - srcSpanEndLine realSpan
         ecoff = rec - srcSpanEndCol realSpan
         (sl, sc, el, ec) = fromHpcPos sp
@@ -570,7 +569,7 @@ compileParsedCheck cc expr = runGhc (Just libdir) $ do
 compileParsedChecks :: HasCallStack => CompileConfig -> [EExpr] -> IO [CompileRes]
 compileParsedChecks cc exprs = runGhc (Just libdir) $ do
   _ <- initGhcCtxt (cc {hole_lvl = 0})
-  mapM (\exp -> ((Right <$>) . dynCompileParsedExpr) `reportOnError` exp) exprs
+  mapM (reportOnError ((Right <$>) . dynCompileParsedExpr)) exprs
 
 -- | Adapted from dynCompileExpr in InteractiveEval
 dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic
@@ -588,7 +587,7 @@ dynCompileParsedExpr parsed_expr = do
 --  To do so, it first needs to compile the code.
 genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
 genCandTys cc bcat cands = runGhc (Just libdir) $ do
-  initGhcCtxt (cc {hole_lvl = 0})
+  _ <- initGhcCtxt (cc {hole_lvl = 0})
   flags <- getSessionDynFlags
   catMaybes
     <$> mapM
@@ -607,7 +606,7 @@ timeoutVal = fromIntegral qcTime
 -- There is some error or infinite loop.
 -- Left bs indicates that the properties as ordered by bs are the ones that hold
 runCheck :: Either [ValsAndRefs] Dynamic -> IO (Either [Bool] Bool)
-runCheck (Left l) = return (Right False)
+runCheck (Left _) = return (Right False)
 runCheck (Right dval) =
   -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
   -- can get more information, but then there can be a mismatch of *which*
@@ -618,14 +617,14 @@ runCheck (Right dval) =
     Nothing -> do
       logStr WARN "wrong type!!"
       return (Right False)
-    Just res -> do
+    Just fd_res -> do
       -- We need to forkProcess here, since we might be evaulating
       -- non-yielding infinte expressions (like `last (repeat head)`), and
       -- since they never yield, we can't do forkIO and then stop that thread.
       -- If we could ensure *every library* was compiled with -fno-omit-yields
       -- we could use lightweight threads, but that is a very big restriction,
       -- especially if we want to later embed this into a plugin.
-      pid <- forkProcess (proc res)
+      pid <- forkProcess (proc' fd_res)
       res <- timeout timeoutVal (getProcessStatus True False pid)
       case res of
         Just (Just (Exited ExitSuccess)) -> return $ Right True
@@ -640,7 +639,7 @@ runCheck (Right dval) =
         -- Anything else and we have no way to tell what went wrong.
         _ -> return $ Right False
   where
-    proc action = do
+    proc' action = do
       res <- action
       exitImmediately $
         if and res
@@ -679,16 +678,16 @@ readHole hf@HoleFit {..} =
 -- TODO: DOCUMENT
 -- When does it return an empty list?
 checkFixes :: CompileConfig -> EProblem -> [EExpr] -> IO [Either [Bool] Bool]
-checkFixes cc tp@EProb {..} fixes = do
+checkFixes cc tp fixes = do
   let CompConf {repConf = RepConf {..}} = cc
       tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
-  (tf, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
+  (the_f, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
   -- We generate the name of the module from the temporary file
-  let mname = filter isAlphaNum $ dropExtension $ takeFileName tf
+  let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       modTxt = exprToCheckModule cc mname tp fixes
       strBuff = stringToStringBuffer modTxt
-      exeName = dropExtension tf
+      exeName = dropExtension the_f
   -- mixFilePath = tempDir
 
   logStr DEBUG modTxt
@@ -696,25 +695,26 @@ checkFixes cc tp@EProb {..} fixes = do
   -- only needs to exist. Otherwise we would have to write something like
   -- `hPutStr handle modTxt`
   hClose handle
-  liftIO $ mapM (logStr DEBUG) $ lines modTxt
+  liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
   runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc
     -- We set the module as the main module, which makes GHC generate
     -- the executable.
     dynFlags <- getSessionDynFlags
-    setSessionDynFlags $
-      flip (foldl gopt_unset) setFlags $ -- Remove the HPC
-        dynFlags
-          { mainModIs = mkMainModule $ fsLit mname,
-            mainFunIs = Just "main__",
-            hpcDir = "./fake_targets",
-            ghcMode = if repUseInterpreted then CompManager else OneShot,
-            ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
-            hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
-            --optLevel = 2
-          }
+    _ <-
+      setSessionDynFlags $
+        flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+          dynFlags
+            { mainModIs = mkMainModule $ fsLit mname,
+              mainFunIs = Just "main__",
+              hpcDir = "./fake_targets",
+              ghcMode = if repUseInterpreted then CompManager else OneShot,
+              ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
+              hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
+              --optLevel = 2
+            }
     now <- liftIO getCurrentTime
-    let tid = TargetFile tf Nothing
+    let tid = TargetFile the_f Nothing
         target = Target tid True $ Just (strBuff, now)
 
     -- Adding and loading the target causes the compilation to kick
@@ -740,7 +740,7 @@ checkFixes cc tp@EProb {..} fixes = do
           ec <- timeout timeoutVal $ waitForProcess ph
           case ec of
             Nothing -> terminateProcess ph >> return (Right False)
-            Just res -> do
+            Just _ -> do
               res <- hGetLine hout
               let parsed = mapMaybe p res
               return $
@@ -752,7 +752,6 @@ checkFixes cc tp@EProb {..} fixes = do
     if repUseInterpreted
       then do
         let m_name = mkModuleName mname
-            all_wrong = replicate (length fixes) $ Right False
             checkArr arr = if and arr then Right True else Left arr
         setContext [IIDecl $ simpleImportDecl m_name]
         checks_expr <- compileExpr "checks__"
@@ -771,7 +770,7 @@ checkFixes cc tp@EProb {..} fixes = do
             else collectStats $ mapM (startCheck >=> waitOnCheck) inds
 
 exprToCheckModule :: CompileConfig -> String -> EProblem -> [EExpr] -> RExpr
-exprToCheckModule CompConf {..} mname tp@EProb {..} fixes =
+exprToCheckModule CompConf {..} mname tp fixes =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts

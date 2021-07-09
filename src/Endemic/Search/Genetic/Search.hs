@@ -57,7 +57,6 @@ geneticSearch = collectStats $ do
             ++ " Generations with a population of "
             ++ show (populationSize conf)
         )
-      let minimize = tryMinimizeFixes conf
       -- Create Initial Population
       firstPop <- collectStats $ initialPopulation (populationSize conf)
       logStr' DEBUG "Finished creating initial population, starting search"
@@ -240,7 +239,7 @@ geneticSearch = collectStats $ do
                           replacers <- mapM initialPopulation numReplacers
                           return (zipWith (++) replacers reducedPops)
               -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
-              recursiveResults <- islandSearch (n -1) (currentTime + timediff) nextPops
+              recursiveResults <- islandSearch (n -1) (currentTime + timediff) nextPops'
               return (winners' ++ recursiveResults)
     environmentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]
     environmentSelectedGeneration pop = do
@@ -250,7 +249,7 @@ geneticSearch = collectStats $ do
           (parents, gen') = partitionInPairs pop gen
       -- Perform Crossover
       children <- performCrossover parents
-      let children' = [a | (a, b) <- children] ++ [b | (a, b) <- children]
+      let children' = uncurry (++) $ unzip children
       putGen gen'
       -- For every new baby, coinFlip whether to mutate, mutate if true
       mutated_children <- performMutation children'
@@ -270,7 +269,7 @@ geneticSearch = collectStats $ do
           (parents, gen') = partitionInPairs champions gen
       children <- performCrossover parents
       putGen gen'
-      let children' = [a | (a, b) <- children] ++ [b | (a, b) <- children]
+      let children' = uncurry (++) $ unzip children
       -- Unlike Environment Selection, in Tournament the "Elitism" is done passively in the Tournament
       -- The Parents are not merged and selected later, they are just discarded
       -- In concept, well fit parents will make it through the tournament twice, keeping their genes anyway.
@@ -354,7 +353,7 @@ performMutation :: Chromosome g => [g] -> GenMonad [g]
 performMutation gs = do
   GConf {..} <- R.ask
   flips <- mapM (\g -> (g,) <$> tossCoin mutationRate) gs
-  let (to_mutate_w_inds, rest_w_inds) = partition (snd . snd) $ zip [0 ..] flips
+  let (to_mutate_w_inds, rest_w_inds) = partition (snd . snd) $ zip [0 :: Int ..] flips
       (rest_inds, rest) = map fst <$> unzip rest_w_inds
       (tm_inds, to_mutate) = map fst <$> unzip to_mutate_w_inds
   res <- mutateMany to_mutate
@@ -371,7 +370,7 @@ performCrossover :: Chromosome g => [(g, g)] -> GenMonad [(g, g)]
 performCrossover pairs = do
   GConf {..} <- R.ask
   flips <- mapM (\g -> (g,) <$> tossCoin crossoverRate) pairs
-  let (to_crossover_w_inds, rest_w_inds) = partition (snd . snd) $ zip [0 ..] flips
+  let (to_crossover_w_inds, rest_w_inds) = partition (snd . snd) $ zip [0 :: Int ..] flips
       (rest_inds, rest) = map fst <$> unzip rest_w_inds
       (tc_inds, to_crossover) = map fst <$> unzip to_crossover_w_inds
   res <- crossoverMany to_crossover

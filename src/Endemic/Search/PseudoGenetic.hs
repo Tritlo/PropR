@@ -86,11 +86,12 @@ crossover _ i1 i2 = [breed i1 i2, breed i2 i1]
   where
     -- lor = logical or
     breed :: Individual -> Individual -> Individual
-    breed i1@(f1, r1) i2@(f2, r2) = (f1 `mergeFixes` f2, lor r1 r2)
+    breed (f1, r1) (f2, r2) = (f1 `mergeFixes` f2, lor r1 r2)
     lor :: [Bool] -> [Bool] -> [Bool]
     lor (False : xs) (False : ys) = False : lor xs ys
     lor (_ : xs) (_ : ys) = True : lor xs ys
     lor [] [] = []
+    lor _ _ = error "crossover length mismatch!"
 
 selection :: PseudoGenConf -> [Individual] -> IO [Individual]
 selection gc indivs = pure $ pruneGeneration gc de_duped
@@ -114,10 +115,10 @@ pseudoGeneticRepair cc@CompConf {pseudoGenConf = gc@PseudoGenConf {..}} prob@EPr
             map (\(f, r) -> (f `mergeFixes` fix, r))
               <$> collectStats (repairAttempt cc prob {e_prog = n_prog} (Just efcs))
           loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO [EFix]
-          loop gen round
+          loop gen n
             | not (null $ successful gen) =
               do
-                logStr INFO $ "Repair found after " ++ show round ++ " rounds!"
+                logStr INFO $ "Repair found after " ++ show n ++ " rounds!"
                 return $ deDupOn Map.keys $ map fst $ successful gen
           loop _ rounds | rounds >= genRounds = return []
           loop attempt rounds = do
@@ -146,7 +147,7 @@ avg :: Fractional a => [a] -> a
 avg as = sum as / fromIntegral (length as)
 
 deDupOn :: (Eq b, Ord b) => (a -> b) -> [a] -> [a]
-deDupOn f as = map snd $ filter (\(i, a) -> i `Set.member` grouped) zas
+deDupOn f as = map snd $ filter ((`Set.member` grouped) . fst) zas
   where
     zas = zip [(0 :: Int) ..] as
     zbs = zip [(0 :: Int) ..] $ map f as

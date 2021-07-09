@@ -17,12 +17,10 @@
 module Endemic.Diff where
 
 import Bag (bagToList)
-import Control.Arrow ()
 import Control.Exception (assert)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
-import Endemic.Eval ()
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types (EFix, RFix)
 import Endemic.Util (showUnsafe)
@@ -97,7 +95,6 @@ ppDiff (L o1 d, L o2 d') =
       toOut diffs
     )
   where
-    toL sym = map (sym :) . lines . showUnsafe
     diffs = zip (lines $ showUnsafe d) (lines $ showUnsafe d')
     toOut :: [(String, String)] -> [String]
     toOut [] = []
@@ -109,12 +106,12 @@ ppDiff (L o1 d, L o2 d') =
       f : _ -> ' ' : if length f > 33 then take 30 f ++ "..." else f
       _ -> ""
     range (RealSrcSpan rs1) (RealSrcSpan rs2) =
-      "@@ " ++ '-' : show s1 ++ ',' : d ++ ' ' : '+' : show s2 ++ ',' : d ++ " @@" ++ header
+      "@@ " ++ '-' : show s1 ++ ',' : d'' ++ ' ' : '+' : show s2 ++ ',' : d'' ++ " @@" ++ header
       where
-        d = show $ length diffs
+        d'' = show $ length diffs
         s1 = srcSpanStartLine rs1
         s2 = srcSpanStartLine rs2
     -- Just a default
-    range _ _ = "@@ -" ++ d ++ " +" ++ d ++ " @@" ++ header
+    range _ _ = "@@ -" ++ d'' ++ " +" ++ d'' ++ " @@" ++ header
       where
-        d = show $ length diffs
+        d'' = show $ length diffs

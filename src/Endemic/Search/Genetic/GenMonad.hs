@@ -57,16 +57,15 @@ instance Chromosome EFix where
     GConf {..} <- R.ask
     gen <- getGen
     flips <- mapM (\e -> (e,) . (not (Map.null e) &&) <$> tossCoin dropRate) exprs
-    let (to_drop_w_inds, to_mutate_w_inds) = partition (snd . snd) $ zip [0 ..] flips
+    let (to_drop_w_inds, to_mutate_w_inds) = partition (snd . snd) $ zip [0 :: Int ..] flips
         (to_mutate_inds, to_mutate) = map fst <$> unzip to_mutate_w_inds
         (to_drop_inds, to_drop) = map fst <$> unzip to_drop_w_inds
-        drop :: EFix -> StdGen -> EFix
-        drop e g =
-          let ks = Map.keys e
-              Just (key_to_drop, _) = pickElementUniform (Map.keys e) g
+        drop' :: EFix -> StdGen -> EFix
+        drop' e g =
+          let Just (key_to_drop, _) = pickElementUniform (Map.keys e) g
            in Map.delete key_to_drop e
         (gen' : gens) = splitGenList gen
-        dropped = zipWith drop to_drop gens
+        dropped = zipWith drop' to_drop gens
 
         EProb {..} = progProblem
         prog_at_ty = progAtTy e_prog e_ty
@@ -75,8 +74,8 @@ instance Chromosome EFix where
         ecfs = Just exprFitCands
         n_progs = map (`replaceExpr` prog_at_ty) to_mutate
         (gen'' : gens') = splitGenList gen'
-        selection ((p, pFixes), gen) =
-          case pickElementUniform pFixes gen of
+        selection ((p, pFixes), generation) =
+          case pickElementUniform pFixes generation of
             -- No possible fix, meaning we don't have any locations
             -- to change... which means we've already solved it!
             -- TODO: is this always the case when we get Nothing
@@ -106,7 +105,7 @@ instance Chromosome EFix where
     fc <- getCache
     let lookups :: [(EFix, Maybe Double)]
         lookups = map (\e -> (e,) $ fc Map.!? e) exprs
-        (done_w_inds, to_compute_w_inds) = partition (isJust . snd . snd) $ zip [0 ..] lookups
+        (done_w_inds, to_compute_w_inds) = partition (isJust . snd . snd) $ zip [0 :: Int ..] lookups
         (to_compute_inds, to_compute) = map fst <$> unzip to_compute_w_inds
         (done_inds, done) = map (\(d, Just r) -> (d, r)) <$> unzip done_w_inds
     if null to_compute
@@ -130,8 +129,7 @@ instance Chromosome EFix where
   initialPopulation n = collectStats $
     do
       GConf {..} <- R.ask
-      let EProb {..} = progProblem
-          cc = compConf
+      let cc = compConf
           prob = progProblem
           ecfs = Just exprFitCands
       possibleFixes <- liftIO $ repairAttempt cc prob ecfs
@@ -164,10 +162,9 @@ basicFitness mf fix_res =
 -- The Efixes are transformed to a list and for each chromosome a crossover point is selected.
 -- Then the Efixes are re-combined by their genes according to the selected crossover point.
 efixCrossover :: EFix -> EFix -> GenMonad (EFix, EFix)
-efixCrossover a b = do
-  GConf {..} <- R.ask
+efixCrossover f_a f_b = do
   gen <- getGen
-  let (aGenotypes, bGenotypes) = (Map.toList a, Map.toList b)
+  let (aGenotypes, bGenotypes) = (Map.toList f_a, Map.toList f_b)
       (crossedAs, crossedBs, gen') = crossoverLists gen aGenotypes bGenotypes
   putGen gen'
   return (Map.fromList crossedAs, Map.fromList crossedBs)
@@ -211,7 +208,7 @@ minimizeFix :: EFix -> GenMonad [EFix]
 minimizeFix bigFix = do
   fitnesses <- fitnessMany candidateFixes
   let fitnessedCandidates = zip fitnesses candidateFixes
-      reducedWinners = filter (\(f, c) -> f == 0) fitnessedCandidates
+      reducedWinners = filter ((== 0) . fst) fitnessedCandidates
       reducedWinners' = map snd reducedWinners
   return reducedWinners'
   where

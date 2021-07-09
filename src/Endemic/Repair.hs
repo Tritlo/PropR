@@ -94,12 +94,9 @@ justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), Wante
 justTcExpr cc parsed = do
   _ <- initGhcCtxt cc
   hsc_env <- getSession
-  ((wm, em), res) <- liftIO $
-    runTcInteractive hsc_env $
-      captureTopConstraints $
-        do
-          (rn_e, fv) <- rnLExpr parsed
-          tcInferSigma rn_e
+  (_, res) <-
+    liftIO $
+      runTcInteractive hsc_env $ captureTopConstraints $ rnLExpr parsed >>= tcInferSigma . fst
   return res
 
 -- | We get the type of the given expression by desugaring it and getting the type
@@ -123,7 +120,7 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
     mapMaybe' :: (a -> Maybe b) -> [a] -> [(a, b)]
     mapMaybe' _ [] = []
     mapMaybe' f (a : as) = (case f a of Just b -> ((a, b) :); _ -> id) $ mapMaybe' f as
-    res = map (\(e, (l, r)) -> ([(l, e)], r)) (mapMaybe' (`fillHole` e) first_hole_fit)
+    res = map (\(e', (l, r)) -> ([(l, e')], r)) (mapMaybe' (`fillHole` e) first_hole_fit)
     (first_fit_locs_and_e, first_fit_res) = unzip res
     rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
     -- addL = Add Left, adds the gien expression at any lefthand side of the expressions existing
@@ -175,7 +172,7 @@ getExprFitCands ::
   IO [ExprFitCand]
 getExprFitCands cc expr = runGhc (Just libdir) $ do
   -- setSessionDynFlags reads the package database.
-  setSessionDynFlags =<< getSessionDynFlags
+  _ <- setSessionDynFlags =<< getSessionDynFlags
   -- If it type checks, we can use the expression
   mb_tcd_context <- justTcExpr cc expr
   let esAndNames =
@@ -219,14 +216,14 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
     -- mention any typve variable in the type.
     relevantCts :: Type -> [Ct] -> [Ct]
     relevantCts expr_ty simples =
-      if isEmptyVarSet (fvVarSet expr_fvs)
+      if isEmptyVarSet (fvVarSet expr_fvs')
         then []
         else filter isRelevant simples
       where
         ctFreeVarSet :: Ct -> VarSet
         ctFreeVarSet = fvVarSet . tyCoFVsOfType . ctPred
-        expr_fvs = tyCoFVsOfType expr_ty
-        expr_fv_set = fvVarSet expr_fvs
+        expr_fvs' = tyCoFVsOfType expr_ty
+        expr_fv_set = fvVarSet expr_fvs'
         anyFVMentioned :: Ct -> Bool
         anyFVMentioned ct =
           not $
@@ -259,7 +256,7 @@ failingProps cc ep@EProb {..} = do
   ran <- runCheck compiled_check
   case ran of
     -- Some of the props are failing:
-    Left p -> return $ map fst $ filter (\(p, c) -> not c) $ zip e_props p
+    Left p -> return $ map fst $ filter (not . snd) $ zip e_props p
     -- None of the props are failing:
     Right True -> return []
     -- One of the props is causing an error/infinite loop, so we need
@@ -271,7 +268,7 @@ failingProps cc ep@EProb {..} = do
         [prop] -> return [prop]
         -- Otherwise, we split the props into two sets, and check each
         -- split individually.
-        xs -> do
+        _ -> do
           let fp :: [EProp] -> IO [EProp]
               fp ps = failingProps cc ep {e_props = ps}
               ps1, ps2 :: [EProp]
@@ -337,17 +334,17 @@ repairAttempt cc tp@EProb {..} efcs = collectStats $ do
   -- We then remove suggested holes that are unlikely to help (naively for now
   -- in the sense that we remove only holes which did not get evaluated at all,
   -- so they are definitely not going to matter).
-  let non_zero = filter (\(src, n) -> n > 0) invokes
+  let non_zero = filter ((> 0) . snd) invokes
       non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
       non_zero_holes :: [(SrcSpan, LHsExpr GhcPs)]
-      non_zero_holes = filter (\(l, e) -> l `Set.member` non_zero_src) holey_exprs
+      non_zero_holes = filter ((`Set.member` non_zero_src) . fst) holey_exprs
       addContext = snd . fromJust . flip fillHole holeyContext . unLoc
       nzh = map snd non_zero_holes
 
   fits <- collectStats $ zip nzh <$> getHoleFits cc expr_cands (map addContext nzh)
   -- We process the fits ourselves, since we might have some expression fits
   let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
-      processFit hf@HoleFit {..} =
+      processFit HoleFit {..} =
         return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
         where
           -- NukeExact copied from RdrName

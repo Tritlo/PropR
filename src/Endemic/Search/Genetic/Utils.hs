@@ -79,7 +79,7 @@ coin th gen =
 -- Or in terms of Island Evolution to find Islands that swap Individuals.
 partitionInPairs :: (Eq a, RandomGen g) => [a] -> g -> ([(a, a)], g)
 partitionInPairs [] g = ([], g)
-partitionInPairs [a] g = ([], g)
+partitionInPairs [_] g = ([], g)
 partitionInPairs as g =
   let nextPair = pickRandomPair as g
    in case nextPair of
@@ -100,9 +100,7 @@ shuffle as g =
 
 -- | Picks n random elements from u, can give duplicates (intentional behavior)
 pickRandomElements :: (RandomGen g, Eq a) => Int -> g -> [a] -> ([a], g)
-
-pickRandomElement 0 g _ = ([], g)
-
+pickRandomElements 0 g _ = ([], g)
 pickRandomElements _ g [] = ([], g)
 pickRandomElements n g as =
   let (asShuffled, g') = shuffle as g
@@ -115,7 +113,7 @@ pickRandomElements n g as =
 -- Must be given a List with an even Number of Elements.
 pickRandomPair :: (Eq a, RandomGen g) => [a] -> g -> Maybe ((a, a), g)
 pickRandomPair [] _ = Nothing -- not supported!
-pickRandomPair [a] _ = Nothing -- not supported!
+pickRandomPair [_] _ = Nothing -- not supported!
 pickRandomPair as g =
   if even (length as)
     then

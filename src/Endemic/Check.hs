@@ -51,16 +51,17 @@ qcArgsExpr shrinks =
     chatty :: LHsRecUpdField GhcPs
     chatty = rupd "chatty" (unLoc $ tfn dataName "False")
     maxShrinks :: Integer -> LHsRecUpdField GhcPs
-    maxShrinks shrinks =
+    maxShrinks n =
       rupd
         "maxShrinks"
-        (HsLit NoExtField (HsInt NoExtField $ IL NoSourceText False shrinks))
+        (HsLit NoExtField (HsInt NoExtField $ IL NoSourceText False n))
 
 -- | Time to run the QuickCheck in seconds
 qcTime :: Integer
 qcTime = 1_000_000
 
 -- | This imports are required for the program to run.
+checkImports :: [[Char]]
 checkImports = ["import Test.QuickCheck", "import System.Environment (getArgs)"]
 
 -- | Looks up the given Name in a LHsExpr
@@ -255,9 +256,6 @@ propCheckExpr extractor prop =
                           )
                 )
       )
-  where
-    tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
-    il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 
 -- | The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument
@@ -294,7 +292,7 @@ buildCounterExampleCheck
         L l m {m_grhss = grhs {grhssGRHSs = bs'}}
         where
           bs' = map aW bs
-          aW g@(L l (GRHS x h b)) = L l (GRHS x h b')
+          aW (L l' (GRHS x h b)) = L l' (GRHS x h b')
             where
               b' =
                 noLoc $
@@ -404,3 +402,4 @@ buildCounterExampleCheck
             )
             idHsWrapper
             []
+buildCounterExampleCheck _ _ = error "invalid counter-example format!"

@@ -40,7 +40,7 @@ synthesizeSatisfying _ depth _ _ _ _ | depth < 0 = return []
 synthesizeSatisfying cc depth ioref context props ty = do
   let inp = (cc, depth, context, ty, props)
   sM <- readIORef ioref
-  case sM Map.!? (show inp) of
+  case sM Map.!? show inp of
     Just res -> logStr INFO ("Found " ++ show inp ++ "!") >> return res
     Nothing -> do
       logStr INFO $ "Synthesizing " ++ show inp
@@ -68,7 +68,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                     putStrLn $ "GENERATED " ++ show lv ++ " CANDIDATES!"
                     putStr' "COMPILING CANDIDATE CHECKS..."
                     let imps' = checkImports ++ importStmts cc
-                        cc' = (cc {hole_lvl = 0, importStmts = imps'})
+                        cc'' = (cc {hole_lvl = 0, importStmts = imps'})
                         to_check_probs = map (rprob mty) cands
                     to_check_exprs <-
                       mapM
@@ -83,7 +83,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                     --    case mono_ty of
                     --        Just typ -> return $ map (bcat typ) cands
                     --        Nothing -> genCandTys cc' bcat cands
-                    to_check <- zip cands <$> compileParsedChecks cc' to_check_exprs
+                    to_check <- zip cands <$> compileParsedChecks cc'' to_check_exprs
                     putStrLn "DONE!"
                     putStr' ("CHECKING " ++ show lv ++ " CANDIDATES...")
                     fits <-
@@ -93,7 +93,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
                               logStr INFO (show i ++ "/" ++ show lv ++ ": " ++ v)
                               (v,) . (Right True ==) <$> runCheck c
                         )
-                        $ zip [1 ..] to_check
+                        $ zip [1 :: Int ..] to_check
                     putStrLn "DONE!"
                     logStr INFO $ show inp ++ " fits done!"
                     let res = map fst $ filter snd fits
@@ -104,7 +104,7 @@ synthesizeSatisfying cc depth ioref context props ty = do
           atomicModifyIORef' ioref (\m -> (Map.insert (show inp) [] m, ()))
           return []
   where
-    rprob ty cand = RProb props context "" ty cand
+    rprob ty' cand = RProb props context "" ty' cand
     wrap p = "(" ++ p ++ ")"
     cc' = if depth <= 1 then (cc {hole_lvl = 0}) else (cc {hole_lvl = 1})
     recur :: (String, [String]) -> IO [String]
@@ -139,10 +139,10 @@ getFlags = do
   args <- Map.fromList . map (break (== '=')) <$> getArgs
   let synth_holes = case args Map.!? "-fholes" of
         Just r | not (null r) -> read (tail r)
-        Nothing -> 2
+        _ -> 2
       synth_depth = case args Map.!? "-fdepth" of
         Just r | not (null r) -> read (tail r)
-        Nothing -> 1
+        _ -> 1
       synth_debug = "-fdebug" `Map.member` args
       repair_target = tail <$> args Map.!? "-ftarget"
 
@@ -152,8 +152,10 @@ getFlags = do
 
 -- All the packages here need to be *globally* available. We should fix this
 -- by wrapping it in e.g. a nix-shell or something.
+pkgs :: [[Char]]
 pkgs = ["base", "process", "QuickCheck"]
 
+imports :: [[Char]]
 imports =
   [ "import Prelude hiding (id, ($), ($!), asTypeOf)"
   ]
@@ -169,11 +171,11 @@ compConf =
 main :: IO ()
 main = do
   SFlgs {..} <- getFlags
-  let cc = compConf {hole_lvl = synth_holes}
+  let cc_orig = compConf {hole_lvl = synth_holes}
   [toFix] <- filter (not . (==) "-" . take 1) <$> getArgs
-  (cc, mod, probs) <- moduleToProb cc toFix repair_target
+  (cc, modul, probs) <- moduleToProb cc_orig toFix repair_target
   let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
-      rp@RProb {..} = detranslate tp
+      RProb {..} = detranslate tp
   putStrLn "TARGET:"
   putStrLn ("  `" ++ r_target ++ "` in " ++ toFix)
   putStrLn "SCOPE:"
@@ -206,9 +208,9 @@ main = do
   putStrLn "REPAIRING..."
   expr_fit_cands <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
   let gconf = mkDefaultConf 64 50 tp cc' expr_fit_cands
-  (t, fixes) <- time $ runGenMonad gconf 69420 (geneticSearchPlusPostprocessing)
+  (t, fixes) <- time $ runGenMonad gconf 69420 geneticSearchPlusPostprocessing
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
       fbs = map getFixBinds newProgs
-  mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes mod) fbs
+  mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
   reportStats' INFO
   putStrLn $ "DONE! (" ++ showTime t ++ ")"

@@ -105,8 +105,6 @@ synthPlug useCache local_exprs plugRef =
                             modifyIORef plugRef (packed :)
                             case holeHash dflags h of
                               Just hash | useCache -> do
-                                let upd (Just prev) = Just (packed : prev)
-                                    upd _ = Just [packed]
                                 logStr DEBUG "CACHING"
                                 logOut DEBUG (num_calls, hash)
                                 logOut DEBUG packed
