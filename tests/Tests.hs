@@ -12,26 +12,13 @@ import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Tree
 import Data.Tuple (swap)
-import GhcPlugins (GenLocated (L), getLoc, unLoc)
 import Endemic.Diff
 import Endemic.Eval
-  ( buildTraceCorrel,
-    compileParsedCheck,
-    defaultConf,
-    moduleToProb,
-    runJustParseExpr,
-    traceTarget,
-  )
 import Endemic.Repair
-  ( failingProps,
-    getExprFitCands,
-    propCounterExample,
-    repair,
-    translate,
-  )
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
+import GhcPlugins (GenLocated (L), getLoc, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit

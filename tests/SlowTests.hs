@@ -6,12 +6,16 @@ module Main where
 
 import Data.Maybe (isJust, mapMaybe)
 import Data.Vector (fromList)
+import Endemic (getExprFitCands)
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
 import Endemic.Eval
+import Endemic.Search (geneticSearchPlusPostprocessing, mkDefaultConf, runGenMonad)
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
+import GHC (HsExpr (HsLet), NoExtField (NoExtField))
+import GhcPlugins (noLoc)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -19,7 +23,38 @@ tests :: TestTree
 tests =
   testGroup
     "Tests"
-    [genTests]
+    [properGenTests, genTests]
+
+properGenTests :: TestTree
+properGenTests =
+  testGroup
+    "proper generation tests"
+    [ localOption (mkTimeout 180_000_000) $
+        testCase "Repair ThreeFixes w/ randomness" $ do
+          let dcc = defaultConf
+              gc = pseudoGenConf dcc
+              cc = dcc {pseudoGenConf = gc}
+              toFix = "tests/ThreeFixes.hs"
+              repair_target = Nothing
+              expected =
+                map
+                  unlines
+                  [ [ "---tests/ThreeFixes.hs",
+                      "+++tests/ThreeFixes.hs",
+                      "@@ -20,1 +20,1 @@ brokenPair = (1, 2, 3)",
+                      "-brokenPair = (1, 2, 3)",
+                      "+brokenPair = (3, 4, 5)"
+                    ]
+                  ]
+
+          (cc', modul, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
+          expr_fit_cands <- collectStats $ getExprFitCands cc' $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+          let gconf = mkDefaultConf 64 50 tp cc' expr_fit_cands
+          fixes <- runGenMonad gconf 69420 geneticSearchPlusPostprocessing
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+              fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
+          fixDiffs @?= expected
+    ]
 
 genTests =
   testGroup
