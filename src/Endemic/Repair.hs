@@ -310,8 +310,8 @@ repairAttempt cc tp@EProb {..} efcs = collectStats $ do
 
   trace_correl <- buildTraceCorrel cc prog_at_ty
 
-  logOut DEBUG prog_at_ty
-  logOut DEBUG holey_exprs
+  logOut TRACE prog_at_ty
+  logOut TRACE holey_exprs
 
   -- We can use the failing_props and the counter_examples to filter
   -- out locations that we know won't matter.
