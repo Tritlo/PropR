@@ -89,9 +89,9 @@ ppFix expr fixes = curry ppDiff expr $ replaceExpr fixes expr
 ppDiff :: Outputable e => (Located e, Located e) -> String
 ppDiff (L o1 d, L o2 d') =
   unlines
-    ( (unwords ["diff","--git ",f_a, f_b]) :
-      ("--- " ++ f_a) :
-      ("+++ " ++ f_b) :
+    ( (unwords ["diff","--git",f_a, f_b]) :
+      unwords ["---", f_a] :
+      unwords ["+++", f_b] :
       range o1 o2 :
       toOut diffs
     )

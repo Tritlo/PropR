@@ -39,8 +39,9 @@ properGenTests =
               expected =
                 map
                   unlines
-                  [ [ "---tests/ThreeFixes.hs",
-                      "+++tests/ThreeFixes.hs",
+                  [ [ "diff --git a/tests/ThreeFixes.hs b/tests/ThreeFixes.hs",
+                      "--- a/tests/ThreeFixes.hs",
+                      "+++ b/tests/ThreeFixes.hs",
                       "@@ -20,1 +20,1 @@ brokenPair = (1, 2, 3)",
                       "-brokenPair = (1, 2, 3)",
                       "+brokenPair = (3, 4, 5)"
@@ -69,8 +70,9 @@ genTests =
               expected =
                 map
                   unlines
-                  [ [ "---tests/TwoFixes.hs",
-                      "+++tests/TwoFixes.hs",
+                  [ [ "diff --git a/tests/TwoFixes.hs b/tests/TwoFixes.hs",
+                      "--- a/tests/TwoFixes.hs",
+                      "+++ b/tests/TwoFixes.hs",
                       "@@ -12,1 +12,1 @@ brokenPair = (1, 2)",
                       "-brokenPair = (1, 2)",
                       "+brokenPair = (3, 4)"
@@ -92,8 +94,9 @@ genTests =
               expected =
                 map
                   unlines
-                  [ [ "---tests/ThreeFixes.hs",
-                      "+++tests/ThreeFixes.hs",
+                  [ [ "diff --git a/tests/ThreeFixes.hs b/tests/ThreeFixes.hs",
+                      "--- a/tests/ThreeFixes.hs",
+                      "+++ b/tests/ThreeFixes.hs",
                       "@@ -20,1 +20,1 @@ brokenPair = (1, 2, 3)",
                       "-brokenPair = (1, 2, 3)",
                       "+brokenPair = (3, 4, 5)"
@@ -115,8 +118,9 @@ genTests =
               expected =
                 map
                   unlines
-                  [ [ "---tests/FourFixes.hs",
-                      "+++tests/FourFixes.hs",
+                  [ [ "diff --git a/tests/FourFixes.hs b/tests/FourFixes.hs",
+                      "--- a/tests/FourFixes.hs",
+                      "+++ b/tests/FourFixes.hs",
                       "@@ -24,1 +24,1 @@ brokenPair = (1, 2, 3, 4)",
                       "-brokenPair = (1, 2, 3, 4)",
                       "+brokenPair = (3, 4, 5, 6)"
