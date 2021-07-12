@@ -222,7 +222,7 @@ main = do
   let outputDirectory = "./output-patches-" ++ formTime
   createDirectory outputDirectory
   let prettyPrinted = map (concatMap (ppDiff) . snd . applyFixes modul) fbs
-  safePatchesToFiles prettyPrinted outputDirectory
+  savePatchesToFiles prettyPrinted outputDirectory
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
   reportStats' INFO
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
@@ -230,26 +230,26 @@ main = do
 -- | Helper to safe all given patches to the corresponding files.
 -- Files will start as fix1.patch in the given base-folder.
 -- The files are in reverse order to have a nicer recursion - patch 1 is the last one found.
-safePatchesToFiles :: 
+savePatchesToFiles :: 
   [String]  -- ^ The patches, represented as pretty-printed strings
   -> String -- ^ The folder in which to safe the patches
   -> IO ()
-safePatchesToFiles [] _ = return ()
-safePatchesToFiles patches@(p:ps) dir = do
+savePatchesToFiles [] _ = return ()
+savePatchesToFiles patches@(p:ps) dir = do
     let n = length patches
-    safeToFile p (dir ++ "/fix" ++ (show n) ++ ".patch")
-    safePatchesToFiles ps dir
+    saveToFile p (dir ++ "/fix" ++ (show n) ++ ".patch")
+    savePatchesToFiles ps dir
 
 -- | Safes the given String to a file. 
 -- Throws an Error in case the file already existet 
 -- (this is a bit chicken, but I want this app to be safe so no wildcard overwriting of stuff).
 -- To be repeatably usable, we just add the current timestamp to the output directory upstream, 
 -- that is we make a folder output-yy-mm-dd-hh-mm and start writing patch1 patch2 ...
-safeToFile :: 
+saveToFile :: 
   String -- ^ The Content of the file to be created 
   -> String -- ^ The Path to the file to be created, including the file name (e.g. "./tmp/fileA.txt")
   -> IO ()
-safeToFile content path = do 
+saveToFile content path = do 
   fileExists <- doesFileExist path
   if fileExists
   then error "File already existed - aborting creation of patch"
