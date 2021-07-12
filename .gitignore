@@ -7,3 +7,5 @@ cabal.project.local
 *.hi
 
 .DS_Store
+
+output-patches-*
