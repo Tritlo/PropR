@@ -422,20 +422,23 @@ moduleTests =
               expected =
                 map
                   unlines
-                  [ [ "---tests/BrokenModule.hs",
-                      "+++tests/BrokenModule.hs",
+                  [ [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
+                      "--- a/tests/BrokenModule.hs",
+                      "+++ b/tests/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = sum"
                     ],
-                    [ "---tests/BrokenModule.hs",
-                      "+++tests/BrokenModule.hs",
+                    [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
+                      "--- a/tests/BrokenModule.hs",
+                      "+++ b/tests/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl add 0"
                     ],
-                    [ "---tests/BrokenModule.hs",
-                      "+++tests/BrokenModule.hs",
+                    [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
+                      "--- a/tests/BrokenModule.hs",
+                      "+++ b/tests/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl (+) 0"
@@ -461,8 +464,9 @@ moduleTests =
               expected =
                 map
                   unlines
-                  [ [ "---tests/BrokenGCD.hs",
-                      "+++tests/BrokenGCD.hs",
+                  [ [ "diff --git a/tests/BrokenGCD.hs b/tests/BrokenGCD.hs",
+                      "--- a/tests/BrokenGCD.hs",
+                      "+++ b/tests/BrokenGCD.hs",
                       "@@ -19,3 +19,3 @@ gcd' 0 b = gcd' 0 b",
                       "-gcd' 0 b = gcd' 0 b",
                       "+gcd' 0 b = b",
@@ -483,8 +487,9 @@ moduleTests =
               expected =
                 map
                   unlines
-                  [ [ "---tests/MagicConstant.hs",
-                      "+++tests/MagicConstant.hs",
+                  [ [ "diff --git a/tests/MagicConstant.hs b/tests/MagicConstant.hs",
+                      "--- a/tests/MagicConstant.hs",
+                      "+++ b/tests/MagicConstant.hs",
                       "@@ -7,1 +7,1 @@ theAnswer = 17",
                       "-theAnswer = 17",
                       "+theAnswer = 42"

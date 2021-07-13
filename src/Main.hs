@@ -21,6 +21,11 @@ import Endemic.Util
 import GHC (HsExpr (HsLet), NoExtField (..))
 import GhcPlugins (noLoc)
 import System.Environment (getArgs)
+import System.Directory (doesFileExist,createDirectory)
+import System.IO
+import Data.Time.LocalTime (utc)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format (formatTime,defaultTimeLocale)
 
 -- The time we allow for a check to finish. Measured in microseconds.
 
@@ -209,6 +214,54 @@ main = do
   (t, fixes) <- time $ runGenMonad gconf 69420 geneticSearchPlusPostprocessing
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
       fbs = map getFixBinds newProgs
+  -- Here we write the found solutions to respective files, we just number them 1 .. n
+  formTime <- formattedTime
+  -- TODO: Add a Configurable prefix for the output directory, e.g. /tmp/
+  let outputDirectory = "./output-patches-" ++ formTime
+  createDirectory outputDirectory
+  let prettyPrinted = map (concatMap (ppDiff) . snd . applyFixes modul) fbs
+  savePatchesToFiles prettyPrinted outputDirectory
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
   reportStats' INFO
   putStrLn $ "DONE! (" ++ showTime t ++ ")"
+
+-- | Helper to safe all given patches to the corresponding files.
+-- Files will start as fix1.patch in the given base-folder.
+-- The files are in reverse order to have a nicer recursion - patch 1 is the last one found.
+savePatchesToFiles :: 
+  [String]  -- ^ The patches, represented as pretty-printed strings
+  -> String -- ^ The folder in which to safe the patches
+  -> IO ()
+savePatchesToFiles [] _ = return ()
+savePatchesToFiles patches@(p:ps) dir = do
+    let n = length patches
+    saveToFile p (dir ++ "/fix" ++ (show n) ++ ".patch")
+    savePatchesToFiles ps dir
+
+-- | Safes the given String to a file. 
+-- Throws an Error in case the file already existet 
+-- (this is a bit chicken, but I want this app to be safe so no wildcard overwriting of stuff).
+-- To be repeatably usable, we just add the current timestamp to the output directory upstream, 
+-- that is we make a folder output-yy-mm-dd-hh-mm and start writing patch1 patch2 ...
+saveToFile :: 
+  String -- ^ The Content of the file to be created 
+  -> String -- ^ The Path to the file to be created, including the file name (e.g. "./tmp/fileA.txt")
+  -> IO ()
+saveToFile content path = do 
+  fileExists <- doesFileExist path
+  if fileExists
+  then error "File already existed - aborting creation of patch"
+  else do 
+    -- handle <- openFile path ReadWriteMode
+    writeFile path content
+    --hClose handle
+    return ()
+
+-- | Returns the current time as yyyy-mm-dd-HH-MM 
+formattedTime :: IO String
+formattedTime = do 
+  time <- getCurrentTime
+  let format = "%Y-%m-%d-%HH-%MM"
+  -- TODO: Get the users TimeZone from IO or from Config ? 
+  let locale = defaultTimeLocale
+  return (formatTime locale format time)
