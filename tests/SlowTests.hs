@@ -9,8 +9,10 @@ import Data.Vector (fromList)
 import Endemic (getExprFitCands)
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
 import Endemic.Eval
-import Endemic.Search (geneticSearchPlusPostprocessing, mkDefaultConf, runGenMonad)
+import Endemic.Search ( geneticSearchPlusPostprocessing, runGenMonad
+                      , ProblemDescription(..), describeProblem )
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
+import Endemic.Configuration
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
@@ -18,6 +20,7 @@ import GHC (HsExpr (HsLet), NoExtField (NoExtField))
 import GhcPlugins (noLoc)
 import Test.Tasty
 import Test.Tasty.HUnit
+import Data.Default
 
 tests :: TestTree
 tests =
@@ -31,10 +34,7 @@ properGenTests =
     "proper generation tests"
     [ localOption (mkTimeout 180_000_000) $
         testCase "Repair ThreeFixes w/ randomness" $ do
-          let dcc = defaultConf
-              gc = pseudoGenConf dcc
-              cc = dcc {pseudoGenConf = gc}
-              toFix = "tests/ThreeFixes.hs"
+          let toFix = "tests/ThreeFixes.hs"
               repair_target = Nothing
               expected =
                 map
@@ -48,10 +48,9 @@ properGenTests =
                     ]
                   ]
 
-          (cc', modul, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          expr_fit_cands <- collectStats $ getExprFitCands cc' $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-          let gconf = mkDefaultConf 64 50 tp cc' expr_fit_cands
-          fixes <- runGenMonad gconf 69420 geneticSearchPlusPostprocessing
+          (_, modul, [EProb{..}]) <- moduleToProb def toFix repair_target
+          desc <- describeProblem def toFix
+          fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
           fixDiffs @?= expected
@@ -62,10 +61,7 @@ genTests =
     "Generation tests"
     [ localOption (mkTimeout 120_000_000) $
         testCase "Repair TwoFixes" $ do
-          let dcc = defaultConf
-              gc = pseudoGenConf dcc
-              cc = dcc {pseudoGenConf = gc}
-              toFix = "tests/TwoFixes.hs"
+          let toFix = "tests/TwoFixes.hs"
               repair_target = Nothing
               expected =
                 map
@@ -79,17 +75,14 @@ genTests =
                     ]
                   ]
 
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- pseudoGeneticRepair cc' tp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          fixes <- pseudoGeneticRepair def {searchAlgorithm = PseudoGenetic def} tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 75_000_000) $
         testCase "Repair ThreeFixes" $ do
-          let dcc = defaultConf
-              gc = pseudoGenConf dcc
-              cc = dcc {pseudoGenConf = gc}
-              toFix = "tests/ThreeFixes.hs"
+          let toFix = "tests/ThreeFixes.hs"
               repair_target = Nothing
               expected =
                 map
@@ -103,17 +96,14 @@ genTests =
                     ]
                   ]
 
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- pseudoGeneticRepair cc' tp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          fixes <- pseudoGeneticRepair def {searchAlgorithm = PseudoGenetic def} tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 90_000_000) $
         testCase "Repair FourFixes" $ do
-          let dcc = defaultConf
-              gc = pseudoGenConf dcc
-              cc = dcc {pseudoGenConf = gc}
-              toFix = "tests/FourFixes.hs"
+          let toFix = "tests/FourFixes.hs"
               repair_target = Nothing
               expected =
                 map
@@ -127,8 +117,8 @@ genTests =
                     ]
                   ]
 
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- pseudoGeneticRepair cc' tp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          fixes <- pseudoGeneticRepair def {searchAlgorithm = PseudoGenetic def} tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected

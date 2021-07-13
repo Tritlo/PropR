@@ -115,8 +115,9 @@ gives us:
 
 ```diff
 REPAIRS:
----examples/BrokenGCD.hs
-+++examples/BrokenGCD.hs
+diff --git a/examples/BrokenGCD.hs b/examples/BrokenGCD.hs
+--- a/examples/BrokenGCD.hs
++++ b/examples/BrokenGCD.hs
 @@ -17,3 +17,3 @@ gcd' 0 b = gcd' 0 b
 -gcd' 0 b = gcd' 0 b
 +gcd' 0 b = b
@@ -135,6 +136,11 @@ in `examples/`, but note that AST coverage is pretty limited at the moment.
 
 Parameters
 ---------
+
+Accepts a configuration file via the "--config=<config>" parameter,
+where "<config>" is either a:
++ JSON file containing a partial config or
++ A string containing a partial config
 
 The synthesizer accepts a command line argument, `-fdebug`, which makes it
 output A LOT more.

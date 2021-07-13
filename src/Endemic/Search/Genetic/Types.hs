@@ -9,9 +9,13 @@ import Control.DeepSeq (NFData (..))
 import qualified Control.Monad.Trans.Reader as R
 import qualified Control.Monad.Trans.State.Lazy as ST
 import qualified Data.Map as Map
+import Endemic.Configuration
+import Endemic.Eval (getExprFitCands, moduleToProb)
 import Endemic.Search.Genetic.Configuration
-import Endemic.Types (EFix)
-import GhcPlugins (Outputable (..))
+import Endemic.Types (EFix, EProblem (..), ExprFitCand)
+import Endemic.Util (undefVar)
+import GHC (HsExpr (HsLet), NoExtField (NoExtField))
+import GhcPlugins (Outputable (..), noLoc)
 import System.Random
 
 -- ===========                                    ==============
@@ -65,6 +69,23 @@ class (Eq g, Outputable g, NFData g) => Chromosome g where
 -- In it's current implementation, the Cache is never cleared.
 type FitnessCache = Map.Map EFix Double
 
+-- | The Problem Description is generated at runtime, descriping a particular
+-- program to fix.
+data ProblemDescription = ProbDesc
+  { progProblem :: EProblem,
+    exprFitCands :: [ExprFitCand],
+    compConf :: CompileConfig,
+    repConf :: RepairConfig
+  }
+
+describeProblem :: Configuration -> FilePath -> IO ProblemDescription
+describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
+  (compConf, _, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
+  exprFitCands <-
+    getExprFitCands compConf $
+      noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  return $ ProbDesc {..}
+
 -- | The GenMonad resembles the environment in which we run our Genetic Search and it's parts.
 -- It was introduced to reduce the load on various signatures and provide caching easier.
 -- It consists (in this order) of
@@ -74,4 +95,14 @@ type FitnessCache = Map.Map EFix Double
 -- - IO, to perform logging and Time-Tasks
 -- The order of these is not particularly important, but we moved them in order of their occurrence (that is,
 -- configuration is used the most, while IO and caching are used the least)
-type GenMonad = R.ReaderT GeneticConfiguration (ST.StateT StdGen (ST.StateT FitnessCache IO))
+type GenMonad =
+  R.ReaderT
+    GeneticConfiguration
+    ( R.ReaderT
+        ProblemDescription
+        ( ST.StateT
+            StdGen
+            ( ST.StateT FitnessCache IO
+            )
+        )
+    )

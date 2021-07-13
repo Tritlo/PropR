@@ -67,11 +67,11 @@
 --     - This file is growing quite big, we could consider splitting it up in "Genetic" and "EfixGeneticImplementation" or something like that.
 --       Similarly, we could maybe move some of the helpers out.
 module Endemic.Search.Genetic
-  ( Chromosome,
-    runGenMonad,
+  ( runGenMonad,
     geneticSearch,
     geneticSearchPlusPostprocessing,
-    mkDefaultConf,
+    module Endemic.Search.Genetic.Types,
+    module Endemic.Search.Genetic.Configuration,
   )
 where
 

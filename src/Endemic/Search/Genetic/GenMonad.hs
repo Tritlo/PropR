@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE PartialTypeSignatures #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
@@ -15,8 +16,8 @@ import Data.Function (on)
 import Data.List (partition, sortBy, sortOn)
 import qualified Data.Map as Map
 import Data.Maybe
-import Endemic.Eval (checkFixes)
-import Endemic.Repair (repairAttempt)
+import Endemic.Configuration
+import Endemic.Repair (checkFixes, repairAttempt)
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.Genetic.Types
 import Endemic.Search.Genetic.Utils
@@ -54,7 +55,8 @@ instance Chromosome EFix where
 
   mutate e1 = head <$> mutateMany [e1]
   mutateMany exprs = collectStats $ do
-    GConf {..} <- R.ask
+    ProbDesc {..} <- liftDesc R.ask
+    GConf {..} <- liftConf R.ask
     gen <- getGen
     flips <- mapM (\e -> (e,) . (not (Map.null e) &&) <$> tossCoin dropRate) exprs
     let (to_drop_w_inds, to_mutate_w_inds) = partition (snd . snd) $ zip [0 :: Int ..] flips
@@ -70,6 +72,7 @@ instance Chromosome EFix where
         EProb {..} = progProblem
         prog_at_ty = progAtTy e_prog e_ty
         cc = compConf
+        rc = repConf
         prob = progProblem
         ecfs = Just exprFitCands
         n_progs = map (`replaceExpr` prog_at_ty) to_mutate
@@ -95,7 +98,7 @@ instance Chromosome EFix where
       collectStats $
         if null n_progs
           then return []
-          else liftIO $ mapGen (\p -> repairAttempt cc prob {e_prog = p} ecfs) n_progs
+          else liftIO $ mapGen (\p -> repairAttempt cc rc prob {e_prog = p} ecfs) n_progs
     mutated <- mapM selection (zip (zip to_mutate possibleFixes) gens')
     putGen gen''
     return $ map snd $ sortOn fst $ zip to_mutate_inds mutated ++ zip to_drop_inds dropped
@@ -111,14 +114,16 @@ instance Chromosome EFix where
     if null to_compute
       then return $ map snd done
       else do
-        GConf {..} <- R.ask
+        ProbDesc {..} <- liftDesc R.ask
+        GConf {..} <- liftConf R.ask
         let EProb {..} = progProblem
             prog_at_ty = progAtTy e_prog e_ty
             cc = compConf
+            rc = repConf
             n_progs = map (`replaceExpr` prog_at_ty) to_compute
         res <-
           zipWith (\e f -> (e, basicFitness e f)) to_compute
-            <$> liftIO (checkFixes cc progProblem n_progs)
+            <$> liftIO (checkFixes cc rc progProblem n_progs)
         putCache (Map.fromList res `Map.union` fc)
         return $
           map (snd . snd) $
@@ -128,11 +133,13 @@ instance Chromosome EFix where
   initialPopulation 0 = return [] -- We don't want to do any work if there's no work to do.
   initialPopulation n = collectStats $
     do
-      GConf {..} <- R.ask
+      ProbDesc {..} <- liftDesc R.ask
+      GConf {..} <- liftConf R.ask
       let cc = compConf
+          rc = repConf
           prob = progProblem
           ecfs = Just exprFitCands
-      possibleFixes <- liftIO $ repairAttempt cc prob ecfs
+      possibleFixes <- liftIO $ repairAttempt cc rc prob ecfs
       replicateM n $ do
         gen <- getGen
         case pickElementUniform possibleFixes gen of
@@ -217,37 +224,48 @@ minimizeFix bigFix = do
     -- TODO: If I do fitness, are they still ... sorted?
     candidateFixes = map Map.fromList candidates'
 
-runGenMonad :: GeneticConfiguration -> Int -> GenMonad a -> IO a
-runGenMonad conf seed action = do
-  let withConf = R.runReaderT action conf
-      withGen = ST.runStateT withConf (mkStdGen seed)
-  ((result, _ :: StdGen), _ :: FitnessCache) <- ST.runStateT withGen Map.empty
-  return result
+runGenMonad :: GeneticConfiguration -> ProblemDescription -> Int -> GenMonad a -> IO a
+runGenMonad conf desc seed =
+  fmap (fst . fst) . runGenMonad' conf desc (mkStdGen seed) Map.empty
 
 -- A version of RGM that takes a generator and cache instead of a seed.
 runGenMonad' ::
   GeneticConfiguration ->
+  ProblemDescription ->
   StdGen ->
   FitnessCache ->
   GenMonad a ->
   IO ((a, StdGen), FitnessCache)
-runGenMonad' conf gen fc action = do
+runGenMonad' conf desc gen fc action = do
   let withConf = R.runReaderT action conf
-      withGen = ST.runStateT withConf gen
+      withParams = R.runReaderT withConf desc
+      withGen = ST.runStateT withParams gen
   ST.runStateT withGen fc
+
+liftConf :: R.ReaderT GeneticConfiguration _ a -> GenMonad a
+liftConf = id
+
+liftDesc :: R.ReaderT ProblemDescription _ a -> GenMonad a
+liftDesc = lift
+
+liftGen :: ST.StateT StdGen _ a -> GenMonad a
+liftGen = lift . lift
+
+liftCache :: ST.StateT FitnessCache _ a -> GenMonad a
+liftCache = lift . lift . lift
 
 -- Some getters and setters for the monad
 getGen :: GenMonad StdGen
-getGen = lift ST.get
+getGen = liftGen ST.get
 
 putGen :: StdGen -> GenMonad ()
-putGen = lift . ST.put
+putGen = liftGen . ST.put
 
 getCache :: GenMonad FitnessCache
-getCache = lift (lift ST.get)
+getCache = liftCache ST.get
 
 putCache :: FitnessCache -> GenMonad ()
-putCache = lift . lift . ST.put
+putCache = liftCache . ST.put
 
 updateCache :: (EFix, Double) -> GenMonad ()
 updateCache (k, v) = getCache >>= putCache . Map.insert k v
