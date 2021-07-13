@@ -18,6 +18,8 @@ import Data.Bits
 import Data.Maybe (isJust,fromJust)
 import Data.Char (isSpace, toUpper, toLower)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format (formatTime,defaultTimeLocale)
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Endemic.Types (EExpr, EType)
@@ -101,8 +103,9 @@ logStr olvl str = do
         sfileRes = intercalate "/" (map (take 1) i ++ [l])
         sline = show (GHS.srcLocStartLine loc)
     showLoc <- ("--log-loc" `elem`) <$> getArgs
+    timeStamp <- logFormattedTime
     let locO = if showLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
-    let finalMessage = locO ++ show olvl ++ ": " ++ str
+    let finalMessage = timeStamp ++ " " ++ locO ++ show olvl ++ ": " ++ str
     mFile <- logFile
     when (isJust mFile) $ do 
       let file = fromJust mFile 
@@ -111,6 +114,18 @@ logStr olvl str = do
 
 logOut :: (HasCallStack, Outputable p) => LogLevel -> p -> IO ()
 logOut olvl = withFrozenCallStack . logStr olvl . showUnsafe
+
+
+-- | Returns the current time as %Y-%m-%d %H:%M:%S in UTC-Timezone
+logFormattedTime :: IO String
+logFormattedTime = do 
+  time <- getCurrentTime
+  let format = "%Y-%m-%d %H:%M:%S"
+  --let format = "%HH:%MM:%SS"
+  -- TODO: Get the users TimeZone from IO or from Config ? 
+  let locale = defaultTimeLocale
+  return (formatTime locale format time)
+
 
 showUnsafe :: Outputable p => p -> String
 showUnsafe = showSDocUnsafe . ppr

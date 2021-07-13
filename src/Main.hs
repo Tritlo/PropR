@@ -223,7 +223,7 @@ main = do
   savePatchesToFiles prettyPrinted outputDirectory
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
   reportStats' INFO
-  putStrLn $ "DONE! (" ++ showTime t ++ ")"
+  logStr INFO $ "Done! Genetic Searchtook (" ++ showTime t ++ ") in CPU Time"
 
 -- | Helper to safe all given patches to the corresponding files.
 -- Files will start as fix1.patch in the given base-folder.
