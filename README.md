@@ -159,3 +159,5 @@ To get a better idea of what's going on, you can run Endemic with `--log=<LEVEL>
 
 You can also add `--log-loc` to get the location in the code of each log message, for e.g. telling which line
 a given run-time corresponds to.
+
+You can safe the log to a logfile, using `--logfile=./endemic.log`. Logs will be appended, and to function a log-level must be set. The content will be the same as console output.
