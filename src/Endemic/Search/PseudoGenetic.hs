@@ -1,164 +1,71 @@
-{-# LANGUAGE RecordWildCards #-}
-
 -- |
--- Module      : Endemic.Search.PseudoGen
--- Description : Holds the PseudoGenetic Programming Parts of Endemic
+-- Module      : Endemic.Search.Genetic
+-- Description : Holds the (revamped) Genetic Algorithm Parts of Endemic
 -- License     : MIT
 -- Stability   : experimental
+-- Portability : POSIX
 --
--- This module holds simple genetic operators used to find fixes in Endemic. The
--- primary building brick is an EFix (See Endemic.Types) that resembles a set of
+-- This module holds the (reworked) genetic Algorithm parts of the Endemic Library.
+-- The algorithms are more advanced and sophisticated than the initial implementation.
+--
+-- The primary building brick is an EFix (See "Endemic.Types") that resembles a set of
 -- changes done to the Code. The goodness of a certain fix is expressed by the
--- failing and succeeding properties, which are a list of boolean values (true
--- for passing properties, false for failing).
-module Endemic.Search.PseudoGenetic (pseudoGeneticRepair) where
+-- failing and succeeding properties, which are a list of boolean values (true for passing properties, false for failing).
+--
+-- The methods often require a RandomGen for the random parts. A RandomGen is, for non-haskellers, a random number provider.
+-- It is expressed in Haskell as an infinite list of next-random-values.
+-- We expect that the RandomGen is generated e.g. in the Main Method from a Seed and passed here.
+-- See: https://hackage.haskell.org/package/random-1.2.0/docs/System-Random.html
+--
+-- **Prefixes**
+--
+-- - tX is an X related to Tournament Behaviour (e.g. tSize = TournamentSize)
+-- - iX is an X related to Island Behaviour (e.g. iConf = IslandConfiguration)
+-- - a "pop" is short for population
+-- - a "gen" is short for generator, a StdGen that helps to provide random elements
+--
+-- **GenMonad**
+--
+-- We happened to come accross some challenges nicely designing this library, in particular
+-- we needed some re-occurring parts in nearly all functions.
+-- This is why we decided to declare the "GenMonad", that holds
+--
+-- - the configuration
+-- - a random number provider
+-- - a cache for the fitness function
+-- - IO (as the search logs and takes times)
+--
+-- **Genetic - Naming**
+-- A Chromosome is made up by Genotypes, which are the building bricks of changes/diffs.
+-- In our Context, a Genotype is a set of diffs we apply to the Code resembled by an pair of (SourceSpan,Expression),
+-- and the Chromosome is a EFix (A map of those).
+-- A Phenotype is the "physical implementation" of a Chromosome, in our context that is the program with all the patches applied.
+-- That is, our EFix turns from its Genotype to a Phenotype once it is run against the properties.
+-- The final representation of Solutions provided by "Endemic.Diff" is also a (different) Phenotype.
+--
+-- **Island Evolution**
+-- We also introduce a parallelized genetic algorithm called "Island Evolution".
+-- In concept, there are n Island with a separate population. Every x generations, a few
+-- species migrate from one Island to another.
+-- This should help to "breed" one partial-solution per Island, with the migration helping to bring partial solutions together.
+-- This is particularly interesting, as maybe fixes for a program need to originate from two places or multiple changes.
+-- In the described paper, the species migrate ring-wise and the best species are being copied,
+-- while the worst on the receiving island are simply discarded in favor of the best from the sending island.
+-- Further Reading:
+-- https://neo.lcc.uma.es/Articles/WRH98.pdf
+--
+-- **Open Questions // Points**
+--
+--     - Timeouts are not actually interrupting - the are checked after a generation.
+--       That can lead to a heavy plus above the specified timeout, e.g. by big populations on Islands.
+--       Can we do this better?
+--     - This file is growing quite big, we could consider splitting it up in "Genetic" and "EfixGeneticImplementation" or something like that.
+--       Similarly, we could maybe move some of the helpers out.
+module Endemic.Search.PseudoGenetic
+  ( module Endemic.Search.PseudoGenetic.Search,
+    module Endemic.Search.PseudoGenetic.Configuration,
+  )
+where
 
-import Control.Concurrent.Async (mapConcurrently)
-import Data.Function (on)
-import Data.List (groupBy, sortOn, tails)
-import qualified Data.Map as Map
-import Data.Maybe (mapMaybe)
-import Data.Ord (Down (Down))
-import qualified Data.Set as Set
-import Endemic.Repair (getExprFitCands, repairAttempt)
-import Endemic.Traversals (replaceExpr)
-import Endemic.Types
-import Endemic.Util
-import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (isSubspanOf, noLoc)
-
--- |
---   An Individual consists of a "Fix", that is a change to be applied,
---   and a list of properties they fulfill or fail, expressed as an boolean array.
---   A perfect candidate would have an array full of true, as every property is hold.
-type Individual = (EFix, [Bool])
-
--- |
---   This fitness is currently simply counting the hold properties.
---   fitness (_,[true,true,false,true]) = 3
-fitness :: Individual -> Float
-fitness = fromIntegral . length . filter id . snd
-
--- |
---   This method computes the estimated fitness of the offspring of two individuals.
---   WARNING: The fitness of the offspring is only estimated, not evaluated.
-complementary :: PseudoGenConf -> Individual -> Individual -> Float
-complementary gc a b = avg $ map fitness $ crossover gc a b
-
-individuals :: [(EFix, Either [Bool] Bool)] -> [Individual]
-individuals = mapMaybe fromHelpful
-  where
-    fromHelpful (fs, Left r) | or r = Just (fs, r)
-    fromHelpful _ = Nothing
-
--- |
--- This method computes best pairings for individuals, and returns them in
--- descending order.  I.E. the first element of the returned list will be the pair
--- of individuals that produces the offspring with the best fitness.
--- TODO: remove self-pairing, atleast if self-mating does not affect the fix
-makePairings :: PseudoGenConf -> [Individual] -> [(Individual, Individual)]
-makePairings gc indivs =
-  sortOn (Down . uncurry (complementary gc)) $
-    [(x, y) | (x : ys) <- tails indivs, y <- ys]
-
--- TODO: Better heuristics
-pruneGeneration :: PseudoGenConf -> [Individual] -> [Individual]
-pruneGeneration PseudoGenConf {..} new_gen =
-  -- genIndividuals is the number of individuals pro generation, and is provided in PseudoGenConf
-  take genIndividuals $ mapMaybe isFit new_gen
-  where
-    avg_fitness :: Float
-    avg_fitness = avg $ map fitness new_gen
-    isFit ind | fitness ind >= avg_fitness * 0.75 = Just ind
-    isFit _ = Nothing
-
--- | Checks a given fix-result for successfulness, that is passing all tests.
-successful :: Eq b => [(a, Either b Bool)] -> [(a, Either b Bool)]
-successful = filter (\(_, r) -> r == Right True)
-
--- |
---   This method combines individuals by merging their fixes.
---   The assumed properties of the offspring are the logically-or'd properties of
---   the input individuals.
---   WARNING: The assumed property-fullfillment is a heuristic.
-crossover :: PseudoGenConf -> Individual -> Individual -> [Individual]
-crossover _ i1 i2 = [breed i1 i2, breed i2 i1]
-  where
-    -- lor = logical or
-    breed :: Individual -> Individual -> Individual
-    breed (f1, r1) (f2, r2) = (f1 `mergeFixes` f2, lor r1 r2)
-    lor :: [Bool] -> [Bool] -> [Bool]
-    lor (False : xs) (False : ys) = False : lor xs ys
-    lor (_ : xs) (_ : ys) = True : lor xs ys
-    lor [] [] = []
-    lor _ _ = error "crossover length mismatch!"
-
-selection :: PseudoGenConf -> [Individual] -> IO [Individual]
-selection gc indivs = pure $ pruneGeneration gc de_duped
-  where
-    -- Compute the offsprigns of the best pairings
-    pairings :: [Individual]
-    pairings = concatMap (uncurry (crossover gc)) $ makePairings gc indivs
-    -- Deduplicate the pairings
-    de_duped = deDupOn (Map.keys . fst) pairings
-
-pseudoGeneticRepair :: CompileConfig -> EProblem -> IO [EFix]
-pseudoGeneticRepair cc@CompConf {pseudoGenConf = gc@PseudoGenConf {..}} prob@EProb {..} = do
-  efcs <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-  first_attempt <- collectStats $ repairAttempt cc prob (Just efcs)
-  if not $ null $ successful first_attempt
-    then return (map fst $ successful first_attempt)
-    else do
-      let prog_at_ty = progAtTy e_prog e_ty
-          runGen (fix, _) = do
-            let n_prog = replaceExpr fix prog_at_ty
-            map (\(f, r) -> (f `mergeFixes` fix, r))
-              <$> collectStats (repairAttempt cc prob {e_prog = n_prog} (Just efcs))
-          loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO [EFix]
-          loop gen n
-            | not (null $ successful gen) =
-              do
-                logStr INFO $ "Repair found after " ++ show n ++ " rounds!"
-                return $ deDupOn Map.keys $ map fst $ successful gen
-          loop _ rounds | rounds >= genRounds = return []
-          loop attempt rounds = do
-            let gen = individuals attempt
-            new_gen <- selection gc gen
-            let ga = avg $ map fitness gen
-                nga = avg $ map fitness new_gen
-            logStr INFO $ "GENERATION " ++ show rounds
-            logStr INFO $ "AVERAGE FITNESS: " ++ show ga
-            logStr INFO $ "NEXT GEN ESTIMATED FITNESS: " ++ show nga
-            logStr INFO $ "IMPROVEMENT: " ++ show (nga - ga)
-            logStr AUDIT "PREV GEN"
-            mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) gen
-            logStr AUDIT "NEXT GEN"
-            mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) new_gen
-            let mapGen = if genPar then mapConcurrently else mapM
-            (t, new_attempt) <- collectStats $ time $ concat <$> mapGen runGen new_gen
-            logStr INFO $ "ROUND TIME: " ++ showTime t
-            loop new_attempt (rounds + 1)
-      loop first_attempt 1
-
--- |
--- Computes the average value of an array of integrals.
--- It is used to compute the average fitness of a generation.
-avg :: Fractional a => [a] -> a
-avg as = sum as / fromIntegral (length as)
-
-deDupOn :: (Eq b, Ord b) => (a -> b) -> [a] -> [a]
-deDupOn f as = map snd $ filter ((`Set.member` grouped) . fst) zas
-  where
-    zas = zip [(0 :: Int) ..] as
-    zbs = zip [(0 :: Int) ..] $ map f as
-    grouped = Set.fromList $ map (fst . head) $ groupBy ((==) `on` snd) $ sortOn snd zbs
-
--- | Merging fix-candidates is mostly applying the list of changes in order.
---   The only addressed special case is to discard the next change,
---   if the next change is also used at the same place in the second fix.
-mergeFixes :: EFix -> EFix -> EFix
-mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
-  where
-    mf' [] xs = xs
-    mf' xs [] = xs
-    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
+import Endemic.Search.PseudoGenetic.Configuration
+import Endemic.Search.PseudoGenetic.Search

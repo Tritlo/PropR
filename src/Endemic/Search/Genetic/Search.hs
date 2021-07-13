@@ -13,7 +13,7 @@ import Endemic.Search.Genetic.Configuration
 import Endemic.Search.Genetic.GenMonad
 import Endemic.Search.Genetic.Types
 import Endemic.Search.Genetic.Utils
-import Endemic.Types (EFix)
+import Endemic.Types
 import Endemic.Util
 import GhcPlugins (liftIO)
 
@@ -305,7 +305,8 @@ geneticSearch = collectStats $ do
 -- TODO: Maybe change name ?
 geneticSearchPlusPostprocessing :: GenMonad [EFix]
 geneticSearchPlusPostprocessing = do
-  GConf {..} <- R.ask
+  ProbDesc {..} <- liftDesc R.ask
+  GConf {..} <- liftConf R.ask
   -- Step 0: Do the normal search
   results <- geneticSearch
   -- Step 1: Dedup Results
@@ -351,7 +352,8 @@ pickNByTournament n gs = do
 -- For every element, it checks whether to mutate, and if yes it mutates.
 performMutation :: Chromosome g => [g] -> GenMonad [g]
 performMutation gs = do
-  GConf {..} <- R.ask
+  ProbDesc {..} <- liftDesc R.ask
+  GConf {..} <- liftConf R.ask
   flips <- mapM (\g -> (g,) <$> tossCoin mutationRate) gs
   let (to_mutate_w_inds, rest_w_inds) = partition (snd . snd) $ zip [0 :: Int ..] flips
       (rest_inds, rest) = map fst <$> unzip rest_w_inds
@@ -368,7 +370,8 @@ performMutation gs = do
 performCrossover :: Chromosome g => [(g, g)] -> GenMonad [(g, g)]
 -- Termination Step: Empty lists do not need any action
 performCrossover pairs = do
-  GConf {..} <- R.ask
+  ProbDesc {..} <- liftDesc R.ask
+  GConf {..} <- liftConf R.ask
   flips <- mapM (\g -> (g,) <$> tossCoin crossoverRate) pairs
   let (to_crossover_w_inds, rest_w_inds) = partition (snd . snd) $ zip [0 :: Int ..] flips
       (rest_inds, rest) = map fst <$> unzip rest_w_inds
@@ -388,7 +391,8 @@ pickByTournament [a] = return (Just a)
 pickByTournament population =
   do
     -- Ask for Tournament Rounds m
-    GConf {..} <- R.ask
+    ProbDesc {..} <- liftDesc R.ask
+    GConf {..} <- liftConf R.ask
     let (Just tConf) = tournamentConfiguration
         tournamentRounds = rounds tConf
     -- Perform Tournament with m rounds and no initial champion
@@ -411,8 +415,9 @@ pickByTournament population =
     -- Case 3: We are in the last iteration, and do not have a champion.
     -- Have n random elements compete, return best
     pickByTournament n population curChamp = do
+      ProbDesc {..} <- liftDesc R.ask
+      GConf {..} <- liftConf R.ask
       gen <- getGen
-      GConf {..} <- R.ask
       let (Just tConf) = tournamentConfiguration
           tournamentSize = size tConf
           (tParticipants, gen') = pickRandomElements tournamentSize gen population

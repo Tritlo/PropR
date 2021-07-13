@@ -1,8 +1,11 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Endemic.Search.Genetic.Configuration where
 
-import Endemic.Types (CompileConfig, EProblem, ExprFitCand)
+import Data.Default
+import Endemic.Types (EProblem, ExprFitCand)
+import GHC.Generics
 
 -- ===========                 ==============
 -- ===      Genetic Configurations        ===
@@ -30,12 +33,6 @@ data GeneticConfiguration = GConf
     islandConfiguration :: Maybe IslandConfiguration,
     -- | The probability of how often we drop during mutation
     dropRate :: Double,
-    -- | The problem we're trying to solve
-    progProblem :: EProblem,
-    -- | The compiler configuration, required to retrieve mutated EFixes
-    compConf :: CompileConfig,
-    -- | The sum of all potentially replaced elements, required to retrieve mutated EFixes
-    exprFitCands :: [ExprFitCand],
     -- | Whether or not to try to minimize the successfull fixes. This step is performed after search as postprocessing and does not affect initial search runtime.
     tryMinimizeFixes :: Bool,
     -- | Whether successfull candidates will be removed from the populations, replaced with a new-full-random element.
@@ -43,34 +40,32 @@ data GeneticConfiguration = GConf
     -- | Whether to use as much parallelism as possible
     useParallelMap :: Bool
   }
+  deriving (Eq, Show, Read, Generic)
+
+instance Default GeneticConfiguration where
+  def = GConf {..}
+    where
+      mutationRate = 0.2
+      crossoverRate = 0.05
+      iterations = 50
+      populationSize = 64
+      timeoutInMinutes = 5
+      stopOnResults = True
+      tournamentConfiguration = Nothing
+      islandConfiguration = Nothing
+      -- T
+      dropRate = 0.2
+      tryMinimizeFixes = False -- Not implemented
+      replaceWinners = True
+      useParallelMap = True
 
 mkDefaultConf ::
   -- | The Size of the Population, must be even
   Int ->
   -- | The number of generations to be run, must be 1 or higher
   Int ->
-  EProblem ->
-  CompileConfig ->
-  [ExprFitCand] ->
   GeneticConfiguration
-mkDefaultConf pops its prob cc ecands = GConf {..}
-  where
-    mutationRate = 0.2
-    crossoverRate = 0.05
-    iterations = its
-    populationSize = pops
-    timeoutInMinutes = 5
-    stopOnResults = True
-    tournamentConfiguration = Nothing
-    islandConfiguration = Nothing
-    -- T
-    dropRate = 0.2
-    progProblem = prob
-    compConf = cc
-    exprFitCands = ecands
-    tryMinimizeFixes = False -- Not implemented
-    replaceWinners = True
-    useParallelMap = True
+mkDefaultConf pops its = def {populationSize = pops, iterations = its}
 
 -- Holds all attributes for the tournament selection process
 data TournamentConfiguration = TConf
@@ -79,6 +74,11 @@ data TournamentConfiguration = TConf
     -- | how many rounds will one participant do
     rounds :: Int
   }
+  deriving (Eq, Show, Read, Generic)
+
+instance Default TournamentConfiguration where
+  -- TODO: Sensible defaults
+  def = TConf 10 5
 
 -- | Holds all attributes required to perform an Island Evolution.
 -- For more Information on Island Evolution see https://neo.lcc.uma.es/Articles/WRH98.pdf
@@ -96,3 +96,8 @@ data IslandConfiguration = IConf
     -- | Whether the migration is done clockwise, True for ringwise, False for random pairs of migration
     ringwiseMigration :: Bool
   }
+  deriving (Eq, Show, Read, Generic)
+
+instance Default IslandConfiguration where
+  -- TODO: Sensible defaults
+  def = IConf 3 5 5 False
