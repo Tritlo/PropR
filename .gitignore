@@ -9,3 +9,6 @@ cabal.project.local
 .DS_Store
 
 output-patches-*
+
+log.txt 
+*.log

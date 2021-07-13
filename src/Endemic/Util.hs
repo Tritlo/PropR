@@ -15,7 +15,8 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bifunctor (second)
 import Data.Bits
-import Data.Char (isSpace, toUpper)
+import Data.Maybe (isJust,fromJust)
+import Data.Char (isSpace, toUpper, toLower)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.List (intercalate)
 import qualified Data.Map as Map
@@ -28,7 +29,7 @@ import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocU
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Environment (getArgs)
-import System.IO (hFlush, stdout)
+import System.IO (hFlush, stdout,appendFile)
 import Text.Printf (printf)
 
 progAtTy :: EExpr -> EType -> EExpr
@@ -51,6 +52,7 @@ data LogLevel
   | AUDIT
   | INFO
   | WARN
+  | TRACE
   | ERROR
   | FATAL
   deriving (Eq, Ord, Read, Show)
@@ -61,6 +63,20 @@ logLevel = do
   return $ case args Map.!? "--log" of
     Just lvl -> read lvl
     _ -> ERROR
+ 
+-- | Looks whether there was a logfile in the arguments. 
+-- This also implies whether we log to a file - without the param we just use the console.
+logFile :: IO (Maybe String)
+logFile = do
+  args <- getArgs
+  -- We lowercase all args
+  let args' = map (map toLower) args
+  -- We split them by "="
+  let args'' = map (break (== '=')) args'
+  let argsMap = Map.fromList args''
+  -- We have to remove the "=" from the beginning of the values
+  let argsMap' = Map.map (drop 1) argsMap
+  return $ Map.lookup "--logfile" argsMap'
 
 -- | Splits a list by a given element.
 -- The splitting element is not included in the created lists.  This could be
@@ -86,7 +102,12 @@ logStr olvl str = do
         sline = show (GHS.srcLocStartLine loc)
     showLoc <- ("--log-loc" `elem`) <$> getArgs
     let locO = if showLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
-    putStrLn $ locO ++ show olvl ++ ": " ++ str
+    let finalMessage = locO ++ show olvl ++ ": " ++ str
+    mFile <- logFile
+    when (isJust mFile) $ do 
+      let file = fromJust mFile 
+      appendFile file finalMessage
+    putStrLn finalMessage 
 
 logOut :: (HasCallStack, Outputable p) => LogLevel -> p -> IO ()
 logOut olvl = withFrozenCallStack . logStr olvl . showUnsafe
