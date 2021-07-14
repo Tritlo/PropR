@@ -30,7 +30,7 @@ import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
 import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (isSubspanOf, noLoc)
+import GhcPlugins (Outputable (ppr), isSubspanOf, noLoc, pprPanic)
 
 -- |
 --   An Individual consists of a "Fix", that is a change to be applied,
@@ -107,15 +107,15 @@ selection gc indivs = pure $ pruneGeneration gc de_duped
     -- Deduplicate the pairings
     de_duped = deDupOn (Map.keys . fst) pairings
 
-pseudoGeneticRepair :: Configuration -> EProblem -> IO [EFix]
+pseudoGeneticRepair :: PseudoGenConf -> ProblemDescription -> IO [EFix]
 pseudoGeneticRepair
-  conf@Conf
-    { compileConfig = cc,
-      repairConfig = rc,
-      searchAlgorithm = PseudoGenetic (gc@PseudoGenConf {..})
-    }
-  prob@EProb {..} = do
-    efcs <- collectStats $ getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  gc@PseudoGenConf {..}
+  ProbDesc
+    { compConf = cc,
+      repConf = rc,
+      progProblem = prob@EProb {..},
+      exprFitCands = efcs
+    } = do
     first_attempt <- collectStats $ repairAttempt cc rc prob (Just efcs)
     if not $ null $ successful first_attempt
       then return (map fst $ successful first_attempt)
@@ -150,7 +150,6 @@ pseudoGeneticRepair
               logStr INFO $ "ROUND TIME: " ++ showTime t
               loop new_attempt (rounds + 1)
         loop first_attempt 1
-pseudoGeneticRepair _ _ = error "Configuration not provided!"
 
 -- |
 -- Computes the average value of an array of integrals.

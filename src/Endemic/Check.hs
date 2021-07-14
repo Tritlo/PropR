@@ -20,8 +20,8 @@ import Endemic.Types (EExpr, EProblem (..), EProp)
 import Endemic.Util (progAtTy)
 import FastString (fsLit)
 import GHC
-import OccName (NameSpace, dataName, mkVarOcc, tcName)
-import RdrName (mkUnqual, mkVarUnqual)
+import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
+import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
 
 -- TODO: Give a seed for reproducible experiments & tests.
@@ -56,13 +56,20 @@ qcArgsExpr shrinks =
         "maxShrinks"
         (HsLit NoExtField (HsInt NoExtField $ IL NoSourceText False n))
 
--- | Time to run the QuickCheck in seconds
+-- | Time to run the QuickCheck in microseconds
 qcTime :: Integer
 qcTime = 1_000_000
 
 -- | This imports are required for the program to run.
 checkImports :: [[Char]]
-checkImports = ["import Test.QuickCheck", "import System.Environment (getArgs)"]
+checkImports =
+  [ "import Test.QuickCheck",
+    "import Test.Tasty (defaultMain, localOption, mkTimeout)",
+    "import System.Environment (getArgs)",
+    "import Control.Exception (catch)",
+    "import System.Exit (ExitCode (ExitSuccess))",
+    "import System.Environment (withArgs)"
+  ]
 
 -- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
@@ -103,6 +110,9 @@ tfn ns = noLoc . HsVar NoExtField . noLoc . mkUnqual ns . fsLit
 il :: Integer -> LHsExpr GhcPs
 il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 
+integerl :: Integer -> LHsExpr GhcPs
+integerl = noLoc . HsPar NoExtField . noLoc . HsApp NoExtField (tf "toInteger") . il
+
 -- | Short for "the type"
 tt :: String -> LHsType GhcPs
 tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
@@ -131,7 +141,7 @@ buildFixCheck EProb {..} fixes =
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing
     prop_names = mapMaybe prop_to_name e_props
-    propsToCheck = map (propCheckExpr $ tf "isSuccess") prop_names
+    testsToCheck = map (testCheckExpr (tf "isSuccess", tf "id")) prop_names
 
     expr_b ep = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy ep e_ty
     check_progs =
@@ -140,7 +150,7 @@ buildFixCheck EProb {..} fixes =
         eToBs fix = noLoc $ HsValBinds NoExtField ebs
           where
             ebs = ValBinds NoExtField (unitBag (expr_b fix)) []
-        elpc = noLoc $ ExplicitList NoExtField Nothing propsToCheck
+        elpc = noLoc $ ExplicitList NoExtField Nothing testsToCheck
         app :: LHsExpr GhcPs
         app = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "sequence") elpc
         app_w_ty :: LHsExpr GhcPs
@@ -183,12 +193,12 @@ buildSuccessCheck EProb {..} =
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing
     prop_names = mapMaybe prop_to_name e_props
-    propsToCheck = map (propCheckExpr $ tf "isSuccess") prop_names
+    testsToCheck = map (testCheckExpr (tf "isSuccess", tf "id")) prop_names
 
     pcb =
       baseFun
-        (mkVarUnqual $ fsLit "propsToCheck__")
-        (noLoc $ ExplicitList NoExtField Nothing propsToCheck)
+        (mkVarUnqual $ fsLit "testsToCheck__")
+        (noLoc $ ExplicitList NoExtField Nothing testsToCheck)
     -- sq_ty is short for "sequence type"
     sq_ty :: LHsSigWcType GhcPs
     sq_ty =
@@ -214,7 +224,7 @@ buildSuccessCheck EProb {..} =
                           HsApp
                             NoExtField
                             (tf "sequence")
-                            (tf "propsToCheck__")
+                            (tf "testsToCheck__")
                       )
                 )
                 sq_ty
@@ -222,40 +232,130 @@ buildSuccessCheck EProb {..} =
 
 -- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result
-propCheckExpr ::
+testCheckExpr ::
   -- | A compiled program that contains properties and everything to run them
-  LHsExpr GhcPs ->
+  (LHsExpr GhcPs, LHsExpr GhcPs) ->
   -- | A reader containing the property to check
   Located RdrName ->
   -- | The resulting expression
   LHsExpr GhcPs
-propCheckExpr extractor prop =
-  noLoc $
-    HsApp
-      NoExtField
-      (noLoc $ HsApp NoExtField (tf "fmap") extractor)
-      ( noLoc $
-          HsPar NoExtField $
-            noLoc $
-              HsApp
-                NoExtField
-                (noLoc $ HsApp NoExtField (tf "quickCheckWithResult") (tf "qc__"))
-                ( noLoc $
+testCheckExpr extractors test =
+  noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
+  where
+    isQc = ((==) "prop" . take 4 . occNameString . rdrNameOcc . unLoc) test
+    extractor = if isQc then fst extractors else snd extractors
+    subExpr :: LHsExpr GhcPs
+    subExpr = if isQc then qcSubExpr else tastySubExpr
+    tastySubExpr :: LHsExpr GhcPs
+    tastySubExpr =
+      noLoc $
+        HsPar NoExtField $
+          noLoc $
+            HsApp
+              NoExtField
+              ( noLoc $
+                  HsPar NoExtField $
+                    noLoc $
+                      HsApp NoExtField (tf "catch") $
+                        noLoc $
+                          HsPar NoExtField $
+                            noLoc $
+                              HsApp
+                                NoExtField
+                                ( noLoc $
+                                    HsPar NoExtField $
+                                      noLoc $
+                                        HsApp NoExtField (tf "fmap") $
+                                          noLoc $
+                                            HsPar NoExtField $
+                                              noLoc $ HsApp NoExtField (tf "const") (tfn dataName "False")
+                                )
+                                ( noLoc $
+                                    HsPar NoExtField $
+                                      noLoc $
+                                        HsApp
+                                          NoExtField
+                                          ( noLoc $
+                                              HsPar NoExtField $
+                                                -- We're running the main method, which
+                                                -- tries to take in arguments.
+                                                noLoc $
+                                                  HsApp
+                                                    NoExtField
+                                                    (tf "withArgs")
+                                                    tastyArgs
+                                          )
+                                          appApp
+                                )
+              )
+              catchArg
+      where
+        tastyArgs :: LHsExpr GhcPs
+        tastyArgs = noLoc $ ExplicitList NoExtField Nothing [toArg "--quiet"]
+          where
+            toArg :: String -> LHsExpr GhcPs
+            toArg arg =
+              noLoc $
+                HsLit NoExtField $
+                  HsString NoSourceText (fsLit arg)
+        appApp :: LHsExpr GhcPs
+        appApp =
+          noLoc $
+            HsPar NoExtField $
+              noLoc $
+                HsApp NoExtField (tf "defaultMain") $
+                  noLoc $
                     HsPar NoExtField $
                       noLoc $
                         HsApp
                           NoExtField
-                          (noLoc $ HsApp NoExtField (tf "within") (il qcTime))
                           ( noLoc $
-                              HsPar NoExtField $
-                                noLoc $
-                                  HsApp
-                                    NoExtField
-                                    (noLoc $ HsVar NoExtField prop)
-                                    (tf "expr__")
+                              HsPar
+                                NoExtField
+                                ( noLoc $
+                                    HsApp NoExtField (tf "localOption") $
+                                      noLoc $
+                                        HsPar NoExtField $
+                                          noLoc $ HsApp NoExtField (tf "mkTimeout") (integerl qcTime)
+                                )
                           )
-                )
-      )
+                          app
+        catchArg :: LHsExpr GhcPs
+        catchArg =
+          noLoc $
+            HsPar NoExtField $
+              noLoc $
+                HsApp
+                  NoExtField
+                  ( noLoc $
+                      HsPar NoExtField $
+                        noLoc $ HsApp NoExtField (tf ".") (tf "return")
+                  )
+                  ( noLoc $
+                      HsPar NoExtField $
+                        noLoc $ HsApp NoExtField (tf "==") (tfn dataName "ExitSuccess")
+                  )
+    app =
+      noLoc $
+        HsPar NoExtField $
+          noLoc $ HsApp NoExtField (noLoc $ HsVar NoExtField test) (tf "expr__")
+
+    qcSubExpr :: LHsExpr GhcPs
+    qcSubExpr =
+      noLoc $
+        HsPar NoExtField $
+          noLoc $
+            HsApp
+              NoExtField
+              (noLoc $ HsApp NoExtField (tf "quickCheckWithResult") (tf "qc__"))
+              ( noLoc $
+                  HsPar NoExtField $
+                    noLoc $
+                      HsApp
+                        NoExtField
+                        (noLoc $ HsApp NoExtField (tf "within") (il qcTime))
+                        app
+              )
 
 -- | The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument
@@ -301,6 +401,7 @@ buildCounterExampleCheck
                     (noLoc $ HsApp NoExtField (tf "within") (il qcTime))
                     (noLoc $ HsPar NoExtField b)
           aW g = g
+      addWithin malt = malt
 
       sq_ty :: LHsSigWcType GhcPs
       sq_ty =
@@ -326,7 +427,7 @@ buildCounterExampleCheck
             progAtTy
               ( noLoc $
                   HsPar NoExtField $
-                    propCheckExpr (tf "failureToMaybe") fid
+                    testCheckExpr (tf "failureToMaybe", tf "id") fid
               )
               sq_ty
 
