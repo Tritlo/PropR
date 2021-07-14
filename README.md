@@ -32,6 +32,8 @@ To run the program, ensure that `QuickCheck` is installed by running
 $ cabal run endemic -- examples/BrokenModule.hs
 ```
 
+For more options see #Usage and the `--help` flag.
+
 to see it in action on the `foldl (-) 0` example. This produces the following:
 
 ```diff
@@ -74,20 +76,23 @@ TRACE OF COUNTER EXAMPLES:
 
 REPAIRING...DONE! (2.43s)
 REPAIRS:
----examples/BrokenModule.hs
-+++examples/BrokenModule.hs
+diff --git a/examples/BrokenModule.hs b/examples/BrokenModule.hs
+--- a/examples/BrokenModule.hs
++++ b/examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = sum
 
----examples/BrokenModule.hs
-+++examples/BrokenModule.hs
+diff --git a/examples/BrokenModule.hs b/examples/BrokenModule.hs
+--- a/examples/BrokenModule.hs
++++ b/examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = foldl add 0
 
----examples/BrokenModule.hs
-+++examples/BrokenModule.hs
+diff --git a/examples/BrokenModule.hs b/examples/BrokenModule.hs
+--- a/examples/BrokenModule.hs
++++ b/examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = foldl (+) 0
@@ -134,22 +139,31 @@ seen at the top of this document.
 To try it out for different scenarios, feel free to change the `Broken` modules
 in `examples/`, but note that AST coverage is pretty limited at the moment.
 
-Parameters
+Usage
 ---------
 
-Endemic accepts the following flags:
+```
+endemic - Genetic program repair for Haskell
 
-+ `--seed` to set the random seed
-+ `--log-loc` to add location info to log messages
-+ `--log-level=<LogLevel>` to change the log level
-+ `--log-timestamp` to add timestamps to log messages
-+ `--log-file=<path/to/file>` to append logs to a file as well as STDOUT
-+ `--config=<JSON Config>` to set the base configuration
-+ `--override=<JSON Config>` to override the base configuration
+Usage: endemic [--log-loc] [--no-log-timestamp] [--log-level LOGLEVEL] 
+               [--log-file FILE] [--seed INT] [--config CONFIG] 
+               [--override CONFIG] TARGET
+  Repair TARGET using the endemic genetic method
 
-where "<JSON config>" is either a:
-+ JSON file containing a partial config or
-+ A string containing a partial config
+Available options:
+  --log-loc                Add location to log messages
+  --no-log-timestamp       Remove timestamps from log messages
+  --log-level LOGLEVEL     The logging level to use (default: WARN)
+  --log-file FILE          Append logs to FILE
+  --seed INT               The random seed to use. Generated at runtime if not
+                           provided.
+  --config CONFIG          The configuration to use. CONF can either be a path
+                           to a JSON file, or the JSON can be specified directly
+  --override CONFIG        Override the configuration with the given CONFIG.
+                           CONF can either be a path to a JSON file, or the JSON
+                           can be specified directly
+  -h,--help                Show this help text
+```
 
 The <LogLevel> parameter can be set to the following levels:
 
