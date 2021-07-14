@@ -5,7 +5,6 @@
 module Main where
 
 import Data.Maybe (isJust, mapMaybe)
-import Data.Vector (fromList)
 import Endemic (getExprFitCands)
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
 import Endemic.Eval
