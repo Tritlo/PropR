@@ -137,23 +137,29 @@ in `examples/`, but note that AST coverage is pretty limited at the moment.
 Parameters
 ---------
 
-Accepts a configuration file via the "--config=<config>" parameter,
-where "<config>" is either a:
+Endemic accepts the following flags:
+
++ `--seed` to set the random seed
++ `--log-loc` to add location info to log messages
++ `--log-level=<LogLevel>` to change the log level
++ `--log-timestamp` to add timestamps to log messages
++ `--log-file=<path/to/file>` to append logs to a file as well as STDOUT
++ `--config=<JSON Config>` to set the base configuration
++ `--override=<JSON Config>` to override the base configuration
+
+where "<JSON config>" is either a:
 + JSON file containing a partial config or
 + A string containing a partial config
 
-To get a better idea of what's going on, you can run Endemic with `--log-level=<LEVEL>`, where `level` is one of:
+The <LogLevel> parameter can be set to the following levels:
 
-+ `TRACE` for absolutely everything,
-+ `DEBUG` to see most of what is logged,
-+ `AUDIT` to see a little less than Debug, but still a lot (this includes e.g. the run-time of hotspots and such)
-+ `VERBOSE` to see a bit more than info, but still not too much
++ `TRACE` for absolutely everything (A LOT OF OUTPUT)
++ `DEBUG` to see most of what is logged (a bit less than TRACE),
++ `AUDIT` to see a time summaries for various locations
++ `VERBOSE` To see a bit more than info, but still not too much
 + `INFO` to see only informative messages and above
 + `WARN` for warnings or more
 + `ERROR` for errors only, and
 + `FATAL` for fatal errors (an irrecoverable crash)
 
-You can also add `--log-loc` to get the location in the code of each log message, for e.g. telling which line
-a given run-time corresponds to.
 
-You can save the log to a logfile, using `--log-file=./endemic.log`. Logs will be appended, and to function a log-level must be set. The content will be the same as console output.
