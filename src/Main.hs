@@ -29,7 +29,6 @@ import GhcPlugins (noLoc)
 import System.Directory (createDirectory)
 import System.Environment (getArgs)
 import System.IO
-
 main :: IO ()
 main = do
   args <- Map.fromList . map (break (== '=')) <$> getArgs
@@ -42,22 +41,22 @@ main = do
   (_, modul, probs) <- moduleToProb compileConfig toFix Nothing
   let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
       RProb {..} = detranslate tp
-  putStrLn "TARGET:"
-  putStrLn ("  `" ++ r_target ++ "` in " ++ toFix)
-  putStrLn "CONFIG:"
-  BS.putStrLn $ encode conf
-  putStrLn "SCOPE:"
-  mapM_ (putStrLn . ("  " ++)) (importStmts compileConfig)
-  putStrLn "TARGET TYPE:"
-  putStrLn $ "  " ++ r_ty
-  putStrLn "MUST SATISFY:"
-  mapM_ (putStrLn . ("  " ++)) r_props
-  putStrLn "IN CONTEXT:"
-  mapM_ (putStrLn . ("  " ++)) r_ctxt
-  putStrLn "PROGRAM TO REPAIR: "
-  putStrLn $ showUnsafe e_prog
+  logStr INFO $ "TARGET:"
+  logStr INFO $ ("  `" ++ r_target ++ "` in " ++ toFix)
+  logStr DEBUG $ "CONFIG:"
+  logStr DEBUG $ show (encode conf)
+  logStr DEBUG $ "SCOPE:"
+  mapM_ (logStr DEBUG . ("  " ++)) (importStmts compileConfig)
+  logStr INFO $ "TARGET TYPE:"
+  logStr INFO $ "  " ++ r_ty
+  logStr INFO $ "MUST SATISFY:"
+  mapM_ (logStr INFO . ("  " ++)) r_props
+  logStr DEBUG $ "IN CONTEXT:"
+  mapM_ (logStr DEBUG . ("  " ++)) r_ctxt
+  logStr DEBUG $ "PROGRAM TO REPAIR: "
+  logStr DEBUG $ showUnsafe e_prog
 
-  putStrLn "REPAIRING..."
+  logStr INFO "REPAIRING..."
   desc <- describeProblem conf toFix
   (t, fixes) <- time $ runGenMonad def desc 69420 geneticSearchPlusPostprocessing
   let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
@@ -71,5 +70,5 @@ main = do
   let prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
   savePatchesToFiles oc prettyPrinted
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
-  reportStats' INFO
-  putStrLn $ "DONE! (" ++ showTime t ++ ")"
+  --reportStats' INFO
+  logStr INFO $ "Done! Genetic Searchtook (" ++ showTime t ++ ") in CPU Time"
