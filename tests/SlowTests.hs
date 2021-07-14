@@ -4,14 +4,19 @@
 
 module Main where
 
+import Data.Default
 import Data.Maybe (isJust, mapMaybe)
 import Endemic (getExprFitCands)
+import Endemic.Configuration
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
 import Endemic.Eval
-import Endemic.Search ( geneticSearchPlusPostprocessing, runGenMonad
-                      , ProblemDescription(..), describeProblem )
+import Endemic.Search
+  ( ProblemDescription (..),
+    describeProblem,
+    geneticSearchPlusPostprocessing,
+    runGenMonad,
+  )
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
-import Endemic.Configuration
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
@@ -19,7 +24,6 @@ import GHC (HsExpr (HsLet), NoExtField (NoExtField))
 import GhcPlugins (noLoc)
 import Test.Tasty
 import Test.Tasty.HUnit
-import Data.Default
 
 tests :: TestTree
 tests =
@@ -47,7 +51,30 @@ properGenTests =
                     ]
                   ]
 
-          (_, modul, [EProb{..}]) <- moduleToProb def toFix repair_target
+          (_, modul, [EProb {..}]) <- moduleToProb def toFix repair_target
+          desc <- describeProblem def toFix
+          fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+              fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
+          fixDiffs @?= expected,
+      localOption (mkTimeout 180_000_000) $
+        testCase "Repair TastyFix" $ do
+          let toFix = "tests/cases/TastyFix.hs"
+              repair_target = Nothing
+              expected =
+                map
+                  unlines
+                  [ [ "diff --git a/tests/cases/TastyFix.hs b/tests/cases/TastyFix.hs",
+                      "--- a/tests/cases/TastyFix.hs",
+                      "+++ b/tests/cases/TastyFix.hs",
+                      "@@ -7,1 +7,1 @@ x = 2",
+                      "-x = 2",
+                      "+x = 3"
+                    ]
+                  ]
+
+          (_, modul, [EProb {..}]) <-
+            moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
           desc <- describeProblem def toFix
           fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes

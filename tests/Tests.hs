@@ -6,17 +6,18 @@ module Main where
 
 import Control.Arrow
 import Data.Bits (finiteBitSize)
+import Data.Default
 import Data.Dynamic (fromDynamic)
 import Data.List (find)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Tree
 import Data.Tuple (swap)
+import Endemic.Configuration
 import Endemic.Diff
 import Endemic.Eval
 import Endemic.Repair
 import Endemic.Traversals
-import Endemic.Configuration
 import Endemic.Types
 import Endemic.Util
 import GhcPlugins (GenLocated (L), getLoc, unLoc)
@@ -25,7 +26,6 @@ import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import Trace.Hpc.Mix
-import Data.Default
 
 tests :: TestTree
 tests =

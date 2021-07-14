@@ -1,25 +1,26 @@
-{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE DeriveGeneric #-}
-module Endemic.Configuration.Configure
-    (
-      lOGCONFIG,
-      getConfiguration,
-      setGlobalFlags,
-      CLIOptions(..),
-    ) where
+{-# LANGUAGE RecordWildCards #-}
 
+module Endemic.Configuration.Configure
+  ( lOGCONFIG,
+    getConfiguration,
+    setGlobalFlags,
+    CLIOptions (..),
+  )
+where
+
+import Data.Aeson (eitherDecodeFileStrict', eitherDecodeStrict')
 import Data.Bifunctor (second)
-import System.Directory (doesFileExist)
-import System.IO.Unsafe ( unsafePerformIO )
-import System.Random (randomIO)
-import Data.IORef ( IORef, newIORef, writeIORef )
-import Endemic.Configuration.Types
-import qualified Data.Map as Map
 import qualified Data.ByteString.Char8 as BS
-import Data.Default (def, Default)
-import Data.Aeson ( eitherDecodeFileStrict', eitherDecodeStrict' )
+import Data.Default (Default, def)
+import Data.IORef (IORef, newIORef, writeIORef)
+import qualified Data.Map as Map
+import Endemic.Configuration.Types
 import Endemic.Types
 import GHC.Generics (Generic)
+import System.Directory (doesFileExist)
+import System.IO.Unsafe (unsafePerformIO)
+import System.Random (randomIO)
 
 -- | Global variable to configure logging
 {-# NOINLINE lOGCONFIG #-}
@@ -45,10 +46,10 @@ readConf fp = do
 -- | Parses the given configuration or reads it from file (if it's a file).
 -- Retursn a default configuration if none is given.
 getConfiguration :: CLIOptions -> IO Configuration
-getConfiguration opts@CLIOptions{optConfig=Nothing} = do
+getConfiguration opts@CLIOptions {optConfig = Nothing} = do
   seed <- randomIO
   addCliArguments opts (materialize (Just conjure)) {randomSeed = Just seed}
-getConfiguration opts@CLIOptions{optConfig=Just fp} =
+getConfiguration opts@CLIOptions {optConfig = Just fp} =
   readConf fp >>= addCliArguments opts . materialize . Just
 
 data CLIOptions = CLIOptions {
@@ -63,12 +64,14 @@ data CLIOptions = CLIOptions {
 
 
 addCliArguments :: CLIOptions -> Configuration -> IO Configuration
-addCliArguments CLIOptions{..} conf = do
-
-  let umLogConf = UmLogConf { umLogLoc = optLogLoc
-                            , umLogLevel = optLogLevel
-                            , umLogTimestamp = optLogTimestamp
-                            , umLogFile = optLogFile }
+addCliArguments CLIOptions {..} conf = do
+  let umLogConf =
+        UmLogConf
+          { umLogLoc = optLogLoc,
+            umLogLevel = optLogLevel,
+            umLogTimestamp = optLogTimestamp,
+            umLogFile = optLogFile
+          }
 
   conf'@Conf {..} <-
     case optOverride of

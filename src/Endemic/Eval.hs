@@ -23,18 +23,6 @@
 -- 4. Configuration for this and other parts of the project
 module Endemic.Eval where
 
--- GHC API
-
--- GHC API
--- GHC API
-
--- GHC API
--- GHC API
-
--- GHC API
--- GHC API
-
--- GHC API
 import Bag (Bag, bagToList, concatMapBag, emptyBag, listToBag, mapMaybeBag, unitBag)
 import Constraint
 import Control.Concurrent.Async (mapConcurrently)
@@ -259,18 +247,18 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
         ctxt :: LHsLocalBinds GhcPs
         ctxt = toCtxt valueDeclarations
 
-        tests :: Set RdrName
+        tests :: Set OccName
         tests = Set.fromList $ bagToList $ concatMapBag fromTPropD tm_typechecked_source
           where
-            fromTPropD :: LHsBind GhcTc -> Bag RdrName
+            fromTPropD :: LHsBind GhcTc -> Bag OccName
             fromTPropD b@(L l FunBind {..})
               | t <- idType $ unLoc fun_id,
                 isTestTree t || isProp t (unLoc fun_id) =
-                unitBag (getRdrName $ unLoc fun_id)
+                unitBag (getOccName $ unLoc fun_id)
             fromTPropD b@(L l VarBind {..})
               | t <- idType var_id,
                 isTestTree t || isProp t var_id =
-                unitBag $ getRdrName var_id
+                unitBag $ getOccName var_id
             fromTPropD b@(L l AbsBinds {..}) =
               concatMapBag fromTPropD abs_binds
             fromTPropD _ = emptyBag
@@ -285,7 +273,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
         props = mapMaybe fromPropD hsmodDecls
           where
             fromPropD (L l (ValD _ b@FunBind {..}))
-              | unLoc fun_id `elem` tests = Just (L l b)
+              | rdrNameOcc (unLoc fun_id) `elem` tests = Just (L l b)
             fromPropD _ = Nothing
 
         fix_targets :: [RdrName]
@@ -535,7 +523,7 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
            "main :: IO ()",
            "main = do [which] <- getArgs",
            "          act <- checks !! (read which)",
-           "          print (isSuccess act) "
+           "          print (act :: Bool) "
          ]
   where
     (failing_props, failing_argss) = unzip ps_w_ce
@@ -545,12 +533,23 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     toName _ = error "Unsupported bind!"
     pnames = map toName failing_props
     nas = zip pnames failing_argss
+    toCall pname args
+      | "prop" /= take 4 pname =
+        "catch ( withArgs [] $ ( True <$ (defaultMain ("
+          ++ pname
+          ++ " fake_target "
+          ++ unwords args
+          ++ "))))"
+          ++ " (return . (==) ExitSuccess)"
     toCall pname args =
-      "quickCheckWithResult (" ++ (showUnsafe (qcArgsExpr Nothing)) ++ ") ("
+      "fmap isSuccess ("
+        ++ "quickCheckWithResult ("
+        ++ showUnsafe (qcArgsExpr Nothing)
+        ++ ") ("
         ++ pname
         ++ " fake_target "
         ++ unwords args
-        ++ ")"
+        ++ "))"
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
 
@@ -803,3 +802,11 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
           not (isEmptyVarSet (ctFreeVarSet ct))
             && anyFVMentioned ct
             && not (isHoleCt ct)
+
+describeProblem :: Configuration -> FilePath -> IO ProblemDescription
+describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
+  (compConf, _, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
+  exprFitCands <-
+    getExprFitCands compConf $
+      noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  return $ ProbDesc {..}

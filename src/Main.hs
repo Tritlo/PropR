@@ -5,7 +5,7 @@
 
 module Main where
 
-import Control.Monad (when)
+import Control.Monad (unless, when)
 import Data.Default (def)
 import Data.IORef (IORef, atomicModifyIORef', readIORef, writeIORef)
 import Data.Map.Strict (Map)
@@ -16,13 +16,14 @@ import Endemic.Check (buildSuccessCheck, checkImports)
 import Endemic.Diff
 import Endemic.Eval
 import Endemic.Repair (detranslate, translate)
-import Endemic.Search.Genetic (ProblemDescription (..), describeProblem, runGenMonad, geneticSearchPlusPostprocessing)
+import Endemic.Search.Genetic (geneticSearchPlusPostprocessing, runGenMonad)
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
 import GHC (HsExpr (HsLet), NoExtField (..))
 import GhcPlugins (noLoc)
-import System.Directory (createDirectory)
+import Options.Applicative
+import System.Directory (createDirectory, doesDirectoryExist)
 import System.Environment (getArgs)
 import System.IO
 import System.Random
@@ -128,12 +129,14 @@ main = do
        (t, fixes) <- time $ runGenMonad def desc seed geneticSearchPlusPostprocessing
        let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
            fbs = map getFixBinds newProgs
+
        -- Here we write the found solutions to respective files, we just number them 1 .. n
        formTime <- formattedTime outputConfig
        -- TODO: Add a Configurable prefix for the output directory, e.g. /tmp/
-       let outputDirectory = "./output-patches-" ++ formTime
-           oc = outputConfig {directory = outputDirectory}
-       createDirectory outputDirectory
+       let dir' = directory outputConfig ++ formTime
+           oc = outputConfig {directory = dir'}
+       dirExists <- doesDirectoryExist dir'
+       unless dirExists $ createDirectory dir'
        let prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
        savePatchesToFiles oc prettyPrinted
        mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs

@@ -8,6 +8,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+
 module Endemic.Configuration.Types where
 
 import Data.Aeson
@@ -19,7 +20,6 @@ import Deriving.Aeson
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Types
-
 
 -- | Logging configuration
 data LogConfig = LogConf
@@ -321,7 +321,7 @@ instance Default OutputConfig where
   def =
     OutputConf
       { locale = Nothing,
-        directory = "./output",
+        directory = "./output-patches-",
         overwrite = True
       }
 
@@ -345,7 +345,6 @@ instance Materializeable OutputConfig where
         directory = fromMaybe directory umDirectory,
         overwrite = fromMaybe overwrite umOverwrite
       }
-
 
 instance Materializeable CompileConfig where
   data Unmaterialized CompileConfig = UmCompConf
@@ -386,8 +385,8 @@ instance Default CompileConfig where
   def =
     CompConf
       { hole_lvl = 0,
-        packages = ["base", "process", "QuickCheck"],
-        importStmts = ["import Prelude"]
+        packages = ["base", "process", "QuickCheck", "tasty"],
+        importStmts = ["import Prelude", "import Test.Tasty"]
       }
 
 -- | Configuration for the checking of repairs
@@ -453,3 +452,12 @@ instance Materializeable LogConfig where
         logTimestamp = fromMaybe logTimestamp umLogTimestamp,
         logFile = mbOverride logFile umLogFile
       }
+
+-- | The Problem Description is generated at runtime, descriping a particular
+-- program to fix.
+data ProblemDescription = ProbDesc
+  { progProblem :: EProblem,
+    exprFitCands :: [ExprFitCand],
+    compConf :: CompileConfig,
+    repConf :: RepairConfig
+  }
