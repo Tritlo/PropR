@@ -11,9 +11,7 @@ import Endemic.Configuration
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
 import Endemic.Eval
 import Endemic.Search
-  ( ProblemDescription (..),
-    describeProblem,
-    geneticSearchPlusPostprocessing,
+  ( geneticSearchPlusPostprocessing,
     runGenMonad,
   )
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
@@ -79,7 +77,30 @@ properGenTests =
           fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
-          fixDiffs @?= expected
+          take 1 fixDiffs @?= expected,
+      localOption (mkTimeout 180_000_000) $
+        testCase "Repair TastyMix" $ do
+          let toFix = "tests/cases/TastyMix.hs"
+              repair_target = Nothing
+              expected =
+                map
+                  unlines
+                  [ [ "diff --git a/tests/cases/TastyMix.hs b/tests/cases/TastyMix.hs",
+                      "--- a/tests/cases/TastyMix.hs",
+                      "+++ b/tests/cases/TastyMix.hs",
+                      "@@ -7,1 +7,1 @@ x = 2",
+                      "-x = 2",
+                      "+x = 3"
+                    ]
+                  ]
+
+          (_, modul, [EProb {..}]) <-
+            moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
+          desc <- describeProblem def toFix
+          fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+              fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
+          take 1 fixDiffs @?= expected
     ]
 
 genTests =
@@ -102,7 +123,8 @@ genTests =
                   ]
 
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
-          fixes <- pseudoGeneticRepair def {searchAlgorithm = PseudoGenetic def} tp
+          desc <- describeProblem def toFix
+          fixes <- pseudoGeneticRepair def desc
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
@@ -123,7 +145,8 @@ genTests =
                   ]
 
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
-          fixes <- pseudoGeneticRepair def {searchAlgorithm = PseudoGenetic def} tp
+          desc <- describeProblem def toFix
+          fixes <- pseudoGeneticRepair def desc
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
@@ -144,7 +167,8 @@ genTests =
                   ]
 
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
-          fixes <- pseudoGeneticRepair def {searchAlgorithm = PseudoGenetic def} tp
+          desc <- describeProblem def toFix
+          fixes <- pseudoGeneticRepair def desc
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected
