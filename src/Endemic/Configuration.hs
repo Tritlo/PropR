@@ -8,6 +8,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+
 -- |
 -- Module      : Endemic.configuration
 -- Description : This module reads in configurations necessary for the project
@@ -21,8 +22,6 @@
 -- Notes:
 -- Conjure is a wild name, but it just means that we need a default configuration. For the default file-read configuration, this means an empty object.
 -- Materialize means to read it in, however our reading in is highly automized using Aeson.
---
-
 module Endemic.Configuration
   ( getConfiguration,
     Configuration (..),
@@ -157,7 +156,7 @@ instance Materializeable Configuration where
         outputConfig = materialize umOutputConfig,
         logLevel = case umLogLevel of
           Just lvl -> lvl
-          _ -> error "Dit not receive a logLevel ! Aborting the application." $ logLevel def,
+          _ -> logLevel def,
         logLoc = case umLogLoc of
           Just v -> v
           _ -> logLoc def,
@@ -165,7 +164,8 @@ instance Materializeable Configuration where
         searchAlgorithm = materialize umSearchAlgorithm
       }
 
--- | Holds the primary switch wether we want to use Genetic Search or BFS.
+-- | Holds the primary switch wether we want to use Genetic Search or BFS,
+-- and the assoicated configuration
 data SearchAlgorithm
   = Genetic GeneticConfiguration
   | PseudoGenetic PseudoGenConf
@@ -194,7 +194,7 @@ deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields,
 instance Default SearchAlgorithm where
   def = Genetic def
 
--- | All parameters that are passed to the genetic configuration. 
+-- | All parameters that are passed to the genetic configuration.
 -- All Elements are Maybes, if a Nothing is found we pick the defaults.
 instance Materializeable GeneticConfiguration where
   data Unmaterialized GeneticConfiguration = UmGeneticConfiguration
@@ -347,9 +347,13 @@ instance Materializeable SearchAlgorithm where
   materialize (Just (UmPseudoGenetic umpgc)) =
     PseudoGenetic $ materialize $ Just umpgc
 
+-- | Configuration for the output
 data OutputConfig = OutputConf
-  { locale :: Maybe TimeLocale,
+  { -- | The users locale, for complete reproduction
+    locale :: Maybe TimeLocale,
+    -- | Which directory to write the patches to.
     directory :: FilePath,
+    -- | Whether to overwrite previous patches
     overwrite :: Bool
   }
   deriving (Show, Eq, Generic)
@@ -498,6 +502,7 @@ instance Materializeable CompileConfig where
       vod _ (Just v) = v
       vod g _ = g def
 
+-- | Configuration for the compilation itself
 data CompileConfig = CompConf
   { -- | a list of imports required/wanted for the compilation
     importStmts :: [String],
@@ -519,6 +524,7 @@ instance Default CompileConfig where
         importStmts = ["import Prelude"]
       }
 
+-- | Configuration for the checking of repairs
 data RepairConfig = RepConf
   { -- | Whether or not to use Parallelisation
     repParChecks :: Bool,
