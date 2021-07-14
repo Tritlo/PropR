@@ -142,22 +142,12 @@ where "<config>" is either a:
 + JSON file containing a partial config or
 + A string containing a partial config
 
-The synthesizer accepts a command line argument, `-fdebug`, which makes it
-output A LOT more.
+To get a better idea of what's going on, you can run Endemic with `--log-level=<LEVEL>`, where `level` is one of:
 
-The `-fholes` parameter is 2 by default, and denotes the maximum number of
-holes added to an expression to see if it can fit. Corresponds to the
-`-frefinement-level-hole-fits` parameter for GHC.
-
-The `-fdepth` is deep we go, i.e. `0` means that we only synthesize top-level
-expressions, `1` we synthesize a top-level expression with holes in it, and then
-fill those holes with top-level expressions, for `2` we allow holes in the
-sub-expressions one level deep etc.
-
-To get a better idea of what's going on, you can run Endemic with `--log=<LEVEL>`, where `level` is one of:
-
-+ `DEBUG` to see absolutely everything that's logged,
++ `TRACE` for absolutely everything,
++ `DEBUG` to see most of what is logged,
 + `AUDIT` to see a little less than Debug, but still a lot (this includes e.g. the run-time of hotspots and such)
++ `VERBOSE` to see a bit more than info, but still not too much
 + `INFO` to see only informative messages and above
 + `WARN` for warnings or more
 + `ERROR` for errors only, and
@@ -166,4 +156,4 @@ To get a better idea of what's going on, you can run Endemic with `--log=<LEVEL>
 You can also add `--log-loc` to get the location in the code of each log message, for e.g. telling which line
 a given run-time corresponds to.
 
-You can safe the log to a logfile, using `--logfile=./endemic.log`. Logs will be appended, and to function a log-level must be set. The content will be the same as console output.
+You can save the log to a logfile, using `--log-file=./endemic.log`. Logs will be appended, and to function a log-level must be set. The content will be the same as console output.

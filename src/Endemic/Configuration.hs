@@ -27,12 +27,12 @@ module Endemic.Configuration
     Configuration (..),
     OutputConfig (..),
     CompileConfig (..),
+    LogConfig (..),
     RepairConfig (..),
     SearchAlgorithm (..),
     -- Global flags
     setGlobalFlags,
-    lOGLEVEL,
-    lOGLOC,
+    lOGCONFIG
   )
 where
 
@@ -57,12 +57,21 @@ import System.Environment (getArgs)
 import System.IO.Unsafe
 import System.Random (randomIO)
 
--- | Global flags
-lOGLOC :: IORef Bool
-lOGLOC = unsafePerformIO $ newIORef False
+-- | Global variable to configure logging
+lOGCONFIG :: IORef LogConfig
+lOGCONFIG = unsafePerformIO $ newIORef def
 
-lOGLEVEL :: IORef LogLevel
-lOGLEVEL = unsafePerformIO $ newIORef WARN
+-- | Logging configuration
+data LogConfig = LogConf
+  { logLoc :: Bool,
+    logLevel :: LogLevel,
+    logTimestamp :: Bool,
+    logFile :: Maybe String
+  }
+  deriving (Show, Eq, Generic)
+  deriving
+    (FromJSON, ToJSON)
+    via CustomJSON '[FieldLabelModifier '[CamelToSnake], RejectUnknownFields] LogConfig
 
 -- We need these as well
 
@@ -95,8 +104,7 @@ data Configuration = Conf
     repairConfig :: RepairConfig,
     outputConfig :: OutputConfig,
     searchAlgorithm :: SearchAlgorithm,
-    logLevel :: LogLevel,
-    logLoc :: Bool,
+    logConfig :: LogConfig,
     randomSeed :: Maybe Int
   }
   deriving (Show, Eq, Generic)
@@ -111,8 +119,7 @@ instance Default Configuration where
         repairConfig = def,
         outputConfig = def,
         searchAlgorithm = def,
-        logLevel = def,
-        logLoc = False,
+        logConfig = def,
         randomSeed = Nothing
       }
 
@@ -125,14 +132,12 @@ instance Materializeable Configuration where
       -- | Configuration for the repair of programs
       umRepairConfig :: Maybe (Unmaterialized RepairConfig),
       umOutputConfig :: Maybe (Unmaterialized OutputConfig),
+      umLogConfig :: Maybe (Unmaterialized LogConfig),
       -- | Configuration for the genetic repair algorithm.
       --  Left if we're to use the PseudoGenConf, Right otherwise.
       -- Defaults to a Genetic Configuration.
       umSearchAlgorithm :: Maybe (Unmaterialized SearchAlgorithm),
-      umRandomSeed :: Maybe Int,
-      umLogLevel :: Maybe LogLevel,
-      umLogLoc :: Maybe Bool,
-      umDebug :: Maybe Bool
+      umRandomSeed :: Maybe Int
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -144,7 +149,7 @@ instance Materializeable Configuration where
              ]
             (Unmaterialized Configuration)
 
-  conjure = UmConf n n n n n n n n
+  conjure = UmConf n n n n n n
     where
       n = Nothing
 
@@ -154,12 +159,7 @@ instance Materializeable Configuration where
       { compileConfig = materialize umCompileConfig,
         repairConfig = materialize umRepairConfig,
         outputConfig = materialize umOutputConfig,
-        logLevel = case umLogLevel of
-          Just lvl -> lvl
-          _ -> logLevel def,
-        logLoc = case umLogLoc of
-          Just v -> v
-          _ -> logLoc def,
+        logConfig = materialize umLogConfig,
         randomSeed = umRandomSeed,
         searchAlgorithm = materialize umSearchAlgorithm
       }
@@ -422,7 +422,7 @@ addCliArguments conf@Conf {..} = do
         _ -> Nothing
 
   mb_lvl <-
-    ( (Map.!? "--log") . Map.fromList
+    ( (Map.!? "--log-level") . Map.fromList
         . map
           ( second (map toUpper . drop 1)
               . break (== '=')
@@ -432,6 +432,14 @@ addCliArguments conf@Conf {..} = do
       >>= \case
         Just lvl -> return (Just $ read lvl)
         _ -> return Nothing
+  mb_file <-
+    ( (Map.!? "--log-file") . Map.fromList
+        . map
+          ( second (map toUpper . drop 1)
+              . break (== '=')
+          )
+        <$> getArgs
+      )
   par_rep <- ("--par-rep" `elem`) <$> getArgs
   no_par_rep <- ("--no-par-rep" `elem`) <$> getArgs
   rep_interpreted <- ("--rep-interpreted" `elem`) <$> getArgs
@@ -441,13 +449,19 @@ addCliArguments conf@Conf {..} = do
 
   return $
     conf
-      { logLoc =
-          if loc || no_loc
-            then loc
-            else logLoc,
-        logLevel = case mb_lvl of
-          Just lvl -> lvl
-          _ -> logLevel,
+      { logConfig =
+          logConfig
+            { logLoc =
+                if loc || no_loc
+                  then loc
+                  else (logLoc logConfig),
+              logLevel = case mb_lvl of
+                Just lvl -> lvl
+                _ -> (logLevel logConfig),
+              logFile = case mb_file of
+                Just fp -> Just fp
+                _ -> (logFile logConfig)
+            },
         compileConfig =
           case synth_holes of
             Just hlvl -> compileConfig {hole_lvl = hlvl}
@@ -474,9 +488,7 @@ addCliArguments conf@Conf {..} = do
 -- | Set global flags sets the global flags to the values specified in
 -- configuration, i.e. the `lOGLOC`, `lOGLEVEL` and `dEBUG`.
 setGlobalFlags :: Configuration -> IO ()
-setGlobalFlags Conf {..} = do
-  writeIORef lOGLOC logLoc
-  writeIORef lOGLEVEL logLevel
+setGlobalFlags Conf {logConfig = lc} = writeIORef lOGCONFIG lc
 
 instance Materializeable CompileConfig where
   data Unmaterialized CompileConfig = UmCompConf
@@ -560,3 +572,29 @@ instance Materializeable RepairConfig where
     RepConf
       (fromMaybe (repParChecks def) umParChecks)
       (fromMaybe (repUseInterpreted def) umUseInterpreted)
+
+
+instance Default LogConfig where
+  def = LogConf {logLoc = False, logLevel = WARN, logFile = Nothing, logTimestamp = True}
+
+instance Materializeable LogConfig where
+  data Unmaterialized LogConfig = UmLogConf
+    { umLogLoc :: Maybe Bool,
+      umLogLevel :: Maybe LogLevel,
+      umLogTimestamp :: Maybe Bool,
+      umLogFile :: Maybe String
+    }
+    deriving (Show, Eq, Generic)
+    deriving
+      (FromJSON, ToJSON)
+      via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "umLog", CamelToSnake]] (Unmaterialized LogConfig)
+
+  conjure = UmLogConf Nothing Nothing Nothing Nothing
+
+  materialize Nothing = def
+  materialize (Just UmLogConf {..}) =
+    LogConf
+      (fromMaybe (logLoc def) umLogLoc)
+      (fromMaybe (logLevel def) umLogLevel)
+      (fromMaybe (logTimestamp def) umLogTimestamp)
+      umLogFile

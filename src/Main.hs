@@ -43,18 +43,18 @@ main = do
       RProb {..} = detranslate tp
   logStr INFO $ "TARGET:"
   logStr INFO $ ("  `" ++ r_target ++ "` in " ++ toFix)
-  logStr DEBUG $ "CONFIG:"
-  logStr DEBUG $ show (encode conf)
-  logStr DEBUG $ "SCOPE:"
-  mapM_ (logStr DEBUG . ("  " ++)) (importStmts compileConfig)
+  logStr VERBOSE $ "CONFIG:"
+  logStr VERBOSE $ show (encode conf)
+  logStr VERBOSE $ "SCOPE:"
+  mapM_ (logStr VERBOSE . ("  " ++)) (importStmts compileConfig)
   logStr INFO $ "TARGET TYPE:"
   logStr INFO $ "  " ++ r_ty
   logStr INFO $ "MUST SATISFY:"
   mapM_ (logStr INFO . ("  " ++)) r_props
-  logStr DEBUG $ "IN CONTEXT:"
-  mapM_ (logStr DEBUG . ("  " ++)) r_ctxt
-  logStr DEBUG $ "PROGRAM TO REPAIR: "
-  logStr DEBUG $ showUnsafe e_prog
+  logStr VERBOSE $ "IN CONTEXT:"
+  mapM_ (logStr VERBOSE . ("  " ++)) r_ctxt
+  logStr VERBOSE $ "PROGRAM TO REPAIR: "
+  logStr VERBOSE $ showUnsafe e_prog
 
   logStr INFO "REPAIRING..."
   desc <- describeProblem conf toFix
@@ -70,5 +70,5 @@ main = do
   let prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
   savePatchesToFiles oc prettyPrinted
   mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
-  --reportStats' INFO
-  logStr INFO $ "Done! Genetic Searchtook (" ++ showTime t ++ ") in CPU Time"
+  reportStats' VERBOSE
+  logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"

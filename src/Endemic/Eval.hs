@@ -174,7 +174,7 @@ getHoleFitsFromError ::
   SourceError ->
   Ghc (Either [ValsAndRefs] b)
 getHoleFitsFromError plugRef err = do
-  liftIO $ logOut AUDIT $ pprErrMsgBagWithLoc $ srcErrorMessages err
+  liftIO $ logOut DEBUG $ pprErrMsgBagWithLoc $ srcErrorMessages err
   res <- liftIO $ readIORef plugRef
   when (null res) (printException err)
   let gs = groupBy (sameHole `on` fst) res
