@@ -25,7 +25,17 @@ module Endemic.Eval where
 
 -- GHC API
 
-import Bag (bagToList, emptyBag, listToBag, unitBag)
+-- GHC API
+-- GHC API
+
+-- GHC API
+-- GHC API
+
+-- GHC API
+-- GHC API
+
+-- GHC API
+import Bag (Bag, bagToList, concatMapBag, emptyBag, listToBag, mapMaybeBag, unitBag)
 import Constraint
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (when, (>=>))
@@ -39,6 +49,7 @@ import Data.IORef (IORef, newIORef, readIORef)
 import Data.List (groupBy, intercalate, partition)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isNothing, mapMaybe)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (Tree (Node, rootLabel))
@@ -73,6 +84,7 @@ import TcSimplify (captureTopConstraints)
 import Trace.Hpc.Mix
 import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix)
 import Trace.Hpc.Util (HpcPos, fromHpcPos)
+import TyCoRep
 
 -- Configuration and GHC setup
 
@@ -224,6 +236,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
     -- Retrieve the parsed module
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
+    tc_modul@TypecheckedModule {..} <- typecheckModule modul
     let (L _ HsModule {..}) = pm_parsed_source
         cc' = cc {importStmts = importStmts ++ imps'}
           where
@@ -246,12 +259,33 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
         ctxt :: LHsLocalBinds GhcPs
         ctxt = toCtxt valueDeclarations
 
+        tests :: Set RdrName
+        tests = Set.fromList $ bagToList $ concatMapBag fromTPropD tm_typechecked_source
+          where
+            fromTPropD :: LHsBind GhcTc -> Bag RdrName
+            fromTPropD b@(L l FunBind {..})
+              | t <- idType $ unLoc fun_id,
+                isTestTree t || isProp t (unLoc fun_id) =
+                unitBag (getRdrName $ unLoc fun_id)
+            fromTPropD b@(L l VarBind {..})
+              | t <- idType var_id,
+                isTestTree t || isProp t var_id =
+                unitBag $ getRdrName var_id
+            fromTPropD b@(L l AbsBinds {..}) =
+              concatMapBag fromTPropD abs_binds
+            fromTPropD _ = emptyBag
+            isTestTree (TyConApp tt _) =
+              ((==) "TestTree" . occNameString . getOccName) tt
+            isTestTree _ = False
+            -- TODO: Check the type of the fun_id as well, or exclusively
+            isProp :: Type -> Id -> Bool
+            isProp _ = (==) "prop" . take 4 . occNameString . occName
+
         props :: [LHsBind GhcPs]
         props = mapMaybe fromPropD hsmodDecls
           where
             fromPropD (L l (ValD _ b@FunBind {..}))
-              | ((==) "prop" . take 4 . occNameString . occName . unLoc) fun_id =
-                Just (L l b)
+              | unLoc fun_id `elem` tests = Just (L l b)
             fromPropD _ = Nothing
 
         fix_targets :: [RdrName]

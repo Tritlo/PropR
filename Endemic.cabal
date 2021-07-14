@@ -94,6 +94,7 @@ test-suite test
                  tasty-expected-failure >= 0.12,
                  containers >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
+                 hpc >= 0.6 && < 0.7,
                  data-default >= 0.7 && < 0.8,
                  Endemic,
                  -- packages used in repair:
@@ -112,6 +113,8 @@ test-suite slow-test
                  tasty-expected-failure >= 0.12,
                  containers >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
+                 hpc >= 0.6 && < 0.7,
+                 data-default >= 0.7 && < 0.8,
                  Endemic,
                  -- packages used in repair:
                  QuickCheck
