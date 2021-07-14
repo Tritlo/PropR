@@ -24,8 +24,8 @@ module Endemic.Configuration
     lOGCONFIG,
 
     -- Configuration
+    CLIOptions (..),
     getConfiguration
-
   )
 where
 

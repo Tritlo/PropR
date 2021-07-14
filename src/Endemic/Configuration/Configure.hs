@@ -1,22 +1,25 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE DeriveGeneric #-}
 module Endemic.Configuration.Configure
     (
       lOGCONFIG,
       getConfiguration,
-      setGlobalFlags
+      setGlobalFlags,
+      CLIOptions(..),
     ) where
 
 import Data.Bifunctor (second)
 import System.Directory (doesFileExist)
-import System.Environment (getArgs)
 import System.IO.Unsafe ( unsafePerformIO )
 import System.Random (randomIO)
 import Data.IORef ( IORef, newIORef, writeIORef )
 import Endemic.Configuration.Types
 import qualified Data.Map as Map
 import qualified Data.ByteString.Char8 as BS
-import Data.Default (def)
+import Data.Default (def, Default)
 import Data.Aeson ( eitherDecodeFileStrict', eitherDecodeStrict' )
+import Endemic.Types
+import GHC.Generics (Generic)
 
 -- | Global variable to configure logging
 {-# NOINLINE lOGCONFIG #-}
@@ -41,55 +44,39 @@ readConf fp = do
 
 -- | Parses the given configuration or reads it from file (if it's a file).
 -- Retursn a default configuration if none is given.
-getConfiguration :: Maybe String -> IO Configuration
-getConfiguration Nothing = do
-  let conf = materialize (Just conjure)
+getConfiguration :: CLIOptions -> IO Configuration
+getConfiguration opts@CLIOptions{optConfig=Nothing} = do
   seed <- randomIO
-  let conf' = conf {randomSeed = Just seed}
-  addCliArguments conf'
-getConfiguration (Just fp) = do
-  readConf fp >>= addCliArguments . materialize . Just
+  addCliArguments opts (materialize (Just conjure)) {randomSeed = Just seed}
+getConfiguration opts@CLIOptions{optConfig=Just fp} =
+  readConf fp >>= addCliArguments opts . materialize . Just
 
--- TODO: Implement using opt-parse
-addCliArguments :: Configuration -> IO Configuration
-addCliArguments conf = do
-  loc <- elem "--log-loc" <$> getArgs
-  no_loc <- elem "--no-log-loc" <$> getArgs
+data CLIOptions = CLIOptions {
+   optLogLoc :: Maybe Bool,
+   optLogTimestamp :: Maybe Bool,
+   optLogLevel :: Maybe LogLevel,
+   optLogFile :: Maybe String,
+   optRandomSeed :: Maybe Int,
+   optConfig :: Maybe String,
+   optOverride :: Maybe String,
+   optTarget  :: String
+  } deriving (Eq, Show, Generic)
 
-  time <- elem "--log-timestamp" <$> getArgs
-  no_time <- elem "--no-log-timestamp" <$> getArgs
 
-  args <- Map.fromList . map (second (drop 1) . break (== '=')) <$> getArgs
-  let mb_lvl = read <$> (args Map.!? "--log-level")
-      mb_file = args Map.!? "--log-file"
-      mb_seed = args Map.!? "--seed"
+addCliArguments :: CLIOptions -> Configuration -> IO Configuration
+addCliArguments CLIOptions{..} conf = do
+
+  let umLogConf = UmLogConf { umLogLoc = optLogLoc
+                            , umLogLevel = optLogLevel
+                            , umLogTimestamp = optLogTimestamp
+                            , umLogFile = optLogFile }
 
   conf'@Conf {..} <-
-    case args Map.!? "--override" of
+    case optOverride of
       Nothing -> return conf
-      Just c -> do
-        nc <- readConf c
-        return $ override conf (Just nc)
+      Just c -> override conf . Just <$> readConf c
   return $
     conf'
-      { logConfig =
-          logConfig
-            { logLoc =
-                if loc || no_loc
-                  then loc
-                  else logLoc logConfig,
-              logLevel = case mb_lvl of
-                Just lvl -> lvl
-                _ -> logLevel logConfig,
-              logFile = case mb_file of
-                Just fp -> Just fp
-                _ -> logFile logConfig,
-              logTimestamp =
-                if time || no_time
-                  then time
-                  else logTimestamp logConfig
-            },
-        randomSeed = case mb_seed of
-          Just s -> read <$> Just s
-          _ -> randomSeed
+      { logConfig = override logConfig (Just umLogConf)
+      , randomSeed = mbOverride randomSeed optRandomSeed
       }

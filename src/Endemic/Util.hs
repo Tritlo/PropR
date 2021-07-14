@@ -31,7 +31,6 @@ import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocU
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
-import System.Environment (getArgs)
 import System.IO (appendFile, hFlush, stdout)
 import Text.Printf (printf)
 
