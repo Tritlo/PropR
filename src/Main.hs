@@ -18,9 +18,7 @@ import Endemic.Check (buildSuccessCheck, checkImports)
 import Endemic.Diff
 import Endemic.Eval
 import Endemic.Repair (detranslate, translate)
-import Endemic.Search.Genetic (ProblemDescription (..), describeProblem)
-import Endemic.Search.Genetic.GenMonad (runGenMonad)
-import Endemic.Search.Genetic.Search (geneticSearchPlusPostprocessing)
+import Endemic.Search.Genetic (ProblemDescription (..), describeProblem, runGenMonad, geneticSearchPlusPostprocessing)
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util

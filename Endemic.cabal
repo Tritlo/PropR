@@ -28,14 +28,16 @@ library
                    Endemic.Util,
                    Endemic.Search,
                    Endemic.Search.PseudoGenetic,
-                   Endemic.Search.PseudoGenetic.Configuration,
-                   Endemic.Search.PseudoGenetic.Search,
-                   Endemic.Search.Genetic,
-                   Endemic.Search.Genetic.Configuration
-                   Endemic.Search.Genetic.GenMonad,
-                   Endemic.Search.Genetic.Search,
-                   Endemic.Search.Genetic.Types,
-                   Endemic.Search.Genetic.Utils
+                   Endemic.Search.Genetic
+  other-modules: Endemic.Configuration.Configure,
+                 Endemic.Configuration.Types,
+                 Endemic.Search.Genetic.Configuration,
+                 Endemic.Search.Genetic.GenMonad,
+                 Endemic.Search.Genetic.Search,
+                 Endemic.Search.Genetic.Types,
+                 Endemic.Search.Genetic.Utils
+                 Endemic.Search.PseudoGenetic.Configuration,
+                 Endemic.Search.PseudoGenetic.Search
   build-depends: base >= 4 && < 5,
                  ghc >= 8 && < 9,
                  ghc-boot >= 8 && < 9,

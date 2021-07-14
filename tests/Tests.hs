@@ -392,7 +392,7 @@ sanctifyTests =
     [ localOption (mkTimeout 1_000_000) $
         testCase "Sanctify foldl program" $ do
           let cc = def
-              toFix = "tests/BrokenModule.hs"
+              toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
           -- There are 7 ways to replace parts of the broken function in BrokenModule
@@ -401,7 +401,7 @@ sanctifyTests =
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
           let cc = def
-              toFix = "tests/BrokenModule.hs"
+              toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
           let (holes, holey) = unzip $ sanctifyExpr e_prog
@@ -415,28 +415,28 @@ moduleTests =
     "Module tests"
     [ localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule With Diff" $ do
-          let toFix = "tests/BrokenModule.hs"
+          let toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
               expected =
                 map
                   unlines
-                  [ [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
-                      "--- a/tests/BrokenModule.hs",
-                      "+++ b/tests/BrokenModule.hs",
+                  [ [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+                      "--- a/tests/cases/BrokenModule.hs",
+                      "+++ b/tests/cases/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = sum"
                     ],
-                    [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
-                      "--- a/tests/BrokenModule.hs",
-                      "+++ b/tests/BrokenModule.hs",
+                    [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+                      "--- a/tests/cases/BrokenModule.hs",
+                      "+++ b/tests/cases/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl add 0"
                     ],
-                    [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
-                      "--- a/tests/BrokenModule.hs",
-                      "+++ b/tests/BrokenModule.hs",
+                    [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+                      "--- a/tests/cases/BrokenModule.hs",
+                      "+++ b/tests/cases/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl (+) 0"
@@ -450,19 +450,19 @@ moduleTests =
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
-          let toFix = "tests/BrokenModule.hs"
+          let toFix = "tests/cases/BrokenModule.hs"
           (_, _, [EProb {..}]) <- moduleToProb def toFix Nothing
           showUnsafe e_target @?= "broken",
       localOption (mkTimeout 90_000_000) $
         testCase "Repair BrokenGCD" $ do
-          let toFix = "tests/BrokenGCD.hs"
+          let toFix = "tests/cases/BrokenGCD.hs"
               repair_target = Just "gcd'"
               expected =
                 map
                   unlines
-                  [ [ "diff --git a/tests/BrokenGCD.hs b/tests/BrokenGCD.hs",
-                      "--- a/tests/BrokenGCD.hs",
-                      "+++ b/tests/BrokenGCD.hs",
+                  [ [ "diff --git a/tests/cases/BrokenGCD.hs b/tests/cases/BrokenGCD.hs",
+                      "--- a/tests/cases/BrokenGCD.hs",
+                      "+++ b/tests/cases/BrokenGCD.hs",
                       "@@ -19,3 +19,3 @@ gcd' 0 b = gcd' 0 b",
                       "-gcd' 0 b = gcd' 0 b",
                       "+gcd' 0 b = b",
@@ -477,14 +477,14 @@ moduleTests =
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair MagicConstant" $ do
-          let toFix = "tests/MagicConstant.hs"
+          let toFix = "tests/cases/MagicConstant.hs"
               repair_target = Nothing
               expected =
                 map
                   unlines
-                  [ [ "diff --git a/tests/MagicConstant.hs b/tests/MagicConstant.hs",
-                      "--- a/tests/MagicConstant.hs",
-                      "+++ b/tests/MagicConstant.hs",
+                  [ [ "diff --git a/tests/cases/MagicConstant.hs b/tests/cases/MagicConstant.hs",
+                      "--- a/tests/cases/MagicConstant.hs",
+                      "+++ b/tests/cases/MagicConstant.hs",
                       "@@ -7,1 +7,1 @@ theAnswer = 17",
                       "-theAnswer = 17",
                       "+theAnswer = 42"
