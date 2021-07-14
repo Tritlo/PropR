@@ -524,7 +524,7 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
 reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b
 reportError p e = do
   liftIO $ do
-    logStr ERROR "Compiling Check Failed with unexpected Exception:"
+    logStr ERROR "Compiling check Failed with unexpected Exception:"
     logStr ERROR (showUnsafe p)
   printException e
   error "UNEXPECTED EXCEPTION"

@@ -58,6 +58,7 @@ import System.IO.Unsafe
 import System.Random (randomIO)
 
 -- | Global variable to configure logging
+{-# NOINLINE lOGCONFIG #-}
 lOGCONFIG :: IORef LogConfig
 lOGCONFIG = unsafePerformIO $ newIORef def
 
@@ -87,13 +88,24 @@ deriving instance ToJSON TimeLocale
 
 deriving instance FromJSON TimeLocale
 
--- | The materializeable class defines the data we know
--- how to materialize, i.e. bring from undefined data.
+-- | The materializeable class defines the data we know how to materialize, i.e.
+-- bring from undefined data, and override
 -- TODO: We could definitely derive this
-class Materializeable a where
+class Default a => Materializeable a where
   data Unmaterialized a :: *
   materialize :: Maybe (Unmaterialized a) -> a
   conjure :: Unmaterialized a
+  override :: a -> Maybe (Unmaterialized a) -> a
+  materialize = override def
+
+mbOverride :: Maybe a -> Maybe a -> Maybe a
+mbOverride _ (Just x) = Just x
+mbOverride p _ = p
+
+overrideIfPresent :: Materializeable a => Maybe a -> Maybe (Unmaterialized a) -> Maybe a
+overrideIfPresent (Just x) o = Just $ override x o
+overrideIfPresent _ x@(Just _) = Just $ materialize x
+overrideIfPresent _ _ = Nothing
 
 instance Materializeable a => Default (Unmaterialized a) where
   def = conjure
@@ -153,15 +165,15 @@ instance Materializeable Configuration where
     where
       n = Nothing
 
-  materialize Nothing = def
-  materialize (Just UmConf {..}) =
+  override conf Nothing = conf
+  override Conf {..} (Just UmConf {..}) =
     Conf
-      { compileConfig = materialize umCompileConfig,
-        repairConfig = materialize umRepairConfig,
-        outputConfig = materialize umOutputConfig,
-        logConfig = materialize umLogConfig,
-        randomSeed = umRandomSeed,
-        searchAlgorithm = materialize umSearchAlgorithm
+      { compileConfig = override compileConfig umCompileConfig,
+        repairConfig = override repairConfig umRepairConfig,
+        outputConfig = override outputConfig umOutputConfig,
+        logConfig = override logConfig umLogConfig,
+        searchAlgorithm = override searchAlgorithm umSearchAlgorithm,
+        randomSeed = mbOverride randomSeed umRandomSeed
       }
 
 -- | Holds the primary switch wether we want to use Genetic Search or BFS,
@@ -225,34 +237,22 @@ instance Materializeable GeneticConfiguration where
     where
       n = Nothing
 
-  materialize Nothing = def
-  materialize (Just UmGeneticConfiguration {..}) =
+  override conf Nothing = conf
+  override GConf {..} (Just UmGeneticConfiguration {..}) =
     GConf
-      { mutationRate = vod mutationRate umMutationRate,
-        crossoverRate = vod crossoverRate umCrossoverRate,
-        iterations = vod iterations umIterations,
-        populationSize = vod populationSize umPopulationSize,
-        timeoutInMinutes = vod timeoutInMinutes umTimeoutInMinutes,
-        stopOnResults = vod stopOnResults umStopOnResults,
-        -- Note: we don't want to conjure a tournament or island config
-        -- if there is none present
-        tournamentConfiguration = case umTournamentConfiguration of
-          Just umt -> Just $ materialize $ Just umt
-          _ -> Nothing,
-        islandConfiguration = case umIslandConfiguration of
-          Just umi -> Just $ materialize $ Just umi
-          _ -> Nothing,
-        dropRate = vod dropRate umDropRate,
-        tryMinimizeFixes = vod tryMinimizeFixes umTryMinimizeFixes,
-        replaceWinners = vod replaceWinners umReplaceWinners,
-        useParallelMap = vod useParallelMap umUseParallelMap
+      { mutationRate = fromMaybe mutationRate umMutationRate,
+        crossoverRate = fromMaybe crossoverRate umCrossoverRate,
+        iterations = fromMaybe iterations umIterations,
+        populationSize = fromMaybe populationSize umPopulationSize,
+        timeoutInMinutes = fromMaybe timeoutInMinutes umTimeoutInMinutes,
+        stopOnResults = fromMaybe stopOnResults umStopOnResults,
+        dropRate = fromMaybe dropRate umDropRate,
+        tryMinimizeFixes = fromMaybe tryMinimizeFixes umTryMinimizeFixes,
+        replaceWinners = fromMaybe replaceWinners umReplaceWinners,
+        useParallelMap = fromMaybe useParallelMap umUseParallelMap,
+        tournamentConfiguration = overrideIfPresent tournamentConfiguration umTournamentConfiguration,
+        islandConfiguration = overrideIfPresent islandConfiguration umIslandConfiguration
       }
-    where
-      vod :: (GeneticConfiguration -> a) -> Maybe a -> a
-      vod _ (Just v) = v
-      vod g _ = g def
-      vod' g (Just v) = Just v
-      vod' g _ = g def
 
 instance Materializeable PseudoGenConf where
   data Unmaterialized PseudoGenConf = UmPseudoGeneticConfiguration
@@ -267,17 +267,13 @@ instance Materializeable PseudoGenConf where
 
   conjure = UmPseudoGeneticConfiguration Nothing Nothing Nothing
 
-  materialize Nothing = def
-  materialize (Just UmPseudoGeneticConfiguration {..}) =
+  override x Nothing = x
+  override PseudoGenConf {..} (Just UmPseudoGeneticConfiguration {..}) =
     PseudoGenConf
-      { genIndividuals = vod genIndividuals umGenIndividuals,
-        genRounds = vod genRounds umGenRounds,
-        genPar = vod genPar umGenPar
+      { genIndividuals = fromMaybe genIndividuals umGenIndividuals,
+        genRounds = fromMaybe genRounds umGenRounds,
+        genPar = fromMaybe genPar umGenPar
       }
-    where
-      vod :: (PseudoGenConf -> a) -> Maybe a -> a
-      vod _ (Just v) = v
-      vod g _ = g def
 
 instance Materializeable TournamentConfiguration where
   data Unmaterialized TournamentConfiguration = UmTournamentConfiguration
@@ -291,12 +287,12 @@ instance Materializeable TournamentConfiguration where
 
   conjure = UmTournamentConfiguration Nothing Nothing
 
-  materialize Nothing = def
-  materialize (Just UmTournamentConfiguration {..}) =
-    TConf (vod size umTSize) (vod rounds umTRounds)
-    where
-      vod _ (Just v) = v
-      vod g _ = g def
+  override x Nothing = x
+  override TConf {..} (Just UmTournamentConfiguration {..}) =
+    TConf
+      { tSize = fromMaybe tSize umTSize,
+        tRounds = fromMaybe tRounds umTSize
+      }
 
 instance Materializeable IslandConfiguration where
   data Unmaterialized IslandConfiguration = UmIslandConfiguration
@@ -312,17 +308,14 @@ instance Materializeable IslandConfiguration where
 
   conjure = UmIslandConfiguration Nothing Nothing Nothing Nothing
 
-  materialize Nothing = def
-  materialize (Just UmIslandConfiguration {..}) =
+  override x Nothing = x
+  override IConf {..} (Just UmIslandConfiguration {..}) =
     IConf
-      { islands = vod islands umIslands,
-        migrationInterval = vod migrationInterval umMigrationInterval,
-        migrationSize = vod migrationSize umMigrationSize,
-        ringwiseMigration = vod ringwiseMigration umRingwiseMigration
+      { islands = fromMaybe islands umIslands,
+        migrationInterval = fromMaybe migrationInterval umMigrationInterval,
+        migrationSize = fromMaybe migrationSize umMigrationSize,
+        ringwiseMigration = fromMaybe ringwiseMigration umRingwiseMigration
       }
-    where
-      vod _ (Just v) = v
-      vod g _ = g def
 
 instance Materializeable SearchAlgorithm where
   data Unmaterialized SearchAlgorithm
@@ -341,11 +334,15 @@ instance Materializeable SearchAlgorithm where
 
   conjure = UmGenetic conjure
 
-  materialize Nothing = def
-  materialize (Just (UmGenetic umc)) =
-    Genetic $ materialize $ Just umc
-  materialize (Just (UmPseudoGenetic umpgc)) =
-    PseudoGenetic $ materialize $ Just umpgc
+  override c Nothing = c
+  override (Genetic _) (Just (UmPseudoGenetic psc)) =
+    PseudoGenetic $ materialize $ Just psc
+  override (PseudoGenetic _) (Just (UmGenetic gc)) =
+    Genetic $ materialize $ Just gc
+  override (Genetic conf) (Just (UmGenetic gc)) =
+    Genetic $ override conf (Just gc)
+  override (PseudoGenetic conf) (Just (UmPseudoGenetic pgc)) =
+    PseudoGenetic $ override conf (Just pgc)
 
 -- | Configuration for the output
 data OutputConfig = OutputConf
@@ -382,15 +379,24 @@ instance Materializeable OutputConfig where
 
   conjure = UmOutConf Nothing Nothing Nothing
 
-  materialize Nothing = def
-  materialize (Just UmOutConf {..}) =
+  override c Nothing = c
+  override OutputConf {..} (Just UmOutConf {..}) =
     OutputConf
-      { locale = case umLocale of
-          Just lcl -> Just lcl
-          _ -> locale def,
-        directory = fromMaybe (directory def) umDirectory,
-        overwrite = fromMaybe (overwrite def) umOverwrite
+      { locale = mbOverride locale umLocale,
+        directory = fromMaybe directory umDirectory,
+        overwrite = fromMaybe overwrite umOverwrite
       }
+
+readConf :: String -> IO (Unmaterialized Configuration)
+readConf fp = do
+  fileExists <- doesFileExist fp
+  res <-
+    if fileExists
+      then eitherDecodeFileStrict' fp
+      else return $ eitherDecodeStrict' (BS.pack fp)
+  case res of
+    Left err -> error err
+    Right um_conf -> return um_conf
 
 -- | Parses the given configuration or reads it from file (if it's a file).
 -- Retursn a default configuration if none is given.
@@ -401,18 +407,11 @@ getConfiguration Nothing = do
   let conf' = conf {randomSeed = Just seed}
   addCliArguments conf'
 getConfiguration (Just fp) = do
-  fileExists <- doesFileExist fp
-  res <-
-    if fileExists
-      then eitherDecodeFileStrict' fp
-      else return $ eitherDecodeStrict' (BS.pack fp)
-  case res of
-    Left err -> error err
-    Right um_conf -> addCliArguments $ materialize um_conf
+  readConf fp >>= addCliArguments . materialize . Just
 
 -- TODO: Implement using opt-parse
 addCliArguments :: Configuration -> IO Configuration
-addCliArguments conf@Conf {..} = do
+addCliArguments conf = do
   loc <- elem "--log-loc" <$> getArgs
   no_loc <- elem "--no-log-loc" <$> getArgs
 
@@ -424,27 +423,33 @@ addCliArguments conf@Conf {..} = do
       mb_file = args Map.!? "--log-file"
       mb_seed = args Map.!? "--seed"
 
+  conf'@Conf {..} <-
+    case args Map.!? "--override" of
+      Nothing -> return conf
+      Just c -> do
+        nc <- readConf c
+        return $ override conf (Just nc)
   return $
-    conf
+    conf'
       { logConfig =
           logConfig
             { logLoc =
                 if loc || no_loc
                   then loc
-                  else (logLoc logConfig),
+                  else logLoc logConfig,
               logLevel = case mb_lvl of
                 Just lvl -> lvl
-                _ -> (logLevel logConfig),
+                _ -> logLevel logConfig,
               logFile = case mb_file of
                 Just fp -> Just fp
-                _ -> (logFile logConfig),
+                _ -> logFile logConfig,
               logTimestamp =
                 if time || no_time
                   then time
-                  else (logTimestamp logConfig)
+                  else logTimestamp logConfig
             },
         randomSeed = case mb_seed of
-          Just s -> read <$> (Just s)
+          Just s -> read <$> Just s
           _ -> randomSeed
       }
 
@@ -466,16 +471,13 @@ instance Materializeable CompileConfig where
 
   conjure = UmCompConf Nothing Nothing Nothing
 
-  materialize Nothing = def
-  materialize (Just UmCompConf {..}) =
+  override c Nothing = c
+  override CompConf {..} (Just UmCompConf {..}) =
     CompConf
-      { importStmts = vod importStmts umImportStmts,
-        packages = vod packages umPackages,
-        hole_lvl = vod hole_lvl umHoleLvl
+      { importStmts = fromMaybe importStmts umImportStmts,
+        packages = fromMaybe packages umPackages,
+        hole_lvl = fromMaybe hole_lvl umHoleLvl
       }
-    where
-      vod _ (Just v) = v
-      vod g _ = g def
 
 -- | Configuration for the compilation itself
 data CompileConfig = CompConf
@@ -530,11 +532,12 @@ instance Materializeable RepairConfig where
 
   conjure = UmRepConf Nothing Nothing
 
-  materialize Nothing = def
-  materialize (Just UmRepConf {..}) =
+  override c Nothing = c
+  override RepConf {..} (Just UmRepConf {..}) =
     RepConf
-      (fromMaybe (repParChecks def) umParChecks)
-      (fromMaybe (repUseInterpreted def) umUseInterpreted)
+      { repParChecks = fromMaybe repParChecks umParChecks,
+        repUseInterpreted = fromMaybe repUseInterpreted umUseInterpreted
+      }
 
 instance Default LogConfig where
   def = LogConf {logLoc = False, logLevel = WARN, logFile = Nothing, logTimestamp = True}
@@ -553,10 +556,11 @@ instance Materializeable LogConfig where
 
   conjure = UmLogConf Nothing Nothing Nothing Nothing
 
-  materialize Nothing = def
-  materialize (Just UmLogConf {..}) =
+  override c Nothing = c
+  override LogConf {..} (Just UmLogConf {..}) =
     LogConf
-      (fromMaybe (logLoc def) umLogLoc)
-      (fromMaybe (logLevel def) umLogLevel)
-      (fromMaybe (logTimestamp def) umLogTimestamp)
-      umLogFile
+      { logLoc = fromMaybe logLoc umLogLoc,
+        logLevel = fromMaybe logLevel umLogLevel,
+        logTimestamp = fromMaybe logTimestamp umLogTimestamp,
+        logFile = mbOverride logFile umLogFile
+      }

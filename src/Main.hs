@@ -29,6 +29,7 @@ import GhcPlugins (noLoc)
 import System.Directory (createDirectory)
 import System.Environment (getArgs)
 import System.IO
+
 main :: IO ()
 main = do
   args <- Map.fromList . map (break (== '=')) <$> getArgs
