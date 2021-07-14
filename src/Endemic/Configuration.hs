@@ -8,6 +8,20 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+-- |
+-- Module      : Endemic.configuration
+-- Description : This module reads in configurations necessary for the project
+-- License     : MIT
+-- Stability   : experimental
+--
+-- This module uses the materializable class to read JSON configuration.
+-- Most of the Code follows Schema F: We implement the class for all configuration(pieces), only "getConfiguration" and "addCLIArguments" are not in that Schema.
+-- TODO: Is the logging done here? Would we want to have logging CLI only?
+--
+-- Notes:
+-- Conjure is a wild name, but it just means that we need a default configuration. For the default file-read configuration, this means an empty object.
+-- Materialize means to read it in, however our reading in is highly automized using Aeson.
+--
 
 module Endemic.Configuration
   ( getConfiguration,
@@ -143,7 +157,7 @@ instance Materializeable Configuration where
         outputConfig = materialize umOutputConfig,
         logLevel = case umLogLevel of
           Just lvl -> lvl
-          _ -> error "WTF" $ logLevel def,
+          _ -> error "Dit not receive a logLevel ! Aborting the application." $ logLevel def,
         logLoc = case umLogLoc of
           Just v -> v
           _ -> logLoc def,
@@ -151,6 +165,7 @@ instance Materializeable Configuration where
         searchAlgorithm = materialize umSearchAlgorithm
       }
 
+-- | Holds the primary switch wether we want to use Genetic Search or BFS.
 data SearchAlgorithm
   = Genetic GeneticConfiguration
   | PseudoGenetic PseudoGenConf
@@ -179,6 +194,8 @@ deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields,
 instance Default SearchAlgorithm where
   def = Genetic def
 
+-- | All parameters that are passed to the genetic configuration. 
+-- All Elements are Maybes, if a Nothing is found we pick the defaults.
 instance Materializeable GeneticConfiguration where
   data Unmaterialized GeneticConfiguration = UmGeneticConfiguration
     { umMutationRate :: Maybe Double,
