@@ -87,7 +87,8 @@ instance Outputable ExprFitCand where
   ppr EFC {..} = text "EFC {" O.<> ppr efc_cand O.<> text "}"
 
 data LogLevel
-  = DEBUG
+  = TRACE
+  | DEBUG
   | AUDIT
   | INFO
   | WARN

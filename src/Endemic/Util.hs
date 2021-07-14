@@ -14,8 +14,11 @@ import Control.Exception (assert)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bits
-import Data.Char (isSpace, toUpper)
+import Data.Maybe (isJust,fromJust)
+import Data.Char (isSpace, toUpper, toLower)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format (formatTime,defaultTimeLocale)
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Time.Clock (getCurrentTime)
@@ -30,7 +33,8 @@ import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocU
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
-import System.IO (hFlush, stdout)
+import System.Environment (getArgs)
+import System.IO (hFlush, stdout,appendFile)
 import Text.Printf (printf)
 
 progAtTy :: EExpr -> EType -> EExpr
@@ -43,6 +47,20 @@ undefVar = HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
 -- | Removes whitespace before and after a string
 trim :: String -> String
 trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+
+-- | Looks whether there was a logfile in the arguments. 
+-- This also implies whether we log to a file - without the param we just use the console.
+logFile :: IO (Maybe String)
+logFile = do
+  args <- getArgs
+  -- We lowercase all args
+  let args' = map (map toLower) args
+  -- We split them by "="
+  let args'' = map (break (== '=')) args'
+  let argsMap = Map.fromList args''
+  -- We have to remove the "=" from the beginning of the values
+  let argsMap' = Map.map (drop 1) argsMap
+  return $ Map.lookup "--logfile" argsMap'
 
 -- | Splits a list by a given element.
 -- The splitting element is not included in the created lists.  This could be
@@ -66,12 +84,31 @@ logStr olvl str = do
         (i, l) = assert (not (null sfile) && not (any null sfile)) (init sfile, last sfile)
         sfileRes = intercalate "/" (map (take 1) i ++ [l])
         sline = show (GHS.srcLocStartLine loc)
-    showLoc <- readIORef lOGLOC
+    showLoc <- ("--log-loc" `elem`) <$> getArgs
+    timeStamp <- logFormattedTime
     let locO = if showLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
-    putStrLn $ locO ++ show olvl ++ ": " ++ str
+    let finalMessage = timeStamp ++ " " ++ locO ++ show olvl ++ ": " ++ str
+    mFile <- logFile
+    when (isJust mFile) $ do 
+      let file = fromJust mFile 
+      -- Short addendum: The appendFile does not start a new line (lol)
+      appendFile file (finalMessage++"\n")
+    putStrLn finalMessage 
 
 logOut :: (HasCallStack, Outputable p) => LogLevel -> p -> IO ()
 logOut olvl = withFrozenCallStack . logStr olvl . showUnsafe
+
+
+-- | Returns the current time as %Y-%m-%d %H:%M:%S in UTC-Timezone, this matches what Log4J does and helps with automatic reading of times.
+logFormattedTime :: IO String
+logFormattedTime = do 
+  time <- getCurrentTime
+  let format = "%Y-%m-%d %H:%M:%S"
+  --let format = "%HH:%MM:%SS"
+  -- TODO: Get the users TimeZone from IO or from Config ? 
+  let locale = defaultTimeLocale
+  return (formatTime locale format time)
+
 
 showUnsafe :: Outputable p => p -> String
 showUnsafe = showSDocUnsafe . ppr
