@@ -62,7 +62,6 @@ data CLIOptions = CLIOptions {
    optOverride :: Maybe String
   } deriving (Eq, Show, Generic)
 
-
 addCliArguments :: CLIOptions -> Configuration -> IO Configuration
 addCliArguments CLIOptions {..} conf = do
   let umLogConf =
