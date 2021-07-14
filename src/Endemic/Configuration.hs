@@ -32,7 +32,7 @@ module Endemic.Configuration
     SearchAlgorithm (..),
     -- Global flags
     setGlobalFlags,
-    lOGCONFIG
+    lOGCONFIG,
   )
 where
 
@@ -416,36 +416,13 @@ addCliArguments conf@Conf {..} = do
   loc <- elem "--log-loc" <$> getArgs
   no_loc <- elem "--no-log-loc" <$> getArgs
 
-  args <- Map.fromList . map (break (== '=')) <$> getArgs
-  let synth_holes = case args Map.!? "-fholes" of
-        Just r | not (null r) -> Just $ read (tail r)
-        _ -> Nothing
+  time <- elem "--log-timestamp" <$> getArgs
+  no_time <- elem "--no-log-timestamp" <$> getArgs
 
-  mb_lvl <-
-    ( (Map.!? "--log-level") . Map.fromList
-        . map
-          ( second (map toUpper . drop 1)
-              . break (== '=')
-          )
-        <$> getArgs
-      )
-      >>= \case
-        Just lvl -> return (Just $ read lvl)
-        _ -> return Nothing
-  mb_file <-
-    ( (Map.!? "--log-file") . Map.fromList
-        . map
-          ( second (map toUpper . drop 1)
-              . break (== '=')
-          )
-        <$> getArgs
-      )
-  par_rep <- ("--par-rep" `elem`) <$> getArgs
-  no_par_rep <- ("--no-par-rep" `elem`) <$> getArgs
-  rep_interpreted <- ("--rep-interpreted" `elem`) <$> getArgs
-  no_rep_interpreted <- ("--no-rep-interpreted" `elem`) <$> getArgs
-  par_gen <- ("--par-gen" `elem`) <$> getArgs
-  no_par_gen <- ("--no-par-gen" `elem`) <$> getArgs
+  args <- Map.fromList . map (second (drop 1) . break (== '=')) <$> getArgs
+  let mb_lvl = read <$> (args Map.!? "--log-level")
+      mb_file = args Map.!? "--log-file"
+      mb_seed = args Map.!? "--seed"
 
   return $
     conf
@@ -460,29 +437,15 @@ addCliArguments conf@Conf {..} = do
                 _ -> (logLevel logConfig),
               logFile = case mb_file of
                 Just fp -> Just fp
-                _ -> (logFile logConfig)
+                _ -> (logFile logConfig),
+              logTimestamp =
+                if time || no_time
+                  then time
+                  else (logTimestamp logConfig)
             },
-        compileConfig =
-          case synth_holes of
-            Just hlvl -> compileConfig {hole_lvl = hlvl}
-            _ -> compileConfig,
-        repairConfig =
-          repairConfig
-            { repParChecks =
-                if par_rep || no_par_rep
-                  then par_rep
-                  else (repParChecks repairConfig),
-              repUseInterpreted =
-                if rep_interpreted || no_rep_interpreted
-                  then rep_interpreted
-                  else (repUseInterpreted repairConfig)
-            },
-        searchAlgorithm =
-          if par_gen || no_par_gen
-            then case searchAlgorithm of
-              PseudoGenetic psc -> PseudoGenetic (psc {genPar = par_gen})
-              _ -> searchAlgorithm
-            else searchAlgorithm
+        randomSeed = case mb_seed of
+          Just s -> read <$> (Just s)
+          _ -> randomSeed
       }
 
 -- | Set global flags sets the global flags to the values specified in
@@ -572,7 +535,6 @@ instance Materializeable RepairConfig where
     RepConf
       (fromMaybe (repParChecks def) umParChecks)
       (fromMaybe (repUseInterpreted def) umUseInterpreted)
-
 
 instance Default LogConfig where
   def = LogConf {logLoc = False, logLevel = WARN, logFile = Nothing, logTimestamp = True}
