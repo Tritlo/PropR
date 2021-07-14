@@ -394,7 +394,7 @@ pickByTournament population =
     ProbDesc {..} <- liftDesc R.ask
     GConf {..} <- liftConf R.ask
     let (Just tConf) = tournamentConfiguration
-        tournamentRounds = rounds tConf
+        tournamentRounds = tRounds tConf
     -- Perform Tournament with m rounds and no initial champion
     pickByTournament' tournamentRounds population Nothing
   where
@@ -419,7 +419,7 @@ pickByTournament population =
       GConf {..} <- liftConf R.ask
       gen <- getGen
       let (Just tConf) = tournamentConfiguration
-          tournamentSize = size tConf
+          tournamentSize = tSize tConf
           (tParticipants, gen') = pickRandomElements tournamentSize gen population
       putGen gen'
       if n > 1

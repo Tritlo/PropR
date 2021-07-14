@@ -70,9 +70,9 @@ mkDefaultConf pops its = def {populationSize = pops, iterations = its}
 -- Holds all attributes for the tournament selection process
 data TournamentConfiguration = TConf
   { -- | how many participants will be in one round of the tournament. Population should be significantly larger than tournament size!
-    size :: Int,
+    tSize :: Int,
     -- | how many rounds will one participant do
-    rounds :: Int
+    tRounds :: Int
   }
   deriving (Eq, Show, Read, Generic)
 
