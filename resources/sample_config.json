@@ -1,13 +1,4 @@
 {
-    "compile_config" : {
-        "import_stmts" : ["import Prelude"],
-        "packages" : ["base","process","QuickCheck"],
-        "hole_lvl" : 0
-    },
-    "repair_config" : {
-        "par_checks" : true,
-        "use_interpreted" : true
-    },
     "search_algorithm" : {
             "tag" : "Genetic",
             "contents" : {
