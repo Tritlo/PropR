@@ -58,8 +58,7 @@ data CLIOptions = CLIOptions {
    optLogFile :: Maybe String,
    optRandomSeed :: Maybe Int,
    optConfig :: Maybe String,
-   optOverride :: Maybe String,
-   optTarget  :: String
+   optOverride :: Maybe String
   } deriving (Eq, Show, Generic)
 
 
