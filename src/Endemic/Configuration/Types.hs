@@ -390,8 +390,8 @@ instance Default CompileConfig where
   def =
     CompConf
       { hole_lvl = 0,
-        packages = ["base", "process", "QuickCheck", "tasty"],
-        importStmts = ["import Prelude", "import Test.Tasty"]
+        packages = ["base", "process", "check-helpers"],
+        importStmts = [ "import Prelude", "import Check.Helpers"]
       }
 
 -- | Configuration for the checking of repairs
