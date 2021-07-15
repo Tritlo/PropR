@@ -535,15 +535,14 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     nas = zip pnames failing_argss
     toCall pname args
       | "prop" /= take 4 pname =
-        "catch ( withArgs [] $ ( True <$ (defaultMain ("
+        "checkTastyTree ("
           ++ pname
           ++ " fake_target "
           ++ unwords args
-          ++ "))))"
-          ++ " (return . (==) ExitSuccess)"
+          ++ ")"
     toCall pname args =
-      "fmap isSuccess ("
-        ++ "quickCheckWithResult ("
+      "fmap qcSuccess ("
+        ++ "qcWRes ("
         ++ showUnsafe (qcArgsExpr Nothing)
         ++ ") ("
         ++ pname
