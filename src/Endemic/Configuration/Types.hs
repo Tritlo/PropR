@@ -310,7 +310,9 @@ data OutputConfig = OutputConf
     -- | Which directory to write the patches to.
     directory :: FilePath,
     -- | Whether to overwrite previous patches
-    overwrite :: Bool
+    overwrite :: Bool,
+    -- | Whether to save the patches
+    savePatches :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -322,28 +324,31 @@ instance Default OutputConfig where
     OutputConf
       { locale = Nothing,
         directory = "./output-patches-",
-        overwrite = True
+        overwrite = False,
+        savePatches = True
       }
 
 instance Materializeable OutputConfig where
   data Unmaterialized OutputConfig = UmOutConf
     { umLocale :: Maybe TimeLocale,
       umDirectory :: Maybe FilePath,
-      umOverwrite :: Maybe Bool
+      umOverwrite :: Maybe Bool,
+      umSavePatches :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized OutputConfig)
 
-  conjure = UmOutConf Nothing Nothing Nothing
+  conjure = UmOutConf Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override OutputConf {..} (Just UmOutConf {..}) =
     OutputConf
       { locale = mbOverride locale umLocale,
         directory = fromMaybe directory umDirectory,
-        overwrite = fromMaybe overwrite umOverwrite
+        overwrite = fromMaybe overwrite umOverwrite,
+        savePatches = fromMaybe savePatches umSavePatches
       }
 
 instance Materializeable CompileConfig where
