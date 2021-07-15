@@ -121,24 +121,29 @@ main = do
        logStr VERBOSE $ "PROGRAM TO REPAIR: "
        logStr VERBOSE $ showUnsafe e_prog
       
+
        logStr INFO "REPAIRING..."
-       desc <- describeProblem conf target
        seed <- case optRandomSeed of
-                 Just s -> return s
-                 _ -> randomIO
-       (t, fixes) <- time $ runGenMonad def desc seed geneticSearchPlusPostprocessing
+         Just s -> return s
+         _ -> randomIO
+       desc <- describeProblem conf target
+       (t, fixes) <- time $
+         case searchAlgorithm of
+           Genetic gconf -> runGenMonad gconf desc seed geneticSearchPlusPostprocessing
+           PseudoGenetic pgc -> pseudoGeneticRepair pgc desc
        let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
            fbs = map getFixBinds newProgs
-
-       -- Here we write the found solutions to respective files, we just number them 1 .. n
-       formTime <- formattedTime outputConfig
-       -- TODO: Add a Configurable prefix for the output directory, e.g. /tmp/
-       let dir' = directory outputConfig ++ formTime
-           oc = outputConfig {directory = dir'}
-       dirExists <- doesDirectoryExist dir'
-       unless dirExists $ createDirectory dir'
-       let prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
-       savePatchesToFiles oc prettyPrinted
+           prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
+      
+       when (savePatches outputConfig) $ do
+         -- Here we write the found solutions to respective files, we just number them 1 .. n
+         formTime <- formattedTime outputConfig
+         let dir' = directory outputConfig ++ formTime
+             oc = outputConfig {directory = dir'}
+         dirExists <- doesDirectoryExist dir'
+         unless dirExists $ createDirectory dir'
+         savePatchesToFiles oc prettyPrinted
+      
        mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
        reportStats' VERBOSE
        logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"
