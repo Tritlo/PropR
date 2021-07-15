@@ -26,11 +26,17 @@ import System.Directory (createDirectory)
 import System.Environment (getArgs)
 import System.IO
 import System.Random
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Options.Applicative
+import Options.Applicative.Types (readerAsk)
+import Data.Aeson (encode)
 
-optParser :: ParserInfo CLIOptions
-optParser = info (cliOpts <**> helper) modinfo
+data OptPicked = Repair {opts :: CLIOptions, clTarget :: String}
+               | DumpConfig {opts :: CLIOptions, dcFlagSet :: Bool}
+
+optParser :: ParserInfo OptPicked
+optParser = info (pickOpt <**> helper) modinfo
   where locParse = optional $ (flag' True ( long "log-loc"
                                     <> help "Add location to log messages"
                                     ))
@@ -57,7 +63,8 @@ optParser = info (cliOpts <**> helper) modinfo
         confParse = optional $ strOption ( long "config"
                                          <> metavar "CONFIG"
                                         <> help ("The configuration to use. "
-                                                ++ fileJsonDesc))
+                                                ++ fileJsonDesc ++ ". Use --dump-config"
+                                                ++ " to see the current configuration"))
         fileJsonDesc = "CONF can either be a path to a JSON file, "
                     ++ "or the JSON can be specified directly"
         overrideParse = optional $
@@ -65,62 +72,70 @@ optParser = info (cliOpts <**> helper) modinfo
                       <> metavar "CONFIG"
                       <> help ( "Override the configuration with the given CONFIG. "
                              ++ fileJsonDesc) )
-        targetsParse = strArgument (metavar "TARGET")
-        cliOpts = CLIOptions <$> locParse <*>
-                                 tsParse <*>
-                                 lvlParse <*>
-                                 logFileParse <*>
-                                 randSeed <*>
-                                 confParse <*>
-                                 overrideParse <*>
-                                 targetsParse
+        targetParse = strArgument (metavar "TARGET")
+        cliOpts =  CLIOptions <$> locParse <*>
+                                  tsParse <*>
+                                  lvlParse <*>
+                                  logFileParse <*>
+                                  randSeed <*>
+                                  confParse <*>
+                                  overrideParse
+        pickOpt = ((flip Repair <$> targetParse) <|> (flip DumpConfig <$> dumpConfig)) <*> cliOpts
         modinfo = (briefDesc
             <> progDesc "Repair TARGET using the endemic genetic method"
             <> header "endemic - Genetic program repair for Haskell")
-
+        dumpConfig = flag' True (long "dump-config"
+                              <> help ("Dump the current configuration"
+                                   ++ " with all overrides and flags applied"))
+          
 
 
 main :: IO ()
 main = do
-  opts@CLIOptions{..} <- execParser optParser
-  conf@Conf {..} <- getConfiguration opts
-  -- Set the global flags
-  setGlobalFlags conf
-
-  (_, modul, probs) <- moduleToProb compileConfig optTarget Nothing
-  let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
-      RProb {..} = detranslate tp
-  logStr INFO $ "TARGET:"
-  logStr INFO $ ("  `" ++ r_target ++ "` in " ++ optTarget)
-  logStr VERBOSE $ "CONFIG:"
-  logStr VERBOSE $ show conf
-  logStr VERBOSE $ "SCOPE:"
-  mapM_ (logStr VERBOSE . ("  " ++)) (importStmts compileConfig)
-  logStr INFO $ "TARGET TYPE:"
-  logStr INFO $ "  " ++ r_ty
-  logStr INFO $ "MUST SATISFY:"
-  mapM_ (logStr INFO . ("  " ++)) r_props
-  logStr VERBOSE $ "IN CONTEXT:"
-  mapM_ (logStr VERBOSE . ("  " ++)) r_ctxt
-  logStr VERBOSE $ "PROGRAM TO REPAIR: "
-  logStr VERBOSE $ showUnsafe e_prog
-
-  logStr INFO "REPAIRING..."
-  desc <- describeProblem conf optTarget
-  seed <- case optRandomSeed of
-            Just s -> return s
-            _ -> randomIO
-  (t, fixes) <- time $ runGenMonad def desc seed geneticSearchPlusPostprocessing
-  let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
-      fbs = map getFixBinds newProgs
-  -- Here we write the found solutions to respective files, we just number them 1 .. n
-  formTime <- formattedTime outputConfig
-  -- TODO: Add a Configurable prefix for the output directory, e.g. /tmp/
-  let outputDirectory = "./output-patches-" ++ formTime
-      oc = outputConfig {directory = outputDirectory}
-  createDirectory outputDirectory
-  let prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
-  savePatchesToFiles oc prettyPrinted
-  mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
-  reportStats' VERBOSE
-  logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"
+  optPicked <- execParser optParser
+  let clOpts@CLIOptions{..} = opts optPicked
+  
+  conf@Conf {..} <- getConfiguration clOpts
+  case optPicked of
+    DumpConfig _ _ -> BS.putStrLn (encode conf)
+    Repair _ target -> do
+       -- Set the global flags
+       setGlobalFlags conf
+      
+       (_, modul, probs) <- moduleToProb compileConfig target Nothing
+       let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
+           RProb {..} = detranslate tp
+       logStr INFO $ "TARGET:"
+       logStr INFO $ ("  `" ++ r_target ++ "` in " ++ target)
+       logStr VERBOSE $ "CONFIG:"
+       logStr VERBOSE $ show conf
+       logStr VERBOSE $ "SCOPE:"
+       mapM_ (logStr VERBOSE . ("  " ++)) (importStmts compileConfig)
+       logStr INFO $ "TARGET TYPE:"
+       logStr INFO $ "  " ++ r_ty
+       logStr INFO $ "MUST SATISFY:"
+       mapM_ (logStr INFO . ("  " ++)) r_props
+       logStr VERBOSE $ "IN CONTEXT:"
+       mapM_ (logStr VERBOSE . ("  " ++)) r_ctxt
+       logStr VERBOSE $ "PROGRAM TO REPAIR: "
+       logStr VERBOSE $ showUnsafe e_prog
+      
+       logStr INFO "REPAIRING..."
+       desc <- describeProblem conf target
+       seed <- case optRandomSeed of
+                 Just s -> return s
+                 _ -> randomIO
+       (t, fixes) <- time $ runGenMonad def desc seed geneticSearchPlusPostprocessing
+       let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+           fbs = map getFixBinds newProgs
+       -- Here we write the found solutions to respective files, we just number them 1 .. n
+       formTime <- formattedTime outputConfig
+       -- TODO: Add a Configurable prefix for the output directory, e.g. /tmp/
+       let outputDirectory = "./output-patches-" ++ formTime
+           oc = outputConfig {directory = outputDirectory}
+       createDirectory outputDirectory
+       let prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
+       savePatchesToFiles oc prettyPrinted
+       mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
+       reportStats' VERBOSE
+       logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"
