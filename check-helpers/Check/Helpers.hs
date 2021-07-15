@@ -12,11 +12,17 @@ import Test.Tasty (defaultMain, localOption, mkTimeout)
 import Test.Tasty.Ingredients
 
 -- QuickCheck helpers
-qcCheckArgs :: Int -> Int -> Args
-qcCheckArgs seed ms = stdArgs {chatty = False, replay = Just (mkQCGen seed, seed), maxShrinks = ms}
+qcCheckArgs :: Args
+qcCheckArgs = stdArgs {chatty = False}
 
-qcCheckArgsNoMax :: Int -> Args
-qcCheckArgsNoMax seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, seed)}
+qcCheckArgsMax :: Int -> Args
+qcCheckArgsMax ms = stdArgs {chatty = False, maxShrinks = ms}
+
+qcCheckArgsSeed :: Int -> Args
+qcCheckArgsSeed seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, seed)}
+
+qcCheckArgsMaxSeed :: Int -> Int -> Args
+qcCheckArgsMaxSeed seed ms = stdArgs {chatty = False, replay = Just (mkQCGen seed, seed), maxShrinks = ms}
 
 qcSuccess :: Result -> Bool
 qcSuccess = isSuccess
@@ -24,7 +30,6 @@ qcSuccess = isSuccess
 qcWRes :: Testable prop => Int -> Args -> prop -> IO Result
 qcWRes wit args prop = quickCheckWithResult args (within wit $ prop)
 
--- TODO: Add seed
 qcWithin :: Testable prop => Int -> prop -> Property
 qcWithin = within
 
@@ -36,5 +41,5 @@ failureToMaybe _ = Nothing
 checkTastyTree :: Int -> TestTree -> IO Bool
 checkTastyTree timeout tt =
   catch
-    (withArgs [] (fmap (const True) $ defaultMain $ localOption (mkTimeout (fromIntegral timeout)) tt))
+    (withArgs ["-q"] (fmap (const True) $ defaultMain $ localOption (mkTimeout (fromIntegral timeout)) tt))
     (return . (==) ExitSuccess)

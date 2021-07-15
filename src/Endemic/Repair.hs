@@ -164,7 +164,7 @@ propCounterExample _ _ prop | isTastyProp prop = return $ Just []
     isTastyProp _ = True
 propCounterExample cc ep prop = do
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      bcc = buildCounterExampleCheck prop ep
+      bcc = buildCounterExampleCheck (qcSeed cc) prop ep
   exec <- compileParsedCheck cc' bcc
   fromDyn exec (return Nothing)
 
@@ -181,7 +181,7 @@ failingProps cc rp@EProb {e_props = ps} | length ps > 8 = do
   return (p1 ++ p2)
 failingProps cc ep@EProb {..} = do
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      check = buildSuccessCheck ep
+      check = buildSuccessCheck (qcSeed cc) ep
   [compiled_check] <- compileParsedChecks cc' [check]
   ran <- runCheck compiled_check
   case ran of

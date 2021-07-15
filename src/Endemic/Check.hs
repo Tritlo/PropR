@@ -24,17 +24,15 @@ import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
 import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
 
--- TODO: Give a seed for reproducible experiments & tests.
-
--- ^ Since QuickCheck doesn't support a simple integer seed, we'll have to
--- manually create a "QCGen" instance below to have a fixed seed.
-
 -- | Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
-qcArgsExpr :: Integer -> Maybe Integer -> LHsExpr GhcPs
-qcArgsExpr seed Nothing = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsNoMax") (il seed)
-qcArgsExpr seed (Just shrinks) =
-  noLoc $ HsPar NoExtField $ HsApp NoExtField 
-    (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgs") (il seed)) (il shrinks)
+qcArgsExpr :: Maybe Integer -> Maybe Integer -> LHsExpr GhcPs
+qcArgsExpr Nothing Nothing = (tf "qcCheckArgs")
+qcArgsExpr (Just seed) Nothing = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsSeed") (il seed)
+qcArgsExpr Nothing (Just shrinks) = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsMax") (il shrinks)
+qcArgsExpr (Just seed) (Just shrinks) =
+  noLoc $
+    HsPar NoExtField $
+      noLoc $ HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsMaxSeed") (il seed)) (il shrinks)
 
 -- | Time to run the QuickCheck in microseconds
 qcTime :: Integer
@@ -42,7 +40,8 @@ qcTime = 1_000_000
 
 -- | This imports are required for the program to run.
 checkImports :: [[Char]]
-checkImports = [ "import Check.Helpers" ]
+checkImports = [ "import Check.Helpers"
+               , "import System.Environment (getArgs)"]
 
 -- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
@@ -91,13 +90,12 @@ tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
 hole :: LHsExpr GhcPs
 hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
--- TODO: Add seed
-buildFixCheck :: EProblem -> [EExpr] -> (LHsLocalBinds GhcPs, LHsBind GhcPs)
-buildFixCheck EProb {..} fixes =
+buildFixCheck :: Maybe Integer -> EProblem -> [EExpr] -> (LHsLocalBinds GhcPs, LHsBind GhcPs)
+buildFixCheck seed EProb {..} fixes =
   (ctxt, check_bind)
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
-    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr 42 $ Just 0)
+    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed $ Just 0)
     nvb = ValBinds vbe nvbs vsigs
     nvbs =
       unionManyBags
@@ -143,13 +141,12 @@ buildFixCheck EProb {..} fixes =
               (tt "IO")
               (noLoc $ HsListTy NoExtField $ tt "Bool")
 
--- TODO: Add seed
-buildSuccessCheck :: EProblem -> EExpr
-buildSuccessCheck EProb {..} =
+buildSuccessCheck :: Maybe Integer -> EProblem -> EExpr
+buildSuccessCheck seed EProb {..} =
   noLoc $ HsLet NoExtField ctxt check_prog
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
-    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr 42 $ Just 0)
+    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed $ Just 0)
     nvb = ValBinds vbe nvbs vsigs
     nvbs =
       unionManyBags
@@ -224,7 +221,9 @@ testCheckExpr extractors test =
         HsPar NoExtField $
           noLoc $
             HsApp
-              NoExtField (noLoc $ HsApp NoExtField (tf "checkTastyTree") (il qcTime)) app
+              NoExtField
+              (noLoc $ HsApp NoExtField (tf "checkTastyTree") (il qcTime))
+              app
     app =
       noLoc $
         HsPar NoExtField $
@@ -237,19 +236,21 @@ testCheckExpr extractors test =
           noLoc $
             HsApp
               NoExtField
-              (noLoc $ HsApp NoExtField $
-			(noLoc $ HsApp NoExtField (tf "qcWRes") (il qcTime)) 
-			(tf "qc__"))
-               app
+              ( noLoc $
+                  HsApp
+                    NoExtField
+                    (noLoc $ HsApp NoExtField (tf "qcWRes") (il qcTime))
+                    (tf "qc__")
+              )
+              app
 
 -- | The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument
 -- to the given prop if it fails for the given program, and nothing otherwise.
 -- Note that we have to have it take in a list of properties to match the shape
 -- of bCEAT
--- TODO: Add seed
-buildCounterExampleCheck :: EProp -> EProblem -> LHsExpr GhcPs -- RExpr
-buildCounterExampleCheck
+buildCounterExampleCheck :: Maybe Integer -> EProp -> EProblem -> LHsExpr GhcPs -- RExpr
+buildCounterExampleCheck seed
   ( L
       loc
       fb@FunBind
@@ -261,13 +262,13 @@ buildCounterExampleCheck
     where
       (L bl (HsValBinds be vb)) = e_ctxt
       (ValBinds vbe vbs vsigs) = vb
-      qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr 42 Nothing)
+      qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed Nothing)
       nvb = ValBinds vbe nvbs vsigs
       nvbs =
         unionManyBags
           [ unitBag qcb,
             vbs,
-            listToBag [propWithin, expr_b, failFun]
+            listToBag [propWithin, expr_b]
           ]
       expr_b = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy e_prog e_ty
       ctxt = L bl (HsValBinds be nvb)
@@ -316,5 +317,4 @@ buildCounterExampleCheck
                     testCheckExpr (tf "failureToMaybe", tf "id") fid
               )
               sq_ty
-
-buildCounterExampleCheck _ _ = error "invalid counter-example format!"
+buildCounterExampleCheck _ _ _ = error "invalid counter-example format!"
