@@ -535,15 +535,15 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     nas = zip pnames failing_argss
     toCall pname args
       | "prop" /= take 4 pname =
-        "checkTastyTree ("
+        "checkTastyTree " ++ show qcTime ++" ("
           ++ pname
           ++ " fake_target "
           ++ unwords args
           ++ ")"
     toCall pname args =
       "fmap qcSuccess ("
-        ++ "qcWRes ("
-        ++ showUnsafe (qcArgsExpr Nothing)
+        ++ "qcWRes " ++ show qcTime ++ " ("
+        ++ showUnsafe (qcArgsExpr qcSeed Nothing)
         ++ ") ("
         ++ pname
         ++ " fake_target "
@@ -710,7 +710,7 @@ exprToCheckModule CompConf {..} mname tp fixes =
            "            mapM_ (runC__ True . read) whiches"
          ]
   where
-    (ctxt, check_bind) = buildFixCheck tp fixes
+    (ctxt, check_bind) = buildFixCheck qcSeed tp fixes
 
 -- | Parse, rename and type check an expression
 justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))

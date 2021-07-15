@@ -355,21 +355,23 @@ instance Materializeable CompileConfig where
   data Unmaterialized CompileConfig = UmCompConf
     { umImportStmts :: Maybe [String],
       umPackages :: Maybe [String],
-      umHoleLvl :: Maybe Int
+      umHoleLvl :: Maybe Int,
+      umQcSeed  :: Maybe Integer
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized CompileConfig)
 
-  conjure = UmCompConf Nothing Nothing Nothing
+  conjure = UmCompConf Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
     CompConf
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
-        hole_lvl = fromMaybe hole_lvl umHoleLvl
+        hole_lvl = fromMaybe hole_lvl umHoleLvl,
+        qcSeed = mbOverride qcSeed umQcSeed
       }
 
 -- | Configuration for the compilation itself
@@ -379,7 +381,9 @@ data CompileConfig = CompConf
     -- | a list of packages used for the compilation
     packages :: [String],
     -- | the "depth" of the holes, see general notes on this
-    hole_lvl :: Int
+    hole_lvl :: Int,
+    -- | The seed to use for quickcheck
+    qcSeed :: Maybe Integer
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -390,8 +394,9 @@ instance Default CompileConfig where
   def =
     CompConf
       { hole_lvl = 0,
-        packages = ["base", "process", "check-helpers"],
-        importStmts = [ "import Prelude", "import Check.Helpers"]
+        packages = ["base", "process", "check-helpers", "QuickCheck"],
+        importStmts = [ "import Prelude" ],
+        qcSeed = Nothing
       }
 
 -- | Configuration for the checking of repairs

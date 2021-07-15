@@ -63,8 +63,7 @@ library
                  data-default >= 0.7 && < 0.8,
                  deriving-aeson >= 0.2 && < 0.3,
                  bytestring >= 0.10 && < 0.11,
-                 aeson >= 1.5 && < 1.6,
-                 check-helpers
+                 aeson >= 1.5 && < 1.6
 
 executable endemic
   default-language: Haskell2010
