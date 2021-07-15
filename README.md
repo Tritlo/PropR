@@ -32,6 +32,8 @@ To run the program, ensure that `QuickCheck` is installed by running
 $ cabal run endemic -- examples/BrokenModule.hs
 ```
 
+For more options see #Usage and the `--help` flag.
+
 to see it in action on the `foldl (-) 0` example. This produces the following:
 
 ```diff
@@ -74,20 +76,23 @@ TRACE OF COUNTER EXAMPLES:
 
 REPAIRING...DONE! (2.43s)
 REPAIRS:
----examples/BrokenModule.hs
-+++examples/BrokenModule.hs
+diff --git a/examples/BrokenModule.hs b/examples/BrokenModule.hs
+--- a/examples/BrokenModule.hs
++++ b/examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = sum
 
----examples/BrokenModule.hs
-+++examples/BrokenModule.hs
+diff --git a/examples/BrokenModule.hs b/examples/BrokenModule.hs
+--- a/examples/BrokenModule.hs
++++ b/examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = foldl add 0
 
----examples/BrokenModule.hs
-+++examples/BrokenModule.hs
+diff --git a/examples/BrokenModule.hs b/examples/BrokenModule.hs
+--- a/examples/BrokenModule.hs
++++ b/examples/BrokenModule.hs
 @@ -8,1 +8,1 @@ broken = foldl (-) 0
 -broken = foldl (-) 0
 +broken = foldl (+) 0
@@ -115,8 +120,9 @@ gives us:
 
 ```diff
 REPAIRS:
----examples/BrokenGCD.hs
-+++examples/BrokenGCD.hs
+diff --git a/examples/BrokenGCD.hs b/examples/BrokenGCD.hs
+--- a/examples/BrokenGCD.hs
++++ b/examples/BrokenGCD.hs
 @@ -17,3 +17,3 @@ gcd' 0 b = gcd' 0 b
 -gcd' 0 b = gcd' 0 b
 +gcd' 0 b = b
@@ -133,29 +139,41 @@ seen at the top of this document.
 To try it out for different scenarios, feel free to change the `Broken` modules
 in `examples/`, but note that AST coverage is pretty limited at the moment.
 
-Parameters
+Usage
 ---------
 
-The synthesizer accepts a command line argument, `-fdebug`, which makes it
-output A LOT more.
+```
+endemic - Genetic program repair for Haskell
 
-The `-fholes` parameter is 2 by default, and denotes the maximum number of
-holes added to an expression to see if it can fit. Corresponds to the
-`-frefinement-level-hole-fits` parameter for GHC.
+Usage: endemic [--log-loc] [--no-log-timestamp] [--log-level LOGLEVEL] 
+               [--log-file FILE] [--seed INT] [--config CONFIG] 
+               [--override CONFIG] TARGET
+  Repair TARGET using the endemic genetic method
 
-The `-fdepth` is deep we go, i.e. `0` means that we only synthesize top-level
-expressions, `1` we synthesize a top-level expression with holes in it, and then
-fill those holes with top-level expressions, for `2` we allow holes in the
-sub-expressions one level deep etc.
+Available options:
+  --log-loc                Add location to log messages
+  --no-log-timestamp       Remove timestamps from log messages
+  --log-level LOGLEVEL     The logging level to use (default: WARN)
+  --log-file FILE          Append logs to FILE
+  --seed INT               The random seed to use. Generated at runtime if not
+                           provided.
+  --config CONFIG          The configuration to use. CONF can either be a path
+                           to a JSON file, or the JSON can be specified directly
+  --override CONFIG        Override the configuration with the given CONFIG.
+                           CONF can either be a path to a JSON file, or the JSON
+                           can be specified directly
+  -h,--help                Show this help text
+```
 
-To get a better idea of what's going on, you can run Endemic with `--log=<LEVEL>`, where `level` is one of:
+The <LogLevel> parameter can be set to the following levels:
 
-+ `DEBUG` to see absolutely everything that's logged,
-+ `AUDIT` to see a little less than Debug, but still a lot (this includes e.g. the run-time of hotspots and such)
++ `TRACE` for absolutely everything (A LOT OF OUTPUT)
++ `DEBUG` to see most of what is logged (a bit less than TRACE),
++ `AUDIT` to see a time summaries for various locations
++ `VERBOSE` To see a bit more than info, but still not too much
 + `INFO` to see only informative messages and above
 + `WARN` for warnings or more
 + `ERROR` for errors only, and
 + `FATAL` for fatal errors (an irrecoverable crash)
 
-You can also add `--log-loc` to get the location in the code of each log message, for e.g. telling which line
-a given run-time corresponds to.
+

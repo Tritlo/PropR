@@ -8,7 +8,8 @@ module Endemic.Search.Genetic.Utils where
 import Data.List (delete)
 import Endemic.Search.Genetic.Configuration (GeneticConfiguration (..))
 import Endemic.Search.Genetic.Types (GenMonad)
-import Endemic.Util (LogLevel, logStr)
+import Endemic.Types (LogLevel)
+import Endemic.Util (logStr)
 import GhcPlugins (HasCallStack, liftIO)
 import System.Random (Random (randomR), RandomGen, uniformR)
 

@@ -16,8 +16,8 @@ import Control.Monad (filterM)
 import Data.IORef (modifyIORef, newIORef, readIORef)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
-import Endemic.Types (ExprFitCand (..))
-import Endemic.Util (LogLevel (DEBUG), logOut, logStr)
+import Endemic.Types (ExprFitCand (..), LogLevel (..))
+import Endemic.Util (logOut, logStr)
 import GhcPlugins
 import System.IO.Unsafe (unsafePerformIO)
 import TcHoleErrors

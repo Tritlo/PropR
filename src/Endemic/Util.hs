@@ -13,13 +13,16 @@ module Endemic.Util where
 import Control.Exception (assert)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
-import Data.Bifunctor (second)
 import Data.Bits
-import Data.Char (isSpace, toUpper)
+import Data.Char (isSpace, toLower, toUpper)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.List (intercalate)
 import qualified Data.Map as Map
-import Endemic.Types (EExpr, EType)
+import Data.Maybe (fromJust, isJust)
+import Data.Time.Clock (getCurrentTime)
+import Data.Time.Format (defaultTimeLocale, formatTime)
+import Endemic.Configuration
+import Endemic.Types (EExpr, EType, LogLevel (..))
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
@@ -27,8 +30,8 @@ import qualified GHC.Stack as GHS
 import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
 import SrcLoc
 import System.CPUTime (getCPUTime)
-import System.Environment (getArgs)
-import System.IO (hFlush, stdout)
+import System.Directory (doesFileExist)
+import System.IO (appendFile, hFlush, stdout)
 import Text.Printf (printf)
 
 progAtTy :: EExpr -> EType -> EExpr
@@ -41,26 +44,6 @@ undefVar = HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
 -- | Removes whitespace before and after a string
 trim :: String -> String
 trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
-
--- | Checks if the debug flag is set
-hasDebug :: IO Bool
-hasDebug = ("-fdebug" `elem`) <$> getArgs
-
-data LogLevel
-  = DEBUG
-  | AUDIT
-  | INFO
-  | WARN
-  | ERROR
-  | FATAL
-  deriving (Eq, Ord, Read, Show)
-
-logLevel :: IO LogLevel
-logLevel = do
-  args <- Map.fromList . map (second (map toUpper . drop 1) . break (== '=')) <$> getArgs
-  return $ case args Map.!? "--log" of
-    Just lvl -> read lvl
-    _ -> ERROR
 
 -- | Splits a list by a given element.
 -- The splitting element is not included in the created lists.  This could be
@@ -77,19 +60,35 @@ split a as =
 
 logStr :: HasCallStack => LogLevel -> String -> IO ()
 logStr olvl str = do
-  lvl <- logLevel
-  when (olvl >= lvl) $ do
+  LogConf {..} <- readIORef lOGCONFIG
+  when (olvl >= logLevel) $ do
     let (loc : _) = map snd $ getCallStack callStack
         sfile = split '/' $ GHS.srcLocFile loc
         (i, l) = assert (not (null sfile) && not (any null sfile)) (init sfile, last sfile)
         sfileRes = intercalate "/" (map (take 1) i ++ [l])
         sline = show (GHS.srcLocStartLine loc)
-    showLoc <- ("--log-loc" `elem`) <$> getArgs
-    let locO = if showLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
-    putStrLn $ locO ++ show olvl ++ ": " ++ str
+    timestamp <- logFormattedTime
+    let locO = if logLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
+        ts0 = if logTimestamp then timestamp ++ " " else ""
+        finalMessage = ts0 ++ locO ++ show olvl ++ ": " ++ str
+    when (isJust logFile) $ do
+      let file = fromJust logFile
+      -- Short addendum: The appendFile does not start a new line (lol)
+      appendFile file (finalMessage ++ "\n")
+    putStrLn finalMessage
 
 logOut :: (HasCallStack, Outputable p) => LogLevel -> p -> IO ()
 logOut olvl = withFrozenCallStack . logStr olvl . showUnsafe
+
+-- | Returns the current time as %Y-%m-%d %H:%M:%S in UTC-Timezone, this matches what Log4J does and helps with automatic reading of times.
+logFormattedTime :: IO String
+logFormattedTime = do
+  time <- getCurrentTime
+  let format = "%Y-%m-%d %H:%M:%S"
+  --let format = "%HH:%MM:%SS"
+  -- TODO: Get the users TimeZone from IO or from Config ?
+  let locale = defaultTimeLocale
+  return (formatTime locale format time)
 
 showUnsafe :: Outputable p => p -> String
 showUnsafe = showSDocUnsafe . ppr
@@ -206,3 +205,47 @@ reportStats' lvl = liftIO $ do
   res <- Map.toList <$> readIORef statsRef
   let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
   mapM_ (logStr lvl . pp) res
+
+-- | Helper to save all given patches to the corresponding files.
+-- Files will start as fix1.patch in the given base-folder.
+-- The files are in reverse order to have a nicer recursion - patch 1 is the last one found.
+savePatchesToFiles ::
+  OutputConfig ->
+  -- | The patches, represented as pretty-printed strings
+  [String] ->
+  IO ()
+savePatchesToFiles _ [] = return ()
+savePatchesToFiles oc@OutputConf {..} patches@(p : ps) = do
+  let n = length patches
+  saveToFile oc p (directory ++ "/fix" ++ (show n) ++ ".patch")
+  savePatchesToFiles oc ps
+
+-- | Saves the given String to a file.
+-- Throws an Error in case the file already existet
+-- (this is a bit chicken, but I want this app to be save so no wildcard overwriting of stuff).
+-- To be repeatably usable, we just add the current timestamp to the output directory upstream,
+-- that is we make a folder output-yy-mm-dd-hh-mm and start writing patch1 patch2 ...
+saveToFile ::
+  OutputConfig ->
+  -- | The Content of the file to be created
+  String ->
+  -- | The Path to the file to be created, including the file name (e.g. "./tmp/fileA.txt")
+  String ->
+  IO ()
+saveToFile OutputConf {..} content path = do
+  fileExists <- doesFileExist path
+  if fileExists && (not overwrite)
+    then error "File already exists - aborting creation of patch"
+    else do
+      -- handle <- openFile path ReadWriteMode
+      writeFile path content
+      --hClose handle
+      return ()
+
+-- | Returns the current time as yyyy-mm-dd-HH-MM
+formattedTime :: OutputConfig -> IO String
+formattedTime OutputConf {..} = do
+  time <- getCurrentTime
+  let format = "%Y-%m-%d-%HH-%MM"
+  -- TODO: Save locale here?
+  return (formatTime defaultTimeLocale format time)

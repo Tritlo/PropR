@@ -17,6 +17,7 @@ library
   ghc-options: -O2
   hs-source-dirs: src/
   exposed-modules: Endemic
+                   Endemic.Configuration,
                    Endemic.Eval,
                    Endemic.Plugin,
                    Endemic.Repair,
@@ -27,12 +28,16 @@ library
                    Endemic.Util,
                    Endemic.Search,
                    Endemic.Search.PseudoGenetic,
-                   Endemic.Search.Genetic,
-                   Endemic.Search.Genetic.Configuration
-                   Endemic.Search.Genetic.GenMonad,
-                   Endemic.Search.Genetic.Search,
-                   Endemic.Search.Genetic.Types,
-                   Endemic.Search.Genetic.Utils
+                   Endemic.Search.Genetic
+  other-modules: Endemic.Configuration.Configure,
+                 Endemic.Configuration.Types,
+                 Endemic.Search.Genetic.Configuration,
+                 Endemic.Search.Genetic.GenMonad,
+                 Endemic.Search.Genetic.Search,
+                 Endemic.Search.Genetic.Types,
+                 Endemic.Search.Genetic.Utils
+                 Endemic.Search.PseudoGenetic.Configuration,
+                 Endemic.Search.PseudoGenetic.Search
   build-depends: base >= 4 && < 5,
                  ghc >= 8 && < 9,
                  ghc-boot >= 8 && < 9,
@@ -54,20 +59,24 @@ library
                  transformers >= 0.5 && < 0.6,
                  monad-par >= 0.3 && < 0.4,
                  monad-par-extras >= 0.3 && < 0.4,
-                 deepseq >= 1.4 && < 1.5
+                 deepseq >= 1.4 && < 1.5,
+                 data-default >= 0.7 && < 0.8,
+                 deriving-aeson >= 0.2 && < 0.3,
+                 bytestring >= 0.10 && < 0.11,
+                 aeson >= 1.5 && < 1.6
 
 executable endemic
   default-language: Haskell2010
   main-is: src/Main.hs
   ghc-options: -threaded -O2
   build-depends: base >= 4 && < 5,
-                 process >= 1.6 && < 1.7,
                  containers >= 0.6 && < 0.7,
-                 unix >= 2.7.2 && < 2.8,
-                 hpc >= 0.6 && < 0.7,
                  directory >= 1.3 && < 1.4,
-                 time >= 1.9.3 && < 1.10,
                  ghc >= 8 && < 9,
+                 time >= 1.9 && < 1.10,
+                 data-default >= 0.7 && < 0.8,
+                 optparse-applicative >= 0.16 && < 0.17,
+                 random >= 1.2 && < 1.3,
                  Endemic
 
 test-suite test
@@ -84,6 +93,10 @@ test-suite test
                  containers >= 0.6 && < 0.7,
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,
+                 data-default >= 0.7 && < 0.8,
+                 aeson >= 1.5 && < 1.6,
+                 deriving-aeson >= 0.2 && < 0.3,
+                 bytestring >= 0.10 && < 0.11,
                  Endemic,
                  -- packages used in repair:
                  QuickCheck
@@ -103,6 +116,10 @@ test-suite slow-test
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,
                  vector >= 0.12 && < 0.13,
+                 data-default >= 0.7 && < 0.8,
+                 aeson >= 1.5 && < 1.6,
+                 deriving-aeson >= 0.2 && < 0.3,
+                 bytestring >= 0.10 && < 0.11,
                  Endemic,
                  -- packages used in repair:
                  QuickCheck

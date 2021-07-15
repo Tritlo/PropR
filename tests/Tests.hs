@@ -16,6 +16,7 @@ import Endemic.Diff
 import Endemic.Eval
 import Endemic.Repair
 import Endemic.Traversals
+import Endemic.Configuration
 import Endemic.Types
 import Endemic.Util
 import GhcPlugins (GenLocated (L), getLoc, unLoc)
@@ -24,6 +25,7 @@ import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import Trace.Hpc.Mix
+import Data.Default
 
 tests :: TestTree
 tests =
@@ -68,7 +70,7 @@ repairTests =
       localOption (mkTimeout 10_000_000) $
         testCase "Repair `foldl (-) 0`" $ do
           let cc =
-                defaultConf
+                def
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -91,13 +93,12 @@ repairTests =
                     r_props = props
                   }
           tp@EProb {..} <- translate cc rp
-          fixes <- repair cc tp
+          fixes <- repair cc def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
           expected `elem` map (trim . showUnsafe) fixProgs @? "Expected repair not found in fixes",
       localOption (mkTimeout 20_000_000) $
         testCase "GetExprCands finds important candidates" $ do
-          let cc = defaultConf
-              wrong_prog =
+          let wrong_prog =
                 unlines
                   [ "let { gcd' 0 b = gcd' 0 b",
                     "    ; gcd' a b | b == 0 = a",
@@ -124,12 +125,11 @@ repairTests =
                   "EFC {gcd' a}",
                   "EFC {b - a}"
                 ]
-          expr_cands <- runJustParseExpr cc wrong_prog >>= getExprFitCands cc
+          expr_cands <- runJustParseExpr def wrong_prog >>= getExprFitCands def
           map showUnsafe expr_cands @?= expected,
       localOption (mkTimeout 20_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
-          let cc = defaultConf
-              props =
+          let props =
                 [ "prop_1 f = f 0 55 == 55",
                   "prop_2 f = f 1071 1029 == 21"
                 ]
@@ -150,7 +150,7 @@ repairTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
-          fixes <- map (trim . showUnsafe) <$> (translate cc rp >>= repair cc)
+          fixes <- map (trim . showUnsafe) <$> (translate def rp >>= repair def def)
           not (null fixes) @? "No fix found"
     ]
 
@@ -159,8 +159,7 @@ failingPropsTests =
     "Failing props"
     [ localOption (mkTimeout 15_000_000) $
         testCase "Failing props for gcd" $ do
-          let cc = defaultConf
-              props :: [String]
+          let props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
                   "prop_2 f = f 1071 1029 == 21"
@@ -182,14 +181,14 @@ failingPropsTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
-          tp <- translate cc rp
-          failed_props <- failingProps cc tp
+          tp <- translate def rp
+          failed_props <- failingProps def tp
           -- Only the first prop should be failing (due to an infinite loop)
           map showUnsafe failed_props @?= [head props],
       localOption (mkTimeout 10_000_000) $
         testCase "Only one failing prop" $ do
           let cc =
-                defaultConf
+                def
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -222,7 +221,7 @@ counterExampleTests =
     [ localOption (mkTimeout 10_000_000) $
         testCase "Only one counter example" $ do
           let cc =
-                defaultConf
+                def
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -251,7 +250,7 @@ counterExampleTests =
       localOption (mkTimeout 10_000_000) $
         testCase "Multiple examples" $ do
           let cc =
-                defaultConf
+                def
                   { hole_lvl = 2,
                     packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
@@ -279,7 +278,7 @@ counterExampleTests =
             Nothing -> error "Incorrect type!!",
       localOption (mkTimeout 15_000_000) $
         testCase "No args loop fail" $ do
-          let cc = defaultConf
+          let cc = def
               props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -315,7 +314,7 @@ traceTests =
     "Trace tests"
     [ localOption (mkTimeout 10_000_000) $
         testCase "Trace foldl" $ do
-          let cc = defaultConf
+          let cc = def
               ty = "[Int] -> Int"
               wrong_prog = "(foldl (-) 0)"
               props = ["prop_isSum f xs = f xs == sum xs"]
@@ -339,7 +338,7 @@ traceTests =
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
       localOption (mkTimeout 30_000_000) $
         testCase "Trace finds loop" $ do
-          let cc = defaultConf
+          let cc = def
               props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -392,8 +391,8 @@ sanctifyTests =
     "Sanctify tests"
     [ localOption (mkTimeout 1_000_000) $
         testCase "Sanctify foldl program" $ do
-          let cc = defaultConf
-              toFix = "tests/BrokenModule.hs"
+          let cc = def
+              toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
           -- There are 7 ways to replace parts of the broken function in BrokenModule
@@ -401,8 +400,8 @@ sanctifyTests =
           length (sanctifyExpr e_prog) @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
-          let cc = defaultConf
-              toFix = "tests/BrokenModule.hs"
+          let cc = def
+              toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
           let (holes, holey) = unzip $ sanctifyExpr e_prog
@@ -416,57 +415,54 @@ moduleTests =
     "Module tests"
     [ localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule With Diff" $ do
-          let cc = defaultConf
-              toFix = "tests/BrokenModule.hs"
+          let toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
               expected =
                 map
                   unlines
-                  [ [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
-                      "--- a/tests/BrokenModule.hs",
-                      "+++ b/tests/BrokenModule.hs",
+                  [ [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+                      "--- a/tests/cases/BrokenModule.hs",
+                      "+++ b/tests/cases/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = sum"
                     ],
-                    [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
-                      "--- a/tests/BrokenModule.hs",
-                      "+++ b/tests/BrokenModule.hs",
+                    [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+                      "--- a/tests/cases/BrokenModule.hs",
+                      "+++ b/tests/cases/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl add 0"
                     ],
-                    [ "diff --git a/tests/BrokenModule.hs b/tests/BrokenModule.hs",
-                      "--- a/tests/BrokenModule.hs",
-                      "+++ b/tests/BrokenModule.hs",
+                    [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+                      "--- a/tests/cases/BrokenModule.hs",
+                      "+++ b/tests/cases/BrokenModule.hs",
                       "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
                       "-broken = foldl (-) 0",
                       "+broken = foldl (+) 0"
                     ]
                   ]
 
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- repair cc' tp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
-          let cc = defaultConf
-              toFix = "tests/BrokenModule.hs"
-          (_, _, [EProb {..}]) <- moduleToProb cc toFix Nothing
+          let toFix = "tests/cases/BrokenModule.hs"
+          (_, _, [EProb {..}]) <- moduleToProb def toFix Nothing
           showUnsafe e_target @?= "broken",
       localOption (mkTimeout 90_000_000) $
         testCase "Repair BrokenGCD" $ do
-          let cc = defaultConf
-              toFix = "tests/BrokenGCD.hs"
+          let toFix = "tests/cases/BrokenGCD.hs"
               repair_target = Just "gcd'"
               expected =
                 map
                   unlines
-                  [ [ "diff --git a/tests/BrokenGCD.hs b/tests/BrokenGCD.hs",
-                      "--- a/tests/BrokenGCD.hs",
-                      "+++ b/tests/BrokenGCD.hs",
+                  [ [ "diff --git a/tests/cases/BrokenGCD.hs b/tests/cases/BrokenGCD.hs",
+                      "--- a/tests/cases/BrokenGCD.hs",
+                      "+++ b/tests/cases/BrokenGCD.hs",
                       "@@ -19,3 +19,3 @@ gcd' 0 b = gcd' 0 b",
                       "-gcd' 0 b = gcd' 0 b",
                       "+gcd' 0 b = b",
@@ -474,30 +470,29 @@ moduleTests =
                       " gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)"
                     ]
                   ]
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- repair cc' tp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected,
       localOption (mkTimeout 30_000_000) $
         testCase "Repair MagicConstant" $ do
-          let cc = defaultConf
-              toFix = "tests/MagicConstant.hs"
+          let toFix = "tests/cases/MagicConstant.hs"
               repair_target = Nothing
               expected =
                 map
                   unlines
-                  [ [ "diff --git a/tests/MagicConstant.hs b/tests/MagicConstant.hs",
-                      "--- a/tests/MagicConstant.hs",
-                      "+++ b/tests/MagicConstant.hs",
+                  [ [ "diff --git a/tests/cases/MagicConstant.hs b/tests/cases/MagicConstant.hs",
+                      "--- a/tests/cases/MagicConstant.hs",
+                      "+++ b/tests/cases/MagicConstant.hs",
                       "@@ -7,1 +7,1 @@ theAnswer = 17",
                       "-theAnswer = 17",
                       "+theAnswer = 42"
                     ]
                   ]
 
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb cc toFix repair_target
-          fixes <- repair cc' tp
+          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
           fixDiffs @?= expected

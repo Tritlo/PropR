@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
 
 -- |
@@ -22,8 +24,11 @@
 module Endemic.Types where
 
 import Constraint (Cts)
+import Data.Aeson
+import Data.Default
 import Data.Map (Map)
 import GHC
+import GHC.Generics
 import Outputable (Outputable (ppr), text)
 import qualified Outputable as O
 
@@ -81,35 +86,16 @@ data ExprFitCand = EFC
 instance Outputable ExprFitCand where
   ppr EFC {..} = text "EFC {" O.<> ppr efc_cand O.<> text "}"
 
-data CompileConfig = CompConf
-  { -- | a list of imports required/wanted for the compilation
-    importStmts :: [String],
-    -- | a list of packages used for the compilation
-    packages :: [String],
-    -- | the "depth" of the wholes, see general notes on this
-    hole_lvl :: Int,
-    -- | The Configuration for the Genetic Algorithm
-    pseudoGenConf :: PseudoGenConf,
-    -- | The Configuration for the Repair
-    repConf :: RepConf
-  }
-  deriving (Show, Eq, Read)
+data LogLevel
+  = TRACE
+  | DEBUG
+  | AUDIT
+  | VERBOSE
+  | INFO
+  | WARN
+  | ERROR
+  | FATAL
+  deriving (Eq, Ord, Read, Show, Generic, FromJSON, ToJSON)
 
-data RepConf = RepConf
-  { -- | Whether or not to use Parallelisation
-    repParChecks :: Bool,
-    -- | Whether or not to use compiled sources (?)
-    repUseInterpreted :: Bool
-  }
-  deriving (Show, Eq, Read)
-
--- | GenConf represents a set of configurations for the Pseudo Genetic Experiment
-data PseudoGenConf = PseudoGenConf
-  { -- | The number of individuals in a generation
-    genIndividuals :: Int,
-    -- | The number of generations processed
-    genRounds :: Int,
-    -- | Whether or not to use parallelisation in genetic search parts
-    genPar :: Bool
-  }
-  deriving (Show, Eq, Read)
+instance Default LogLevel where
+  def = WARN

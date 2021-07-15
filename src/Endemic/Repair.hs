@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -21,8 +22,10 @@ module Endemic.Repair where
 
 import Bag (bagToList, emptyBag, listToBag)
 import Constraint
-import qualified CoreUtils
+import Control.Concurrent.Async (mapConcurrently)
+import Control.Monad (when, (>=>))
 import Data.Bifunctor (Bifunctor (first))
+import Data.Char (isAlphaNum)
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
 import Data.IORef (writeIORef)
@@ -30,9 +33,11 @@ import Data.List (intercalate, sortOn)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromJust, mapMaybe)
 import qualified Data.Set as Set
+import Data.Time.Clock (getCurrentTime)
 import Data.Tree (flatten)
 import Desugar (deSugarExpr)
 import Endemic.Check
+import Endemic.Configuration
 import Endemic.Eval
 import Endemic.Traversals (fillHole, flattenExpr, sanctifyExpr)
 import Endemic.Types
@@ -40,9 +45,17 @@ import Endemic.Util
 import FV (fvVarSet)
 import GHC
 import GHC.Paths (libdir)
+import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
-import RnExpr (rnLExpr)
-import TcExpr (tcInferSigma)
+import PrelNames (mkMainModule)
+import StringBuffer (stringToStringBuffer)
+import System.Directory (createDirectoryIfMissing)
+import System.FilePath (dropExtension, takeFileName)
+import System.IO (Handle, hClose, hGetLine, openTempFile)
+import System.Posix.Process
+import System.Posix.Signals
+import System.Process
+import System.Timeout (timeout)
 import TcHoleErrors (HoleFit (..))
 import TcSimplify (captureTopConstraints)
 
@@ -88,21 +101,6 @@ getHoley ::
   -- | All versions of the Expression with new holes poked in it
   IO [(SrcSpan, LHsExpr GhcPs)]
 getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str
-
--- | Parse, rename and type check an expression
-justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
-justTcExpr cc parsed = do
-  _ <- initGhcCtxt cc
-  hsc_env <- getSession
-  (_, res) <-
-    liftIO $
-      runTcInteractive hsc_env $ captureTopConstraints $ rnLExpr parsed >>= tcInferSigma . fst
-  return res
-
--- | We get the type of the given expression by desugaring it and getting the type
--- of the resulting Core expression
-getExprTy :: HscEnv -> LHsExpr GhcTc -> IO (Maybe Type)
-getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env expr
 
 -- |  Takes an expression with one or more holes and a list of expressions that
 -- fit each holes and returns a list of expressions where each hole has been
@@ -163,81 +161,6 @@ propCounterExample cc ep prop = do
   exec <- compileParsedCheck cc' bcc
   fromDyn exec (return Nothing)
 
--- | Takes an expression and generates HoleFitCandidates from every subexpression.
-getExprFitCands ::
-  -- | The general compiler setup
-  CompileConfig ->
-  -- | The expression to be holed
-  EExpr ->
-  IO [ExprFitCand]
-getExprFitCands cc expr = runGhc (Just libdir) $ do
-  -- setSessionDynFlags reads the package database.
-  _ <- setSessionDynFlags =<< getSessionDynFlags
-  -- If it type checks, we can use the expression
-  mb_tcd_context <- justTcExpr cc expr
-  let esAndNames =
-        case mb_tcd_context of
-          Just ((tcd_context, _), wc) ->
-            -- We get all the expressions in the program here,
-            -- so that we can  pass it along to our custom holeFitPlugin.
-            let flat = flattenExpr tcd_context
-                -- Vars are already in scope
-                nonTriv :: LHsExpr GhcTc -> Bool
-                nonTriv (L _ HsVar {}) = False
-                -- We don't want more holes
-                nonTriv (L _ HsUnboundVar {}) = False
-                -- We'll get whatever expression is within the parenthesis
-                -- or wrap anyway
-                nonTriv (L _ HsPar {}) = False
-                nonTriv (L _ HsWrap {}) = False
-                nonTriv _ = True
-                e_ids (L _ (HsVar _ v)) = Just $ unLoc v
-                e_ids _ = Nothing
-                -- We remove the ones already present and drop the first one
-                -- (since it will be the program itself)
-                flat' = filter nonTriv $ tail flat
-             in map (\e -> (e, bagToList $ wc_simple wc, mapMaybe e_ids $ flattenExpr e)) flat'
-          _ -> []
-  hsc_env <- getSession
-  -- After we've found the expressions and any ids contained within them, we
-  -- need to find their types
-  liftIO $
-    mapM
-      ( \(e, wc, rs) -> do
-          ty <- getExprTy hsc_env e
-          return $ case ty of
-            Nothing -> EFC e emptyBag rs ty
-            Just expr_ty -> EFC e (listToBag (relevantCts expr_ty wc)) rs ty
-      )
-      esAndNames
-  where
-    -- Taken from TcHoleErrors, which is sadly not exported. Takes a type and
-    -- a list of constraints and filters out irrelvant constraints that do not
-    -- mention any typve variable in the type.
-    relevantCts :: Type -> [Ct] -> [Ct]
-    relevantCts expr_ty simples =
-      if isEmptyVarSet (fvVarSet expr_fvs')
-        then []
-        else filter isRelevant simples
-      where
-        ctFreeVarSet :: Ct -> VarSet
-        ctFreeVarSet = fvVarSet . tyCoFVsOfType . ctPred
-        expr_fvs' = tyCoFVsOfType expr_ty
-        expr_fv_set = fvVarSet expr_fvs'
-        anyFVMentioned :: Ct -> Bool
-        anyFVMentioned ct =
-          not $
-            isEmptyVarSet $
-              ctFreeVarSet ct `intersectVarSet` expr_fv_set
-        -- We filter out those constraints that have no variables (since
-        -- they won't be solved by finding a type for the type variable
-        -- representing the hole) and also other holes, since we're not
-        -- trying to find hole fits for many holes at once.
-        isRelevant ct =
-          not (isEmptyVarSet (ctFreeVarSet ct))
-            && anyFVMentioned ct
-            && not (isHoleCt ct)
-
 -- | Returns the props that fail for the given program
 failingProps :: CompileConfig -> EProblem -> IO [EProp]
 failingProps _ EProb {e_props = []} = return []
@@ -278,8 +201,8 @@ failingProps cc ep@EProb {..} = do
 -- | Primary method of this module.
 -- It takes a program & configuration,
 -- a (translated) repair problem and returns a list of potential fixes.
-repair :: CompileConfig -> EProblem -> IO [EFix]
-repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc prob Nothing
+repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
+repair cc rc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc rc prob Nothing
 
 -- | This method tries to repair a given Problem.
 -- It first creates the program with holes in it and runs it against the properties.
@@ -287,14 +210,14 @@ repair cc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt
 -- Quite some information can be printed when the program is run in DEBUG.
 -- As an important sidenote, places that are not in failing properties will not be altered.
 repairAttempt ::
-  -- | The GHC Configuration
   CompileConfig ->
+  RepairConfig ->
   -- | The problem that is to fix, consisting of a program and a failing suite of properties
   EProblem ->
   -- | Manually passed Candidates, if "Nothing" collected from program runtime
   Maybe [ExprFitCand] ->
   IO [(EFix, Either [Bool] Bool)]
-repairAttempt cc tp@EProb {..} efcs = collectStats $ do
+repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
   let prog_at_ty = progAtTy e_prog e_ty
       holey_exprs = sanctifyExpr prog_at_ty
       -- We add the context by replacing a hole in a let.
@@ -365,4 +288,103 @@ repairAttempt cc tp@EProb {..} efcs = collectStats $ do
   mapM_ (logOut DEBUG) repls
   logStr DEBUG "Those were all of them!"
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-  collectStats $ zipWith (\(fs, _) r -> (Map.fromList fs, r)) repls <$> checkFixes cc' tp (map snd repls)
+  collectStats $ zipWith (\(fs, _) r -> (Map.fromList fs, r)) repls <$> checkFixes cc rc tp (map snd repls)
+
+-- TODO: DOCUMENT
+-- Returns an empty list when the EExpr list is empty
+checkFixes ::
+  CompileConfig ->
+  RepairConfig ->
+  EProblem ->
+  [EExpr] ->
+  IO [Either [Bool] Bool]
+checkFixes cc rc tp fixes = do
+  let RepConf {..} = rc
+      tempDir = "./fake_targets"
+  createDirectoryIfMissing False tempDir
+  (the_f, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
+  -- We generate the name of the module from the temporary file
+  let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
+      modTxt = exprToCheckModule cc mname tp fixes
+      strBuff = stringToStringBuffer modTxt
+      exeName = dropExtension the_f
+  -- mixFilePath = tempDir
+
+  logStr DEBUG modTxt
+  -- Note: we do not need to dump the text of the module into the file, it
+  -- only needs to exist. Otherwise we would have to write something like
+  -- `hPutStr handle modTxt`
+  hClose handle
+  liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
+  runGhc (Just libdir) $ do
+    _ <- initGhcCtxt cc
+    -- We set the module as the main module, which makes GHC generate
+    -- the executable.
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+          dynFlags
+            { mainModIs = mkMainModule $ fsLit mname,
+              mainFunIs = Just "main__",
+              hpcDir = "./fake_targets",
+              ghcMode = if repUseInterpreted then CompManager else OneShot,
+              ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
+              hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
+              --optLevel = 2
+            }
+    now <- liftIO getCurrentTime
+    let tid = TargetFile the_f Nothing
+        target = Target tid True $ Just (strBuff, now)
+
+    -- Adding and loading the target causes the compilation to kick
+    -- off and compiles the file.
+    addTarget target
+    _ <- collectStats $ load LoadAllTargets
+    let p '1' = Just True
+        p '0' = Just False
+        p _ = Nothing
+        startCheck :: Int -> IO (Handle, ProcessHandle)
+        startCheck which = do
+          let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+          (_, Just hout, _, ph) <-
+            createProcess
+              (proc exeName [show which])
+                { env = Just [("HPCTIXFILE", tixFilePath)],
+                  -- We ignore the output
+                  std_out = CreatePipe
+                }
+          return (hout, ph)
+        waitOnCheck :: (Handle, ProcessHandle) -> IO (Either [Bool] Bool)
+        waitOnCheck (hout, ph) = do
+          ec <- timeout timeoutVal $ waitForProcess ph
+          case ec of
+            Nothing -> terminateProcess ph >> return (Right False)
+            Just _ -> do
+              res <- hGetLine hout
+              let parsed = mapMaybe p res
+              return $
+                if length parsed == length res
+                  then if and parsed then Right True else Left parsed
+                  else Right False
+
+    let inds = take (length fixes) [0 ..]
+    if repUseInterpreted
+      then do
+        let m_name = mkModuleName mname
+            checkArr arr = if and arr then Right True else Left arr
+        setContext [IIDecl $ simpleImportDecl m_name]
+        checks_expr <- compileExpr "checks__"
+        let checks :: [IO [Bool]]
+            checks = unsafeCoerce# checks_expr
+            evf = if repParChecks then mapConcurrently else mapM
+        liftIO $ collectStats $ evf (checkArr <$>) checks
+      else
+        liftIO $
+          if repParChecks
+            then do
+              -- By starting all the processes and then waiting on them, we get more
+              -- mode parallelism.
+              procs <- collectStats $ mapM startCheck inds
+              collectStats $ mapM waitOnCheck procs
+            else collectStats $ mapM (startCheck >=> waitOnCheck) inds
