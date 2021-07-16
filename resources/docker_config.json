@@ -5,7 +5,9 @@
     ],
     "packages": [
       "base",
-      "check-helpers"
+      "process",
+      "check-helpers",
+      "QuickCheck"
     ],
     "hole_lvl": 0,
     "qc_seed": null
@@ -16,14 +18,14 @@
   },
   "output_config": {
     "locale": null,
-    "directory": "./output-patches-",
+    "directory": "/output/output-patches-",
     "overwrite": false,
     "save_patches": true
   },
   "search_algorithm": {
     "tag": "Genetic",
     "contents": {
-      "mutation_rate": 0.1,
+      "mutation_rate": 0.3,
       "crossover_rate": 0.4,
       "iterations": 50,
       "population_size": 64,

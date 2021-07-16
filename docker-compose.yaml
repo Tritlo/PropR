@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  Endemic_Example:
+    image: tritlo/endemic:unstable
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./examples/:/input
+      - ./resources:/config
+      - ./compose-output:/output/:rw
+    environment:
+      REPAIR_TARGET: /input/BrokenModule.hs
+      CONFIG_FILE: /config/docker_config.json
+      LOG_LEVEL: INFO
+    oom_kill_disable: true
