@@ -394,7 +394,7 @@ instance Default CompileConfig where
   def =
     CompConf
       { hole_lvl = 0,
-        packages = ["base", "process", "check-helpers", "QuickCheck"],
+        packages = ["base", "check-helpers"],
         importStmts = [ "import Prelude" ],
         qcSeed = Nothing
       }
@@ -450,7 +450,7 @@ instance Materializeable LogConfig where
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
-      via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "umLog", CamelToSnake]] (Unmaterialized LogConfig)
+      via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized LogConfig)
 
   conjure = UmLogConf Nothing Nothing Nothing Nothing
 

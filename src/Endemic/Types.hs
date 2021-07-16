@@ -1,6 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 -- |
 -- Module      : Endemic.Types
@@ -26,11 +28,13 @@ module Endemic.Types where
 import Constraint (Cts)
 import Data.Aeson
 import Data.Default
-import Data.Map (Map)
+import Data.Map (Map, differenceWith)
 import GHC
 import GHC.Generics
-import Outputable (Outputable (ppr), text)
+import Outputable (Outputable (ppr), text, showSDocUnsafe)
 import qualified Outputable as O
+import Data.Function (on)
+import Control.DeepSeq (NFData(..))
 
 -- |
 -- Properties as in QuickCheck Properties.  Properties are strings, for now. We
@@ -64,6 +68,16 @@ type EExpr = LHsExpr GhcPs
 
 -- | A fix is a list of replacements and their locations
 type EFix = Map SrcSpan (HsExpr GhcPs)
+
+-- From these we get equality on EFixes
+instance Eq (HsExpr GhcPs) where
+  (==) = (==) `on` showSDocUnsafe . ppr
+
+instance Ord (HsExpr GhcPs) where
+  compare = compare `on` showSDocUnsafe . ppr
+
+instance NFData (HsExpr GhcPs) where
+  rnf expr = seq (showSDocUnsafe (ppr expr)) ()
 
 data EProblem = EProb
   { e_props :: [EProp],

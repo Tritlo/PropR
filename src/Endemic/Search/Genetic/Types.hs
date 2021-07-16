@@ -24,7 +24,7 @@ import System.Random
 -- ===========                                    ==============
 
 -- Eq is required to remove elements from lists while partitioning.
-class (Eq g, Outputable g, NFData g) => Chromosome g where
+class (Ord g, Outputable g, NFData g) => Chromosome g where
   -- | TODO: We could also move the crossover to the configuration
   crossover ::
     (g, g) ->

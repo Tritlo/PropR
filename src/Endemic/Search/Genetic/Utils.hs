@@ -30,27 +30,11 @@ maxTimeInMS conf = round $ 1000 * 60 * timeoutInMinutes conf
 removePairFromList :: (Eq a) => [a] -> (a, a) -> [a]
 removePairFromList as (x, y) = [a | a <- as, a /= x, a /= y]
 
-powerset :: [a] -> [[a]]
-powerset [] = [[]]
-powerset (x : xs) = [x : ps | ps <- powerset xs] ++ powerset xs
-
 -- | The normal LogSTR is in IO () and cannot be easily used in GenMonad
 -- So this is a wrapper to ease the usage given that the GenMonad is completely local
 -- in this module.
 logStr' :: HasCallStack => LogLevel -> String -> GenMonad ()
 logStr' level str = liftIO $ logStr level str
-
--- | Deletes a list of elements from another list.
--- > deletaAll [1,2] [1,2,3,4,3,2,1]
--- > [3,4,3]
-deleteAll ::
-  Eq a =>
-  -- | the elements to be removed
-  [a] ->
-  -- | the list of the elements to be removed
-  [a] ->
-  [a]
-deleteAll as bs = foldl (flip delete) bs as
 
 -- ===========                 ==============
 -- ===           Random Parts             ===

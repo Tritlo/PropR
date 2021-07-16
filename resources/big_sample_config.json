@@ -5,9 +5,7 @@
     ],
     "packages": [
       "base",
-      "process",
-      "check-helpers",
-      "QuickCheck"
+      "check-helpers"
     ],
     "hole_lvl": 0,
     "qc_seed": null
