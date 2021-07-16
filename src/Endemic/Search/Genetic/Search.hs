@@ -17,6 +17,9 @@ import Endemic.Search.Genetic.Utils
 import Endemic.Types
 import Endemic.Util
 import GhcPlugins (liftIO)
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Control.Monad (foldM)
 
 -- ===========                 ==============
 -- ===           Genetic Search           ===
@@ -42,7 +45,7 @@ import GhcPlugins (liftIO)
 geneticSearch ::
   (Chromosome g) =>
   -- | The solutions found for the problems. Empty if none are found.
-  GenMonad [g]
+  GenMonad (Set g)
 geneticSearch = collectStats $ do
   conf <- R.ask
   let its = iterations conf
@@ -102,15 +105,15 @@ geneticSearch = collectStats $ do
       [g] ->
       -- | The results found, for which the fitness function is correct. Collected over all generations, ordered by generations ascending
       -- Case A: Iterations Done, return empty results
-      GenMonad [g]
-    geneticSearch' 0 _ _ = return []
+      GenMonad (Set g)
+    geneticSearch' 0 _ _ = return Set.empty
     -- Case B: Iterations left, check on other abortion criteria
     geneticSearch' n currentTime pop = do
       conf <- R.ask
       if currentTime > maxTimeInMS conf
         then do
           logStr' INFO "Time Budget used up - ending genetic search"
-          return []
+          return Set.empty
         else do
           start <- liftIO getCurrentTime
           let currentGen = iterations conf - n
@@ -151,7 +154,7 @@ geneticSearch = collectStats $ do
               nextPop' <-
                 if replaceWinners conf
                   then
-                    let reducedpop = deleteAll winners nextPop
+                    let reducedpop = filter (not . (`Set.member` winners)) nextPop
                      in do
                           replacers <- collectStats $ initialPopulation (length winners)
                           return (replacers ++ reducedpop)
@@ -159,7 +162,7 @@ geneticSearch = collectStats $ do
                     return nextPop
               -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
               recursiveResults <- geneticSearch' (n -1) (currentTime + timediff) nextPop'
-              return (winners ++ recursiveResults)
+              return (winners `Set.union` recursiveResults)
     islandSearch ::
       (Chromosome g) =>
       -- | The remaining iterations to perform before abort, stops on 0
@@ -170,8 +173,8 @@ geneticSearch = collectStats $ do
       [[g]] ->
       -- | The results found, for which the fitness function is "perfect"(==0). Collected over all generations and all Islands, ordered by generations ascending
       -- Case A: Iterations Done, return empty results
-      GenMonad [g]
-    islandSearch 0 _ _ = return []
+      GenMonad (Set g)
+    islandSearch 0 _ _ = return Set.empty
     -- Case B: We have Iterations Left
     islandSearch n currentTime populations = do
       conf <- R.ask
@@ -180,7 +183,7 @@ geneticSearch = collectStats $ do
       if currentTime > maxTimeInMS conf
         then do
           logStr' INFO "Time Budget used up - ending genetic search"
-          return []
+          return Set.empty
         else do
           start <- liftIO getCurrentTime
           let currentGen = iterations conf - n
@@ -199,8 +202,8 @@ geneticSearch = collectStats $ do
           end <- liftIO getCurrentTime
 
           -- Determine Winners (where fitness == 0)
-          winners <- mapM (selectWinners 0) nextGens
-          let winners' = concat winners
+
+          winners  <- foldM ((. selectWinners 0) . fmap . Set.union) Set.empty nextGens
           -- We calculate the passed generations by substracting current remaining its from total its
           let passedIterations = iterations conf - n
           -- We check whether we have a migration, by using modulo on the passed generations
@@ -222,7 +225,7 @@ geneticSearch = collectStats $ do
             )
           -- End Early when any result is ok
           if not (null winners) && stopOnResults conf
-            then return winners'
+            then return winners
             else -- Otherwise do recursive step
             do
               nextPops' <-
@@ -232,7 +235,7 @@ geneticSearch = collectStats $ do
                     return nextPops
                   else -- If we replace winners, we make for every winner a new element and replace it in the population
 
-                    let reducedPops = map (deleteAll winners') nextPops
+                    let reducedPops = map (filter (not . (`Set.member` winners))) nextPops
                         -- unlike in non island search, the winners could be on some islands while not on others (obviously)
                         -- So we have to re-fill the islands individually
                         numReplacers = map ((populationSize conf -) . length) reducedPops
@@ -241,7 +244,7 @@ geneticSearch = collectStats $ do
                           return (zipWith (++) replacers reducedPops)
               -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
               recursiveResults <- islandSearch (n -1) (currentTime + timediff) nextPops'
-              return (winners' ++ recursiveResults)
+              return (winners `Set.union` recursiveResults)
     environmentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]
     environmentSelectedGeneration pop = do
       conf <- R.ask
@@ -304,19 +307,16 @@ geneticSearch = collectStats $ do
 -- As we wanted to keep the genetic search nicely generic for chromosomes, some methods like minimizing Efixes where not applicable within it.
 -- This is why there is a small wrapper around it.
 -- TODO: Maybe change name ?
-geneticSearchPlusPostprocessing :: GenMonad [EFix]
+geneticSearchPlusPostprocessing :: GenMonad (Set EFix)
 geneticSearchPlusPostprocessing = do
   ProbDesc {..} <- liftDesc R.ask
   GConf {..} <- liftConf R.ask
   -- Step 0: Do the normal search
   results <- geneticSearch
-  -- Step 1: Dedup Results
-  -- TODO
-  let results' = results
-  -- Step 2: Minimize dedubbed Results
+  -- Step 1: Minimize dedubbed Results
   if tryMinimizeFixes
-    then concat <$> mapM minimizeFix results'
-    else return results'
+    then Set.unions <$> mapM minimizeFix (Set.toList results)
+    else return results
 
 sortPopByFitness :: Chromosome g => [g] -> GenMonad [g]
 sortPopByFitness gs = do
@@ -335,9 +335,9 @@ selectWinners ::
   -- | The species that might win
   [g] ->
   -- | the Actual winners
-  GenMonad [g]
+  GenMonad (Set g)
 selectWinners win gs = do
-  map fst . filter ((==) win . snd) . zip gs <$> fitnessMany gs
+  Set.fromList . map fst . filter ((==) win . snd) . zip gs <$> fitnessMany gs
 
 -- | Little Helper to perform tournament Selection n times
 -- It hurt my head to do it in the monad

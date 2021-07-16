@@ -9,6 +9,7 @@ import Control.Monad (unless, when)
 import Data.Default (def)
 import Data.IORef (IORef, atomicModifyIORef', readIORef, writeIORef)
 import Data.Map.Strict (Map)
+import qualified Data.Set as Set
 import qualified Data.Map.Strict as Map
 import Data.Time.LocalTime (utc)
 import Endemic
@@ -88,21 +89,21 @@ optParser = info (pickOpt <**> helper) modinfo
         dumpConfig = flag' True (long "dump-config"
                               <> help ("Dump the current configuration"
                                    ++ " with all overrides and flags applied"))
-          
+
 
 
 main :: IO ()
 main = do
   optPicked <- execParser optParser
   let clOpts@CLIOptions{..} = opts optPicked
-  
+
   conf@Conf {..} <- getConfiguration clOpts
   case optPicked of
     DumpConfig _ _ -> BS.putStrLn (encode conf)
     Repair _ target -> do
        -- Set the global flags
        setGlobalFlags conf
-      
+
        (_, modul, probs) <- moduleToProb compileConfig target Nothing
        let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
            RProb {..} = detranslate tp
@@ -120,7 +121,7 @@ main = do
        mapM_ (logStr VERBOSE . ("  " ++)) r_ctxt
        logStr VERBOSE $ "PROGRAM TO REPAIR: "
        logStr VERBOSE $ showUnsafe e_prog
-      
+
 
        logStr INFO "REPAIRING..."
        seed <- case optRandomSeed of
@@ -131,10 +132,10 @@ main = do
          case searchAlgorithm of
            Genetic gconf -> runGenMonad gconf desc seed geneticSearchPlusPostprocessing
            PseudoGenetic pgc -> pseudoGeneticRepair pgc desc
-       let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
+       let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
            fbs = map getFixBinds newProgs
            prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
-      
+
        when (savePatches outputConfig) $ do
          -- Here we write the found solutions to respective files, we just number them 1 .. n
          formTime <- formattedTime outputConfig
@@ -143,7 +144,7 @@ main = do
          dirExists <- doesDirectoryExist dir'
          unless dirExists $ createDirectory dir'
          savePatchesToFiles oc prettyPrinted
-      
+
        mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
        reportStats' VERBOSE
        logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"
