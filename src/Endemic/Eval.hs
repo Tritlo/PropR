@@ -23,9 +23,7 @@
 -- 4. Configuration for this and other parts of the project
 module Endemic.Eval where
 
--- GHC API
-
-import Bag (bagToList, emptyBag, listToBag, unitBag)
+import Bag (Bag, bagToList, concatMapBag, emptyBag, listToBag, mapMaybeBag, unitBag)
 import Constraint
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (when, (>=>))
@@ -39,6 +37,7 @@ import Data.IORef (IORef, newIORef, readIORef)
 import Data.List (groupBy, intercalate, partition)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isNothing, mapMaybe)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (Tree (Node, rootLabel))
@@ -73,6 +72,7 @@ import TcSimplify (captureTopConstraints)
 import Trace.Hpc.Mix
 import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix)
 import Trace.Hpc.Util (HpcPos, fromHpcPos)
+import TyCoRep
 
 -- Configuration and GHC setup
 
@@ -224,6 +224,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
     -- Retrieve the parsed module
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
+    tc_modul@TypecheckedModule {..} <- typecheckModule modul
     let (L _ HsModule {..}) = pm_parsed_source
         cc' = cc {importStmts = importStmts ++ imps'}
           where
@@ -246,12 +247,33 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
         ctxt :: LHsLocalBinds GhcPs
         ctxt = toCtxt valueDeclarations
 
+        tests :: Set OccName
+        tests = Set.fromList $ bagToList $ concatMapBag fromTPropD tm_typechecked_source
+          where
+            fromTPropD :: LHsBind GhcTc -> Bag OccName
+            fromTPropD b@(L l FunBind {..})
+              | t <- idType $ unLoc fun_id,
+                isTestTree t || isProp t (unLoc fun_id) =
+                unitBag (getOccName $ unLoc fun_id)
+            fromTPropD b@(L l VarBind {..})
+              | t <- idType var_id,
+                isTestTree t || isProp t var_id =
+                unitBag $ getOccName var_id
+            fromTPropD b@(L l AbsBinds {..}) =
+              concatMapBag fromTPropD abs_binds
+            fromTPropD _ = emptyBag
+            isTestTree (TyConApp tt _) =
+              ((==) "TestTree" . occNameString . getOccName) tt
+            isTestTree _ = False
+            -- TODO: Check the type of the fun_id as well, or exclusively
+            isProp :: Type -> Id -> Bool
+            isProp _ = (==) "prop" . take 4 . occNameString . occName
+
         props :: [LHsBind GhcPs]
         props = mapMaybe fromPropD hsmodDecls
           where
             fromPropD (L l (ValD _ b@FunBind {..}))
-              | ((==) "prop" . take 4 . occNameString . occName . unLoc) fun_id =
-                Just (L l b)
+              | rdrNameOcc (unLoc fun_id) `elem` tests = Just (L l b)
             fromPropD _ = Nothing
 
         fix_targets :: [RdrName]
@@ -501,7 +523,7 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
            "main :: IO ()",
            "main = do [which] <- getArgs",
            "          act <- checks !! (read which)",
-           "          print (isSuccess act) "
+           "          print (act :: Bool) "
          ]
   where
     (failing_props, failing_argss) = unzip ps_w_ce
@@ -511,12 +533,22 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     toName _ = error "Unsupported bind!"
     pnames = map toName failing_props
     nas = zip pnames failing_argss
+    toCall pname args
+      | "prop" /= take 4 pname =
+        "checkTastyTree " ++ show qcTime ++" ("
+          ++ pname
+          ++ " fake_target "
+          ++ unwords args
+          ++ ")"
     toCall pname args =
-      "quickCheckWithResult (" ++ (showUnsafe (qcArgsExpr Nothing)) ++ ") ("
+      "fmap qcSuccess ("
+        ++ "qcWRes " ++ show qcTime ++ " ("
+        ++ showUnsafe (qcArgsExpr qcSeed Nothing)
+        ++ ") ("
         ++ pname
         ++ " fake_target "
         ++ unwords args
-        ++ ")"
+        ++ "))"
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
 
@@ -678,7 +710,7 @@ exprToCheckModule CompConf {..} mname tp fixes =
            "            mapM_ (runC__ True . read) whiches"
          ]
   where
-    (ctxt, check_bind) = buildFixCheck tp fixes
+    (ctxt, check_bind) = buildFixCheck qcSeed tp fixes
 
 -- | Parse, rename and type check an expression
 justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
@@ -769,3 +801,11 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
           not (isEmptyVarSet (ctFreeVarSet ct))
             && anyFVMentioned ct
             && not (isHoleCt ct)
+
+describeProblem :: Configuration -> FilePath -> IO ProblemDescription
+describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
+  (compConf, _, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
+  exprFitCands <-
+    getExprFitCands compConf $
+      noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  return $ ProbDesc {..}

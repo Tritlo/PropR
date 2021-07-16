@@ -9,6 +9,7 @@ import qualified Control.Monad.Trans.Reader as R
 import Data.List (partition, sortBy, sortOn)
 import Data.Maybe
 import Data.Time.Clock
+import Endemic.Configuration (ProblemDescription (..))
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.Genetic.GenMonad
 import Endemic.Search.Genetic.Types

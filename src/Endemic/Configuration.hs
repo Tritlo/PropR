@@ -18,14 +18,17 @@ module Endemic.Configuration
     LogConfig (..),
     RepairConfig (..),
     SearchAlgorithm (..),
-
     -- Global flags
     setGlobalFlags,
     lOGCONFIG,
-
     -- Configuration
     CLIOptions (..),
+<<<<<<< HEAD
     getConfiguration
+=======
+    getConfiguration,
+    ProblemDescription (..),
+>>>>>>> master
   )
 where
 

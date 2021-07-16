@@ -155,9 +155,16 @@ detranslate EProb {..} =
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
 propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
+propCounterExample _ _ prop | isTastyProp prop = return $ Just []
+  where
+    -- TODO: If we had the type here as well, we could do better.
+    isTastyProp :: LHsBind GhcPs -> Bool
+    isTastyProp (L _ FunBind {fun_id = fid}) =
+      "prop" /= take 4 (occNameString $ rdrNameOcc $ unLoc fid)
+    isTastyProp _ = True
 propCounterExample cc ep prop = do
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      bcc = buildCounterExampleCheck prop ep
+      bcc = buildCounterExampleCheck (qcSeed cc) prop ep
   exec <- compileParsedCheck cc' bcc
   fromDyn exec (return Nothing)
 
@@ -174,7 +181,7 @@ failingProps cc rp@EProb {e_props = ps} | length ps > 8 = do
   return (p1 ++ p2)
 failingProps cc ep@EProb {..} = do
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      check = buildSuccessCheck ep
+      check = buildSuccessCheck (qcSeed cc) ep
   [compiled_check] <- compileParsedChecks cc' [check]
   ran <- runCheck compiled_check
   case ran of
@@ -239,7 +246,10 @@ repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
   -- We can use the failing_props and the counter_examples to filter
   -- out locations that we know won't matter.
   failing_props <- collectStats $ failingProps cc tp
+
+  -- It only makes sense to generate counter-examples for quickcheck properties.
   counter_examples <- collectStats $ mapM (propCounterExample cc tp) failing_props
+
   let hasCE (p, Just ce) = Just (p, ce)
       hasCE _ = Nothing
       -- We find the ones with counter-examples and pick the shortest one

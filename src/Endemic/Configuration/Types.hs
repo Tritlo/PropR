@@ -8,6 +8,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
+
 module Endemic.Configuration.Types where
 
 import Data.Aeson
@@ -19,7 +20,6 @@ import Deriving.Aeson
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Types
-
 
 -- | Logging configuration
 data LogConfig = LogConf
@@ -310,7 +310,9 @@ data OutputConfig = OutputConf
     -- | Which directory to write the patches to.
     directory :: FilePath,
     -- | Whether to overwrite previous patches
-    overwrite :: Bool
+    overwrite :: Bool,
+    -- | Whether to save the patches
+    savePatches :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -321,51 +323,55 @@ instance Default OutputConfig where
   def =
     OutputConf
       { locale = Nothing,
-        directory = "./output",
-        overwrite = True
+        directory = "./output-patches-",
+        overwrite = False,
+        savePatches = True
       }
 
 instance Materializeable OutputConfig where
   data Unmaterialized OutputConfig = UmOutConf
     { umLocale :: Maybe TimeLocale,
       umDirectory :: Maybe FilePath,
-      umOverwrite :: Maybe Bool
+      umOverwrite :: Maybe Bool,
+      umSavePatches :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized OutputConfig)
 
-  conjure = UmOutConf Nothing Nothing Nothing
+  conjure = UmOutConf Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override OutputConf {..} (Just UmOutConf {..}) =
     OutputConf
       { locale = mbOverride locale umLocale,
         directory = fromMaybe directory umDirectory,
-        overwrite = fromMaybe overwrite umOverwrite
+        overwrite = fromMaybe overwrite umOverwrite,
+        savePatches = fromMaybe savePatches umSavePatches
       }
-
 
 instance Materializeable CompileConfig where
   data Unmaterialized CompileConfig = UmCompConf
     { umImportStmts :: Maybe [String],
       umPackages :: Maybe [String],
-      umHoleLvl :: Maybe Int
+      umHoleLvl :: Maybe Int,
+      umQcSeed  :: Maybe Integer
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized CompileConfig)
 
-  conjure = UmCompConf Nothing Nothing Nothing
+  conjure = UmCompConf Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
     CompConf
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
-        hole_lvl = fromMaybe hole_lvl umHoleLvl
+        hole_lvl = fromMaybe hole_lvl umHoleLvl,
+        qcSeed = mbOverride qcSeed umQcSeed
       }
 
 -- | Configuration for the compilation itself
@@ -375,7 +381,9 @@ data CompileConfig = CompConf
     -- | a list of packages used for the compilation
     packages :: [String],
     -- | the "depth" of the holes, see general notes on this
-    hole_lvl :: Int
+    hole_lvl :: Int,
+    -- | The seed to use for quickcheck
+    qcSeed :: Maybe Integer
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -386,8 +394,9 @@ instance Default CompileConfig where
   def =
     CompConf
       { hole_lvl = 0,
-        packages = ["base", "process", "QuickCheck"],
-        importStmts = ["import Prelude"]
+        packages = ["base", "process", "check-helpers", "QuickCheck"],
+        importStmts = [ "import Prelude" ],
+        qcSeed = Nothing
       }
 
 -- | Configuration for the checking of repairs
@@ -453,3 +462,12 @@ instance Materializeable LogConfig where
         logTimestamp = fromMaybe logTimestamp umLogTimestamp,
         logFile = mbOverride logFile umLogFile
       }
+
+-- | The Problem Description is generated at runtime, descriping a particular
+-- program to fix.
+data ProblemDescription = ProbDesc
+  { progProblem :: EProblem,
+    exprFitCands :: [ExprFitCand],
+    compConf :: CompileConfig,
+    repConf :: RepairConfig
+  }

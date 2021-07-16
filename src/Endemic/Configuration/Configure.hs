@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE RecordWildCards #-}
+<<<<<<< HEAD
 {-# LANGUAGE DeriveGeneric #-}
 module Endemic.Configuration.Configure
     (
@@ -7,9 +9,28 @@ module Endemic.Configuration.Configure
       setGlobalFlags,
       CLIOptions(..),
     ) where
+=======
 
+module Endemic.Configuration.Configure
+  ( lOGCONFIG,
+    getConfiguration,
+    setGlobalFlags,
+    CLIOptions (..),
+  )
+where
+>>>>>>> master
+
+import Data.Aeson (eitherDecodeFileStrict', eitherDecodeStrict')
 import Data.Bifunctor (second)
+import qualified Data.ByteString.Char8 as BS
+import Data.Default (Default, def)
+import Data.IORef (IORef, newIORef, writeIORef)
+import qualified Data.Map as Map
+import Endemic.Configuration.Types
+import Endemic.Types
+import GHC.Generics (Generic)
 import System.Directory (doesFileExist)
+<<<<<<< HEAD
 import System.IO.Unsafe ( unsafePerformIO )
 import System.Random (randomIO)
 import Data.IORef ( IORef, newIORef, writeIORef )
@@ -20,6 +41,10 @@ import Data.Default (def, Default)
 import Data.Aeson ( eitherDecodeFileStrict', eitherDecodeStrict' )
 import Endemic.Types
 import GHC.Generics (Generic)
+=======
+import System.IO.Unsafe (unsafePerformIO)
+import System.Random (randomIO)
+>>>>>>> master
 
 -- | Global variable to configure logging
 {-# NOINLINE lOGCONFIG #-}
@@ -45,6 +70,7 @@ readConf fp = do
 -- | Parses the given configuration or reads it from file (if it's a file).
 -- Retursn a default configuration if none is given.
 getConfiguration :: CLIOptions -> IO Configuration
+<<<<<<< HEAD
 getConfiguration opts@CLIOptions{optConfig=Nothing} = do
   seed <- randomIO
   addCliArguments opts (materialize (Just conjure)) {randomSeed = Just seed}
@@ -70,6 +96,33 @@ addCliArguments CLIOptions{..} conf = do
                             , umLogLevel = optLogLevel
                             , umLogTimestamp = optLogTimestamp
                             , umLogFile = optLogFile }
+=======
+getConfiguration opts@CLIOptions {optConfig = Nothing} = do
+  seed <- randomIO
+  addCliArguments opts (materialize (Just conjure)) {randomSeed = Just seed}
+getConfiguration opts@CLIOptions {optConfig = Just fp} =
+  readConf fp >>= addCliArguments opts . materialize . Just
+
+data CLIOptions = CLIOptions {
+   optLogLoc :: Maybe Bool,
+   optLogTimestamp :: Maybe Bool,
+   optLogLevel :: Maybe LogLevel,
+   optLogFile :: Maybe String,
+   optRandomSeed :: Maybe Int,
+   optConfig :: Maybe String,
+   optOverride :: Maybe String
+  } deriving (Eq, Show, Generic)
+
+addCliArguments :: CLIOptions -> Configuration -> IO Configuration
+addCliArguments CLIOptions {..} conf = do
+  let umLogConf =
+        UmLogConf
+          { umLogLoc = optLogLoc,
+            umLogLevel = optLogLevel,
+            umLogTimestamp = optLogTimestamp,
+            umLogFile = optLogFile
+          }
+>>>>>>> master
 
   conf'@Conf {..} <-
     case optOverride of
@@ -79,4 +132,8 @@ addCliArguments CLIOptions{..} conf = do
     conf'
       { logConfig = override logConfig (Just umLogConf)
       , randomSeed = mbOverride randomSeed optRandomSeed
+<<<<<<< HEAD
       }
+=======
+      }
+>>>>>>> master
