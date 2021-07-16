@@ -23,12 +23,8 @@ module Endemic.Configuration
     lOGCONFIG,
     -- Configuration
     CLIOptions (..),
-<<<<<<< HEAD
-    getConfiguration
-=======
     getConfiguration,
     ProblemDescription (..),
->>>>>>> master
   )
 where
 

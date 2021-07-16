@@ -6,13 +6,17 @@ COPY ./src /app/src
 COPY ./tests /app/tests
 COPY ./Endemic.cabal /app/
 COPY ./entrypoint.sh /app/
+COPY ./check-helpers /app/check-helpers
+
 RUN chmod +x /app/entrypoint.sh
 
 #TODO: Can we freeze the cabal update here somehow? 
 RUN cabal update
 RUN cabal install --lib QuickCheck tasty tasty-hunit
-# After Commit acd14d5e7e1cd3d88f072dcda40f0a00ae605daa
-#RUN cabal install check-helpers
+
+WORKDIR /app/check-helpers
+RUN cabal install --lib check-helpers
+WORKDIR /app
 
 RUN cabal build
 
