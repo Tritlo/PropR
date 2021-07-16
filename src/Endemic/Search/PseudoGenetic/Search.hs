@@ -21,6 +21,7 @@ import Data.List (groupBy, sortOn, tails)
 import qualified Data.Map as Map
 import Data.Maybe (mapMaybe)
 import Data.Ord (Down (Down))
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration
 import Endemic.Eval (getExprFitCands)
@@ -107,7 +108,7 @@ selection gc indivs = pure $ pruneGeneration gc de_duped
     -- Deduplicate the pairings
     de_duped = deDupOn (Map.keys . fst) pairings
 
-pseudoGeneticRepair :: PseudoGenConf -> ProblemDescription -> IO [EFix]
+pseudoGeneticRepair :: PseudoGenConf -> ProblemDescription -> IO (Set EFix)
 pseudoGeneticRepair
   gc@PseudoGenConf {..}
   ProbDesc
@@ -118,20 +119,20 @@ pseudoGeneticRepair
     } = do
     first_attempt <- collectStats $ repairAttempt cc rc prob (Just efcs)
     if not $ null $ successful first_attempt
-      then return (map fst $ successful first_attempt)
+      then return (Set.fromList $ map fst $ successful first_attempt)
       else do
         let prog_at_ty = progAtTy e_prog e_ty
             runGen (fix, _) = do
               let n_prog = replaceExpr fix prog_at_ty
               map (\(f, r) -> (f `mergeFixes` fix, r))
                 <$> collectStats (repairAttempt cc rc prob {e_prog = n_prog} (Just efcs))
-            loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO [EFix]
+            loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
                 do
                   logStr INFO $ "Repair found after " ++ show n ++ " rounds!"
-                  return $ deDupOn Map.keys $ map fst $ successful gen
-            loop _ rounds | rounds >= genRounds = return []
+                  return $ Set.fromList $ map fst $ successful gen
+            loop _ rounds | rounds >= genRounds = return Set.empty
             loop attempt rounds = do
               let gen = individuals attempt
               new_gen <- selection gc gen

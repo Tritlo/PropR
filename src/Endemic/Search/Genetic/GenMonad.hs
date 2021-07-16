@@ -27,6 +27,8 @@ import Endemic.Util (collectStats, progAtTy)
 import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
 import GhcPlugins (Outputable (..), liftIO, ppr, showSDocUnsafe)
 import System.Random
+import Data.Set (Set)
+import qualified Data.Set as Set
 
 -- ===========                                    ==============
 -- ===             EFix Chromosome implementation            ===
@@ -36,14 +38,6 @@ import System.Random
 -- The Efixes are a Map SrcSpan (HsExpr GhcPs), where the SrcSpan (location in the program) already has a suitable
 -- EQ instance. For our purposes, it is hence fine to just compare the "toString" of both Expressions.
 -- We do not recommend using this as an implementation for other programs.
-instance Eq (HsExpr GhcPs) where
-  (==) = (==) `on` showSDocUnsafe . ppr
-
-instance Ord (HsExpr GhcPs) where
-  compare = compare `on` showSDocUnsafe . ppr
-
-instance NFData (HsExpr GhcPs) where
-  rnf expr = seq (showSDocUnsafe (ppr expr)) ()
 
 splitGenList :: StdGen -> [StdGen]
 splitGenList g = g' : splitGenList g''
@@ -210,19 +204,18 @@ mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
 -- | This method tries to reduce a Fix to a smaller, but yet still correct Fix.
 -- To achieve this, the Parts of a Fix are tried to be removed and the fitness function is re-run.
 -- If the reduced Fix still has a perfect fitness, it is returned in a list of potential fixes.
--- The output list is sorted by length of the fixes, the head is the smallest found fix.
-minimizeFix :: EFix -> GenMonad [EFix]
+minimizeFix :: EFix -> GenMonad (Set EFix)
 minimizeFix bigFix = do
   fitnesses <- fitnessMany candidateFixes
   let fitnessedCandidates = zip fitnesses candidateFixes
       reducedWinners = filter ((== 0) . fst) fitnessedCandidates
-      reducedWinners' = map snd reducedWinners
+      reducedWinners' =  Set.fromList $ map snd reducedWinners
   return reducedWinners'
   where
-    candidates = powerset $ Map.toList bigFix
-    candidates' = sortBy (\c1 c2 -> compare (length c1) (length c2)) candidates
-    -- TODO: If I do fitness, are they still ... sorted?
-    candidateFixes = map Map.fromList candidates'
+    candidates :: Set (Set (SrcSpan, HsExpr GhcPs))
+    candidates = Set.powerSet $ Set.fromDistinctAscList  $ Map.toAscList bigFix
+    candidateFixes :: [EFix]
+    candidateFixes = map (Map.fromDistinctAscList . Set.toAscList) $ Set.toList candidates
 
 runGenMonad :: GeneticConfiguration -> ProblemDescription -> Int -> GenMonad a -> IO a
 runGenMonad conf desc seed =
