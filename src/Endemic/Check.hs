@@ -26,14 +26,15 @@ import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
 
 -- | Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
-qcArgsExpr :: Maybe Integer -> Maybe Integer -> LHsExpr GhcPs
-qcArgsExpr Nothing Nothing = (tf "qcCheckArgs")
-qcArgsExpr (Just seed) Nothing = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsSeed") (il seed)
-qcArgsExpr Nothing (Just shrinks) = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsMax") (il shrinks)
-qcArgsExpr (Just seed) (Just shrinks) =
+qcArgsExpr :: Int -> Maybe Integer -> LHsExpr GhcPs
+qcArgsExpr seed Nothing = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsSeed") (il $ fromIntegral seed)
+qcArgsExpr seed (Just shrinks) =
   noLoc $
     HsPar NoExtField $
-      noLoc $ HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsMaxSeed") (il seed)) (il shrinks)
+      noLoc $ HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsMaxSeed") (il $ fromIntegral seed)) (il shrinks)
+
+-- [Note] We had a version with no seed, qcCheckArgsMax and qcCheckArgs, but those are deprecated.
+-- the helper functions are still available in check-helpers.
 
 -- | This imports are required for the program to run.
 checkImports :: [String]
@@ -83,7 +84,7 @@ tfn ::
 tfn ns = noLoc . HsVar NoExtField . noLoc . mkUnqual ns . fsLit
 
 il :: Integer -> LHsExpr GhcPs
-il = noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
+il = noLoc . HsPar NoExtField . noLoc . HsLit NoExtField . HsInt NoExtField . IL NoSourceText False
 
 -- | Short for "the type"
 tt :: String -> LHsType GhcPs
@@ -93,9 +94,11 @@ tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
 hole :: LHsExpr GhcPs
 hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
+-- Note: Every fix is checked with the same seed, to make sure that
+-- it's the fix that's making it work and not the seed.
 buildFixCheck ::
   RepairConfig ->
-  Maybe Integer ->
+  Int ->
   EProblem ->
   [EExpr] ->
   (LHsLocalBinds GhcPs, LHsBind GhcPs)
@@ -151,7 +154,7 @@ buildFixCheck rc seed EProb {..} fixes =
 
 buildSuccessCheck ::
   RepairConfig ->
-  Maybe Integer ->
+  Int ->
   EProblem ->
   EExpr
 buildSuccessCheck rc seed EProb {..} =
@@ -265,7 +268,7 @@ testCheckExpr RepConf {..} extractors test =
 -- of bCEAT
 buildCounterExampleCheck ::
   RepairConfig ->
-  Maybe Integer ->
+  Int ->
   EProp ->
   EProblem ->
   LHsExpr GhcPs

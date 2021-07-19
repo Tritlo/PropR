@@ -407,10 +407,11 @@ traceTargets rc@RepConf {..} cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   let tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
+  seed <- newQCSeed
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-      modTxt = exprToTraceModule rc cc mname correl ps_w_ce
+      modTxt = exprToTraceModule rc cc seed mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
       mixFilePath = tempDir
@@ -513,8 +514,15 @@ traceTargets rc cc e@(L _ xp) ps_w_ce = do
   tl <- fakeBaseLoc cc e
   traceTargets rc cc (L tl xp) ps_w_ce
 
-exprToTraceModule :: RepairConfig -> CompileConfig -> String -> LHsBind GhcPs -> [(EProp, [RExpr])] -> RExpr
-exprToTraceModule RepConf {..} CompConf {..} mname expr ps_w_ce =
+exprToTraceModule ::
+  RepairConfig ->
+  CompileConfig ->
+  Int ->
+  String ->
+  LHsBind GhcPs ->
+  [(EProp, [RExpr])] ->
+  RExpr
+exprToTraceModule RepConf {..} CompConf {..} seed mname expr ps_w_ce =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
@@ -548,7 +556,7 @@ exprToTraceModule RepConf {..} CompConf {..} mname expr ps_w_ce =
         ++ "qcWRes "
         ++ show repTimeout
         ++ " ("
-        ++ showUnsafe (qcArgsExpr qcSeed Nothing)
+        ++ showUnsafe (qcArgsExpr seed Nothing)
         ++ ") ("
         ++ pname
         ++ " fake_target "
@@ -686,8 +694,8 @@ readHole hf@HoleFit {..} =
     map (showSDocUnsafe . ppr) hfMatches
   )
 
-exprToCheckModule :: RepairConfig -> CompileConfig -> String -> EProblem -> [EExpr] -> RExpr
-exprToCheckModule rc CompConf {..} mname tp fixes =
+exprToCheckModule :: RepairConfig -> CompileConfig -> Int -> String -> EProblem -> [EExpr] -> RExpr
+exprToCheckModule rc CompConf {..} seed mname tp fixes =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
@@ -710,7 +718,7 @@ exprToCheckModule rc CompConf {..} mname tp fixes =
            "            mapM_ (runC__ True . read) whiches"
          ]
   where
-    (ctxt, check_bind) = buildFixCheck rc qcSeed tp fixes
+    (ctxt, check_bind) = buildFixCheck rc seed tp fixes
 
 -- | Parse, rename and type check an expression
 justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))

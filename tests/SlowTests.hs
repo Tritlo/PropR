@@ -30,6 +30,10 @@ tests =
     "Tests"
     [tastyFixTests, properGenTests, genTests]
 
+-- | Chosen fairly by Random.org
+tEST_SEED :: Int
+tEST_SEED = 703_039_772
+
 tastyFixTests :: TestTree
 tastyFixTests =
   testGroup
@@ -50,6 +54,7 @@ tastyFixTests =
                     ]
                   ]
 
+          setQCSeedGenSeed tEST_SEED
           (_, modul, [EProb {..}]) <-
             moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
           desc <- describeProblem def toFix
@@ -73,6 +78,7 @@ tastyFixTests =
                     ]
                   ]
 
+          setQCSeedGenSeed tEST_SEED
           (_, modul, [EProb {..}]) <-
             moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
           desc <- describeProblem def toFix
@@ -102,6 +108,7 @@ properGenTests =
                     ]
                   ]
 
+          setQCSeedGenSeed tEST_SEED
           (_, modul, [EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
@@ -129,6 +136,7 @@ genTests =
                     ]
                   ]
 
+          setQCSeedGenSeed tEST_SEED
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
@@ -151,6 +159,7 @@ genTests =
                     ]
                   ]
 
+          setQCSeedGenSeed tEST_SEED
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
@@ -172,7 +181,7 @@ genTests =
                       "+brokenPair = (3, 4, 5, 6)"
                     ]
                   ]
-
+          setQCSeedGenSeed tEST_SEED
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc

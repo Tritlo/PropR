@@ -163,8 +163,9 @@ propCounterExample _ _ _ prop | isTastyProp prop = return $ Just []
       "prop" /= take 4 (occNameString $ rdrNameOcc $ unLoc fid)
     isTastyProp _ = True
 propCounterExample rc cc ep prop = do
+  seed <- newQCSeed
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      bcc = buildCounterExampleCheck rc (qcSeed cc) prop ep
+      bcc = buildCounterExampleCheck rc seed prop ep
   exec <- compileParsedCheck cc' bcc
   fromDyn exec (return Nothing)
 
@@ -180,8 +181,9 @@ failingProps rc cc rp@EProb {e_props = ps} | length ps > 8 = do
   p2 <- failingProps rc cc rp {e_props = ps2}
   return (p1 ++ p2)
 failingProps rc cc ep@EProb {..} = do
+  seed <- newQCSeed
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      check = buildSuccessCheck rc (qcSeed cc) ep
+      check = buildSuccessCheck rc seed ep
   [compiled_check] <- compileParsedChecks cc' [check]
   ran <- runCheck rc compiled_check
   case ran of
@@ -313,9 +315,10 @@ checkFixes cc rc tp fixes = do
       tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
+  seed <- newQCSeed
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-      modTxt = exprToCheckModule rc cc mname tp fixes
+      modTxt = exprToCheckModule rc cc seed mname tp fixes
       strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
       timeoutVal = fromIntegral repTimeout

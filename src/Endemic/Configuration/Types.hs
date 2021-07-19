@@ -371,8 +371,7 @@ instance Materializeable CompileConfig where
     CompConf
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
-        hole_lvl = fromMaybe hole_lvl umHoleLvl,
-        qcSeed = mbOverride qcSeed umQcSeed
+        hole_lvl = fromMaybe hole_lvl umHoleLvl
       }
 
 -- | Configuration for the compilation itself
@@ -382,9 +381,7 @@ data CompileConfig = CompConf
     -- | a list of packages used for the compilation
     packages :: [String],
     -- | the "depth" of the holes, see general notes on this
-    hole_lvl :: Int,
-    -- | The seed to use for quickcheck
-    qcSeed :: Maybe Integer
+    hole_lvl :: Int
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -396,8 +393,7 @@ instance Default CompileConfig where
     CompConf
       { hole_lvl = 0,
         packages = ["base"],
-        importStmts = ["import Prelude"],
-        qcSeed = Nothing
+        importStmts = ["import Prelude"]
       }
 
 -- | Configuration for the checking of repairs
