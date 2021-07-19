@@ -32,6 +32,12 @@ To run the program, ensure that the `check-helpers` library is installed by runn
 $ cabal run endemic -- examples/BrokenModule.hs
 ```
 
+Optionally, you can use Docker: 
+
+```
+$ docker-compose up --build
+```
+
 For more options see #Usage and the `--help` flag.
 
 to see it in action on the `foldl (-) 0` example. This produces the following:
