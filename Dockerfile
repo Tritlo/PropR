@@ -10,13 +10,14 @@ LABEL builder=true
 LABEL maintainer="L.H.Applis@tu-delft.nl"
 
 WORKDIR /builder
+COPY ./Endemic.cabal /builder/
+RUN cabal update
+RUN cabal build --dependencies-only Endemic
 
 COPY ./src /builder/src
 COPY ./tests /builder/tests
-COPY ./Endemic.cabal /builder/
 
 #TODO: Can we freeze the cabal update here somehow? 
-RUN cabal update
 
 WORKDIR /builder
 RUN cabal build
@@ -59,6 +60,7 @@ RUN mkdir ${REPAIR_TARGET}
 
 # Copy the Entrypoint
 COPY ./entrypoint.sh /app/
+WORKDIR /app
 RUN chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
