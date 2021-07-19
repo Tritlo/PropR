@@ -6,6 +6,7 @@ module Main where
 
 import Data.Default
 import Data.Maybe (isJust, mapMaybe)
+import qualified Data.Set as Set
 import Endemic (getExprFitCands)
 import Endemic.Configuration
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
@@ -22,7 +23,6 @@ import GHC (HsExpr (HsLet), NoExtField (NoExtField))
 import GhcPlugins (noLoc)
 import Test.Tasty
 import Test.Tasty.HUnit
-import qualified Data.Set as Set
 
 tests :: TestTree
 tests =
@@ -31,8 +31,10 @@ tests =
     [tastyFixTests, properGenTests, genTests]
 
 tastyFixTests :: TestTree
-tastyFixTests = testGroup "Tasty fix tests"
-   [ localOption (mkTimeout 180_000_000) $
+tastyFixTests =
+  testGroup
+    "Tasty fix tests"
+    [ localOption (mkTimeout 180_000_000) $
         testCase "Repair TastyFix" $ do
           let toFix = "tests/cases/TastyFix.hs"
               repair_target = Nothing
@@ -78,7 +80,7 @@ tastyFixTests = testGroup "Tasty fix tests"
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
           fixDiffs @?= expected
-   ]
+    ]
 
 properGenTests :: TestTree
 properGenTests =

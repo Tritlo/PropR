@@ -52,15 +52,16 @@ getConfiguration opts@CLIOptions {optConfig = Nothing} = do
 getConfiguration opts@CLIOptions {optConfig = Just fp} =
   readConf fp >>= addCliArguments opts . materialize . Just
 
-data CLIOptions = CLIOptions {
-   optLogLoc :: Maybe Bool,
-   optLogTimestamp :: Maybe Bool,
-   optLogLevel :: Maybe LogLevel,
-   optLogFile :: Maybe String,
-   optRandomSeed :: Maybe Int,
-   optConfig :: Maybe String,
-   optOverride :: Maybe String
-  } deriving (Eq, Show, Generic)
+data CLIOptions = CLIOptions
+  { optLogLoc :: Maybe Bool,
+    optLogTimestamp :: Maybe Bool,
+    optLogLevel :: Maybe LogLevel,
+    optLogFile :: Maybe String,
+    optRandomSeed :: Maybe Int,
+    optConfig :: Maybe String,
+    optOverride :: Maybe String
+  }
+  deriving (Eq, Show, Generic)
 
 addCliArguments :: CLIOptions -> Configuration -> IO Configuration
 addCliArguments CLIOptions {..} conf = do
@@ -78,6 +79,6 @@ addCliArguments CLIOptions {..} conf = do
       Just c -> override conf . Just <$> readConf c
   return $
     conf'
-      { logConfig = override logConfig (Just umLogConf)
-      , randomSeed = mbOverride randomSeed optRandomSeed
+      { logConfig = override logConfig (Just umLogConf),
+        randomSeed = mbOverride randomSeed optRandomSeed
       }

@@ -182,7 +182,7 @@ failingPropsTests =
                     r_props = props
                   }
           tp <- translate def rp
-          failed_props <- failingProps def tp
+          failed_props <- failingProps def def tp
           -- Only the first prop should be failing (due to an infinite loop)
           map showUnsafe failed_props @?= [head props],
       localOption (mkTimeout 10_000_000) $
@@ -211,7 +211,7 @@ failingPropsTests =
                     r_props = props
                   }
           tp <- translate cc rp
-          failed_props <- failingProps cc tp
+          failed_props <- failingProps def cc tp
           map showUnsafe failed_props @?= props
     ]
 
@@ -240,8 +240,8 @@ counterExampleTests =
                     r_props = props
                   }
           tp <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just [counter_example] <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just [counter_example] <- propCounterExample def cc tp failed_prop
           let expr = "(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example
           res <- runJustParseExpr cc expr >>= compileParsedCheck cc
           case fromDynamic @Bool res of
@@ -268,8 +268,8 @@ counterExampleTests =
                     r_props = props
                   }
           tp <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just counter_example_args <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just counter_example_args <- propCounterExample def cc tp failed_prop
           let arg_str = unwords counter_example_args
               expr = "(-) " ++ arg_str ++ " == (+) " ++ arg_str
           res <- runJustParseExpr cc expr >>= compileParsedCheck cc
@@ -302,10 +302,10 @@ counterExampleTests =
                     r_props = props
                   }
           tp <- translate cc rp
-          [failed_prop] <- failingProps cc tp
+          [failed_prop] <- failingProps def cc tp
           -- Only the first prop should be failing (due to an infinite loop)
           showUnsafe failed_prop @?= head props
-          Just counter_example_args <- propCounterExample cc tp failed_prop
+          Just counter_example_args <- propCounterExample def cc tp failed_prop
           null counter_example_args @? "The counter example should not have any arguments!"
     ]
 
@@ -329,10 +329,10 @@ traceTests =
                     r_props = props
                   }
           tp@EProb {..} <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just counter_example <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just counter_example <- propCounterExample def cc tp failed_prop
           Just Node {subForest = [tree@Node {rootLabel = (tl, tname)}]} <-
-            traceTarget cc e_prog failed_prop counter_example
+            traceTarget def cc e_prog failed_prop counter_example
           expr <- runJustParseExpr cc wrong_prog
           getLoc expr @?= mkInteractive tl
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
@@ -362,12 +362,12 @@ traceTests =
                     r_props = props
                   }
           tp@EProb {..} <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just counter_example_args <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just counter_example_args <- propCounterExample def cc tp failed_prop
           -- We generate the trace
           let prog_at_ty = progAtTy e_prog e_ty
           tcorrel <- buildTraceCorrel cc prog_at_ty
-          Just res <- traceTarget cc prog_at_ty failed_prop counter_example_args
+          Just res <- traceTarget def cc prog_at_ty failed_prop counter_example_args
           let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
               chain l = tcorrel Map.!? l >>= (eMap Map.!?)
               trc = map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $ flatten res

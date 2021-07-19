@@ -16,6 +16,8 @@ import Data.Function (on)
 import Data.List (partition, sortBy, sortOn)
 import qualified Data.Map as Map
 import Data.Maybe
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Endemic.Configuration
 import Endemic.Repair (checkFixes, repairAttempt)
 import Endemic.Search.Genetic.Configuration
@@ -27,8 +29,6 @@ import Endemic.Util (collectStats, progAtTy)
 import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
 import GhcPlugins (Outputable (..), liftIO, ppr, showSDocUnsafe)
 import System.Random
-import Data.Set (Set)
-import qualified Data.Set as Set
 
 -- ===========                                    ==============
 -- ===             EFix Chromosome implementation            ===
@@ -38,7 +38,6 @@ import qualified Data.Set as Set
 -- The Efixes are a Map SrcSpan (HsExpr GhcPs), where the SrcSpan (location in the program) already has a suitable
 -- EQ instance. For our purposes, it is hence fine to just compare the "toString" of both Expressions.
 -- We do not recommend using this as an implementation for other programs.
-
 splitGenList :: StdGen -> [StdGen]
 splitGenList g = g' : splitGenList g''
   where
@@ -209,11 +208,11 @@ minimizeFix bigFix = do
   fitnesses <- fitnessMany candidateFixes
   let fitnessedCandidates = zip fitnesses candidateFixes
       reducedWinners = filter ((== 0) . fst) fitnessedCandidates
-      reducedWinners' =  Set.fromList $ map snd reducedWinners
+      reducedWinners' = Set.fromList $ map snd reducedWinners
   return reducedWinners'
   where
     candidates :: Set (Set (SrcSpan, HsExpr GhcPs))
-    candidates = Set.powerSet $ Set.fromDistinctAscList  $ Map.toAscList bigFix
+    candidates = Set.powerSet $ Set.fromDistinctAscList $ Map.toAscList bigFix
     candidateFixes :: [EFix]
     candidateFixes = map (Map.fromDistinctAscList . Set.toAscList) $ Set.toList candidates
 

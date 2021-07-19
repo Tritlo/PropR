@@ -11,7 +11,8 @@
   },
   "repair_config": {
     "par_checks": true,
-    "use_interpreted": true
+    "use_interpreted": true,
+    "timeout": 1000000
   },
   "output_config": {
     "locale": null,

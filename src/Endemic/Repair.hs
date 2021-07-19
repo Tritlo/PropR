@@ -154,36 +154,36 @@ detranslate EProb {..} =
 
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
-propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
-propCounterExample _ _ prop | isTastyProp prop = return $ Just []
+propCounterExample :: RepairConfig -> CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
+propCounterExample _ _ _ prop | isTastyProp prop = return $ Just []
   where
     -- TODO: If we had the type here as well, we could do better.
     isTastyProp :: LHsBind GhcPs -> Bool
     isTastyProp (L _ FunBind {fun_id = fid}) =
       "prop" /= take 4 (occNameString $ rdrNameOcc $ unLoc fid)
     isTastyProp _ = True
-propCounterExample cc ep prop = do
+propCounterExample rc cc ep prop = do
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      bcc = buildCounterExampleCheck (qcSeed cc) prop ep
+      bcc = buildCounterExampleCheck rc (qcSeed cc) prop ep
   exec <- compileParsedCheck cc' bcc
   fromDyn exec (return Nothing)
 
 -- | Returns the props that fail for the given program
-failingProps :: CompileConfig -> EProblem -> IO [EProp]
-failingProps _ EProb {e_props = []} = return []
+failingProps :: RepairConfig -> CompileConfig -> EProblem -> IO [EProp]
+failingProps _ _ EProb {e_props = []} = return []
 -- Our method for checking which props fail is restricted to maximum 8 at a time,
 -- so if we have more than that, we check the first 8 and then the rest, and
 -- so on.
-failingProps cc rp@EProb {e_props = ps} | length ps > 8 = do
+failingProps rc cc rp@EProb {e_props = ps} | length ps > 8 = do
   let (ps1, ps2) = splitAt 8 ps
-  p1 <- failingProps cc rp {e_props = ps1}
-  p2 <- failingProps cc rp {e_props = ps2}
+  p1 <- failingProps rc cc rp {e_props = ps1}
+  p2 <- failingProps rc cc rp {e_props = ps2}
   return (p1 ++ p2)
-failingProps cc ep@EProb {..} = do
+failingProps rc cc ep@EProb {..} = do
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      check = buildSuccessCheck (qcSeed cc) ep
+      check = buildSuccessCheck rc (qcSeed cc) ep
   [compiled_check] <- compileParsedChecks cc' [check]
-  ran <- runCheck compiled_check
+  ran <- runCheck rc compiled_check
   case ran of
     -- Some of the props are failing:
     Left p -> return $ map fst $ filter (not . snd) $ zip e_props p
@@ -200,7 +200,7 @@ failingProps cc ep@EProb {..} = do
         -- split individually.
         _ -> do
           let fp :: [EProp] -> IO [EProp]
-              fp ps = failingProps cc ep {e_props = ps}
+              fp ps = failingProps rc cc ep {e_props = ps}
               ps1, ps2 :: [EProp]
               (ps1, ps2) = splitAt (length e_props `div` 2) e_props
           concat <$> mapM fp [ps1, ps2]
@@ -245,10 +245,10 @@ repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
 
   -- We can use the failing_props and the counter_examples to filter
   -- out locations that we know won't matter.
-  failing_props <- collectStats $ failingProps cc tp
+  failing_props <- collectStats $ failingProps rc cc tp
 
   -- It only makes sense to generate counter-examples for quickcheck properties.
-  counter_examples <- collectStats $ mapM (propCounterExample cc tp) failing_props
+  counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
 
   let hasCE (p, Just ce) = Just (p, ce)
       hasCE _ = Nothing
@@ -263,7 +263,7 @@ repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
         . Map.unionsWith (+)
         . map toInvokes
         . catMaybes
-        <$> traceTargets cc prog_at_ty ps_w_ce
+        <$> traceTargets rc cc prog_at_ty ps_w_ce
   -- We then remove suggested holes that are unlikely to help (naively for now
   -- in the sense that we remove only holes which did not get evaluated at all,
   -- so they are definitely not going to matter).
@@ -315,9 +315,10 @@ checkFixes cc rc tp fixes = do
   (the_f, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-      modTxt = exprToCheckModule cc mname tp fixes
+      modTxt = exprToCheckModule rc cc mname tp fixes
       strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
+      timeoutVal = fromIntegral repTimeout
   -- mixFilePath = tempDir
 
   logStr DEBUG modTxt

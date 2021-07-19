@@ -5,9 +5,12 @@
 
 module Endemic.Search.Genetic.Search where
 
+import Control.Monad (foldM)
 import qualified Control.Monad.Trans.Reader as R
 import Data.List (partition, sortBy, sortOn)
 import Data.Maybe
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Time.Clock
 import Endemic.Configuration (ProblemDescription (..))
 import Endemic.Search.Genetic.Configuration
@@ -17,9 +20,6 @@ import Endemic.Search.Genetic.Utils
 import Endemic.Types
 import Endemic.Util
 import GhcPlugins (liftIO)
-import Data.Set (Set)
-import qualified Data.Set as Set
-import Control.Monad (foldM)
 
 -- ===========                 ==============
 -- ===           Genetic Search           ===
@@ -203,7 +203,7 @@ geneticSearch = collectStats $ do
 
           -- Determine Winners (where fitness == 0)
 
-          winners  <- foldM ((. selectWinners 0) . fmap . Set.union) Set.empty nextGens
+          winners <- foldM ((. selectWinners 0) . fmap . Set.union) Set.empty nextGens
           -- We calculate the passed generations by substracting current remaining its from total its
           let passedIterations = iterations conf - n
           -- We check whether we have a migration, by using modulo on the passed generations

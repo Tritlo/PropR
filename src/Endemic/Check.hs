@@ -16,6 +16,7 @@ module Endemic.Check where
 import Bag (listToBag, unionManyBags, unitBag)
 import BasicTypes (IntegralLit (..), Origin (..), PromotionFlag (..), SourceText (..))
 import Data.Maybe (mapMaybe)
+import Endemic.Configuration (RepairConfig (..))
 import Endemic.Types (EExpr, EProblem (..), EProp)
 import Endemic.Util (progAtTy)
 import FastString (fsLit)
@@ -34,18 +35,16 @@ qcArgsExpr (Just seed) (Just shrinks) =
     HsPar NoExtField $
       noLoc $ HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsMaxSeed") (il seed)) (il shrinks)
 
--- | Time to run the QuickCheck in microseconds
-qcTime :: Integer
-qcTime = 1_000_000
-
 -- | This imports are required for the program to run.
 checkImports :: [String]
-checkImports = [ "import Check.Helpers"
-               , "import System.Environment (getArgs)"
-               , "import Prelude"]
+checkImports =
+  [ "import Check.Helpers",
+    "import System.Environment (getArgs)",
+    "import Prelude"
+  ]
 
 checkPackages :: [String]
-checkPackages = ["base","check-helpers"]
+checkPackages = ["base", "check-helpers"]
 
 -- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
@@ -94,8 +93,13 @@ tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
 hole :: LHsExpr GhcPs
 hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
-buildFixCheck :: Maybe Integer -> EProblem -> [EExpr] -> (LHsLocalBinds GhcPs, LHsBind GhcPs)
-buildFixCheck seed EProb {..} fixes =
+buildFixCheck ::
+  RepairConfig ->
+  Maybe Integer ->
+  EProblem ->
+  [EExpr] ->
+  (LHsLocalBinds GhcPs, LHsBind GhcPs)
+buildFixCheck rc seed EProb {..} fixes =
   (ctxt, check_bind)
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
@@ -114,7 +118,7 @@ buildFixCheck seed EProb {..} fixes =
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing
     prop_names = mapMaybe prop_to_name e_props
-    testsToCheck = map (testCheckExpr (tf "qcSuccess", tf "id")) prop_names
+    testsToCheck = map (testCheckExpr rc (tf "qcSuccess", tf "id")) prop_names
 
     expr_b ep = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy ep e_ty
     check_progs =
@@ -145,8 +149,12 @@ buildFixCheck seed EProb {..} fixes =
               (tt "IO")
               (noLoc $ HsListTy NoExtField $ tt "Bool")
 
-buildSuccessCheck :: Maybe Integer -> EProblem -> EExpr
-buildSuccessCheck seed EProb {..} =
+buildSuccessCheck ::
+  RepairConfig ->
+  Maybe Integer ->
+  EProblem ->
+  EExpr
+buildSuccessCheck rc seed EProb {..} =
   noLoc $ HsLet NoExtField ctxt check_prog
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
@@ -166,7 +174,7 @@ buildSuccessCheck seed EProb {..} =
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing
     prop_names = mapMaybe prop_to_name e_props
-    testsToCheck = map (testCheckExpr (tf "qcSuccess", tf "id")) prop_names
+    testsToCheck = map (testCheckExpr rc (tf "qcSuccess", tf "id")) prop_names
 
     pcb =
       baseFun
@@ -206,13 +214,15 @@ buildSuccessCheck seed EProb {..} =
 -- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result
 testCheckExpr ::
+  -- | The repair config
+  RepairConfig ->
   -- | A compiled program that contains properties and everything to run them
   (LHsExpr GhcPs, LHsExpr GhcPs) ->
   -- | A reader containing the property to check
   Located RdrName ->
   -- | The resulting expression
   LHsExpr GhcPs
-testCheckExpr extractors test =
+testCheckExpr RepConf {..} extractors test =
   noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
   where
     isQc = ((==) "prop" . take 4 . occNameString . rdrNameOcc . unLoc) test
@@ -226,7 +236,7 @@ testCheckExpr extractors test =
           noLoc $
             HsApp
               NoExtField
-              (noLoc $ HsApp NoExtField (tf "checkTastyTree") (il qcTime))
+              (noLoc $ HsApp NoExtField (tf "checkTastyTree") (il repTimeout))
               app
     app =
       noLoc $
@@ -243,7 +253,7 @@ testCheckExpr extractors test =
               ( noLoc $
                   HsApp
                     NoExtField
-                    (noLoc $ HsApp NoExtField (tf "qcWRes") (il qcTime))
+                    (noLoc $ HsApp NoExtField (tf "qcWRes") (il repTimeout))
                     (tf "qc__")
               )
               app
@@ -253,8 +263,15 @@ testCheckExpr extractors test =
 -- to the given prop if it fails for the given program, and nothing otherwise.
 -- Note that we have to have it take in a list of properties to match the shape
 -- of bCEAT
-buildCounterExampleCheck :: Maybe Integer -> EProp -> EProblem -> LHsExpr GhcPs -- RExpr
-buildCounterExampleCheck seed
+buildCounterExampleCheck ::
+  RepairConfig ->
+  Maybe Integer ->
+  EProp ->
+  EProblem ->
+  LHsExpr GhcPs
+buildCounterExampleCheck
+  rc@RepConf {..}
+  seed
   ( L
       loc
       fb@FunBind
@@ -289,7 +306,7 @@ buildCounterExampleCheck seed
                 noLoc $
                   HsApp
                     NoExtField
-                    (noLoc $ HsApp NoExtField (tf "qcWithin") (il qcTime))
+                    (noLoc $ HsApp NoExtField (tf "qcWithin") (il repTimeout))
                     (noLoc $ HsPar NoExtField b)
           aW g = g
       addWithin malt = malt
@@ -318,7 +335,7 @@ buildCounterExampleCheck seed
             progAtTy
               ( noLoc $
                   HsPar NoExtField $
-                    testCheckExpr (tf "failureToMaybe", tf "id") fid
+                    testCheckExpr rc (tf "failureToMaybe", tf "id") fid
               )
               sq_ty
-buildCounterExampleCheck _ _ _ = error "invalid counter-example format!"
+buildCounterExampleCheck _ _ _ _ = error "invalid counter-example format!"
