@@ -4,8 +4,7 @@
       "import Prelude"
     ],
     "packages": [
-      "base",
-      "check-helpers"
+      "base"
     ],
     "hole_lvl": 0,
     "qc_seed": null
@@ -23,17 +22,23 @@
   "search_algorithm": {
     "tag": "Genetic",
     "contents": {
-      "mutation_rate": 0.1,
-      "crossover_rate": 0.4,
+      "mutation_rate": 0.2,
+      "crossover_rate": 0.05,
       "iterations": 50,
       "population_size": 64,
       "timeout_in_minutes": 5,
-      "stop_on_results": false,
-      "drop_rate": 0.25,
+      "stop_on_results": true,
+      "drop_rate": 0.2,
       "try_minimize_fixes": false,
       "replace_winners": true,
       "use_parallel_map": true
     }
+  },
+  "log_config": {
+    "log_loc": false,
+    "log_level": "WARN",
+    "log_timestamp": true,
+    "log_file": null
   },
   "random_seed": 42
 }

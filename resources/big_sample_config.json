@@ -4,8 +4,7 @@
       "import Prelude"
     ],
     "packages": [
-      "base",
-      "check-helpers"
+      "base"
     ],
     "hole_lvl": 0,
     "qc_seed": null

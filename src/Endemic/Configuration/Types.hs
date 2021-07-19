@@ -394,7 +394,7 @@ instance Default CompileConfig where
   def =
     CompConf
       { hole_lvl = 0,
-        packages = ["base", "check-helpers"],
+        packages = ["base"],
         importStmts = [ "import Prelude" ],
         qcSeed = Nothing
       }

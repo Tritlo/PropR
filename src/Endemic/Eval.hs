@@ -126,7 +126,7 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
         flags
           { packageFlags =
               packageFlags flags
-                ++ map toPkg packages,
+                ++ map toPkg (checkPackages ++ packages),
             staticPlugins = sPlug : staticPlugins flags
           }
       sPlug =
