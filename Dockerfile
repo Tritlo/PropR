@@ -1,24 +1,52 @@
-FROM haskell:8.10
+ARG HASKELL_VERSION=8.10.4
+ARG ENDEMIC_VERSION=0.0.1
+ARG RUN_TESTS
+# ==========================================
+# =         Stage 1: Build & Test          =
+# ==========================================
+FROM haskell:${HASKELL_VERSION} as builder
 
-WORKDIR /app
+LABEL builder=true 
+LABEL maintainer="L.H.Applis@tu-delft.nl"
 
-COPY ./src /app/src
-COPY ./tests /app/tests
-COPY ./Endemic.cabal /app/
-COPY ./entrypoint.sh /app/
-COPY ./check-helpers /app/check-helpers
+WORKDIR /builder
 
-RUN chmod +x /app/entrypoint.sh
+COPY ./src /builder/src
+COPY ./tests /builder/tests
+COPY ./Endemic.cabal /builder/
 
 #TODO: Can we freeze the cabal update here somehow? 
 RUN cabal update
-RUN cabal install --lib QuickCheck tasty tasty-hunit
 
+WORKDIR /builder
+RUN cabal build
+# Run tests if arg has any value
+RUN if [[ -n "${RUN_TESTS}"]] ; then cabal test; else echo "Skipping Tests"; fi
+
+# ==========================================
+# =       Stage 2: Runnable Container      =
+# ==========================================
+FROM haskell:${HASKELL_VERSION} as runnable
+
+# Args need to be re-passed in a new Stage (See https://stackoverflow.com/questions/53681522/share-variable-in-multi-stage-dockerfile-arg-before-from-not-substituted)
+ARG HASKELL_VERSION
+ARG ENDEMIC_VERSION
+
+LABEL builder=false 
+LABEL maintainer="L.H.Applis@tu-delft.nl"
+LABEL name="tritlo/endemic"
+LABEL url="https://github.com/Tritlo/Endemic"
+LABEL vcs="https://github.com/Tritlo/Endemic"
+
+# Copy the Executable from Builder-Container
+COPY --from=builder /builder/dist-newstyle/build/x86_64-linux/ghc-${HASKELL_VERSION}/Endemic-${ENDEMIC_VERSION}/x/endemic/build/endemic /app/
+RUN chmod +x /app/endemic
+
+# Install the Helpers
+RUN cabal update
+COPY ./check-helpers /app/check-helpers
 WORKDIR /app/check-helpers
 RUN cabal install --lib check-helpers
-WORKDIR /app
-
-RUN cabal build
 
 ENV LOG_LEVEL=INFO
 ENV REPAIR_TARGET=/input
@@ -29,5 +57,8 @@ ENV LOG_FILE="/output/docker-endemic.log"
 # It will be created if not existing.
 RUN mkdir ${REPAIR_TARGET}
 
+# Copy the Entrypoint
+COPY ./entrypoint.sh /app/
+RUN chmod +x /app/entrypoint.sh
 
 ENTRYPOINT ["/app/entrypoint.sh"]
