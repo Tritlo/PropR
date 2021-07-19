@@ -22,13 +22,13 @@
   "search_algorithm": {
     "tag": "Genetic",
     "contents": {
-      "mutation_rate": 0.2,
-      "crossover_rate": 0.05,
+      "mutation_rate": 0.1,
+      "crossover_rate": 0.4,
       "iterations": 50,
       "population_size": 64,
       "timeout_in_minutes": 5,
-      "stop_on_results": true,
-      "drop_rate": 0.2,
+      "stop_on_results": false,
+      "drop_rate": 0.25,
       "try_minimize_fixes": false,
       "replace_winners": true,
       "use_parallel_map": true
