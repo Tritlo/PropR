@@ -4,8 +4,7 @@
       "import Prelude"
     ],
     "packages": [
-      "base",
-      "check-helpers"
+      "base"
     ],
     "hole_lvl": 0,
     "qc_seed": null
@@ -34,6 +33,12 @@
       "replace_winners": true,
       "use_parallel_map": true
     }
+  },
+  "log_config": {
+    "log_loc": false,
+    "log_level": "WARN",
+    "log_timestamp": true,
+    "log_file": null
   },
   "random_seed": 42
 }

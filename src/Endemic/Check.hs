@@ -39,9 +39,13 @@ qcTime :: Integer
 qcTime = 1_000_000
 
 -- | This imports are required for the program to run.
-checkImports :: [[Char]]
+checkImports :: [String]
 checkImports = [ "import Check.Helpers"
-               , "import System.Environment (getArgs)"]
+               , "import System.Environment (getArgs)"
+               , "import Prelude"]
+
+checkPackages :: [String]
+checkPackages = ["base","check-helpers"]
 
 -- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
