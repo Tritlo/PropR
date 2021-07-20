@@ -344,7 +344,7 @@ traceTests =
           [failed_prop] <- failingProps def cc tp
           Just counter_example <- propCounterExample def cc tp failed_prop
           Just Node {subForest = [tree@Node {rootLabel = (tl, tname)}]} <-
-            traceTarget def cc e_prog failed_prop counter_example
+            traceTarget def cc tp e_prog failed_prop counter_example
           expr <- runJustParseExpr cc wrong_prog
           getLoc expr @?= mkInteractive tl
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
@@ -380,7 +380,7 @@ traceTests =
           -- We generate the trace
           let prog_at_ty = progAtTy e_prog e_ty
           tcorrel <- buildTraceCorrel cc prog_at_ty
-          Just res <- traceTarget def cc prog_at_ty failed_prop counter_example_args
+          Just res <- traceTarget def cc tp prog_at_ty failed_prop counter_example_args
           let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
               chain l = tcorrel Map.!? l >>= (eMap Map.!?)
               trc = map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $ flatten res

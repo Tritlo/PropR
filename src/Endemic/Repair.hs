@@ -266,7 +266,7 @@ repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
         . Map.unionsWith (+)
         . map toInvokes
         . catMaybes
-        <$> traceTargets rc cc prog_at_ty ps_w_ce
+        <$> traceTargets rc cc tp prog_at_ty ps_w_ce
   -- We then remove suggested holes that are unlikely to help (naively for now
   -- in the sense that we remove only holes which did not get evaluated at all,
   -- so they are definitely not going to matter).

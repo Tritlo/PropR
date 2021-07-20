@@ -390,20 +390,22 @@ buildTraceCorrel cc expr =
 traceTarget ::
   RepairConfig ->
   CompileConfig ->
+  EProblem ->
   EExpr ->
   EProp ->
   [RExpr] ->
   IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
-traceTarget rc cc e fp ce = head <$> traceTargets rc cc e [(fp, ce)]
+traceTarget rc cc tp e fp ce = head <$> traceTargets rc cc tp e [(fp, ce)]
 
 -- Run HPC to get the trace information.
 traceTargets ::
   RepairConfig ->
   CompileConfig ->
+  EProblem ->
   EExpr ->
   [(EProp, [RExpr])] ->
   IO [Maybe (Tree (SrcSpan, [(BoxLabel, Integer)]))]
-traceTargets rc@RepConf {..} cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
+traceTargets rc@RepConf {..} cc tp expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   let tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
@@ -411,7 +413,7 @@ traceTargets rc@RepConf {..} cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-      modTxt = exprToTraceModule rc cc seed mname correl ps_w_ce
+      modTxt = exprToTraceModule rc cc tp seed mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
       mixFilePath = tempDir
@@ -432,6 +434,7 @@ traceTargets rc@RepConf {..} cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
       setSessionDynFlags $
         dynFlags
           { mainModIs = mkMainModule $ fsLit mname,
+            mainFunIs = Just "main__",
             hpcDir = "./fake_targets"
           }
     now <- liftIO getCurrentTime
@@ -510,31 +513,33 @@ traceTargets rc@RepConf {..} cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
         start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
         -- GHC Srcs end one after the end
         end = mkSrcLoc fname (el - eloff) (ec - ecoff)
-traceTargets rc cc e@(L _ xp) ps_w_ce = do
+traceTargets rc cc tp e@(L _ xp) ps_w_ce = do
   tl <- fakeBaseLoc cc e
-  traceTargets rc cc (L tl xp) ps_w_ce
+  traceTargets rc cc tp (L tl xp) ps_w_ce
 
 exprToTraceModule ::
   RepairConfig ->
   CompileConfig ->
+  EProblem ->
   Int ->
   String ->
   LHsBind GhcPs ->
   [(EProp, [RExpr])] ->
   RExpr
-exprToTraceModule RepConf {..} CompConf {..} seed mname expr ps_w_ce =
+exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname expr ps_w_ce =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
       ++ checkImports
       ++ concatMap (lines . showUnsafe) failing_props
+      ++ lines (showUnsafe e_ctxt)
       ++ [showUnsafe expr]
       ++ [concat ["checks = [", checks, "]"]]
       ++ [ "",
-           "main :: IO ()",
-           "main = do [which] <- getArgs",
-           "          act <- checks !! (read which)",
-           "          print (act :: Bool) "
+           "main__ :: IO ()",
+           "main__ = do [which] <- getArgs",
+           "            act <- checks !! (read which)",
+           "            print (act :: Bool) "
          ]
   where
     (failing_props, failing_argss) = unzip ps_w_ce
@@ -694,7 +699,14 @@ readHole hf@HoleFit {..} =
     map (showSDocUnsafe . ppr) hfMatches
   )
 
-exprToCheckModule :: RepairConfig -> CompileConfig -> Int -> String -> EProblem -> [EExpr] -> RExpr
+exprToCheckModule ::
+  RepairConfig ->
+  CompileConfig ->
+  Int ->
+  String ->
+  EProblem ->
+  [EExpr] ->
+  RExpr
 exprToCheckModule rc CompConf {..} seed mname tp fixes =
   unlines $
     ["module " ++ mname ++ " where"]
