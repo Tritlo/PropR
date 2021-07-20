@@ -18,3 +18,6 @@ prop_4 = a < 5 && b < 5 && c > 0
 
 brokenPair :: (Int, Int, Int)
 brokenPair = (1, 2, 3)
+
+sixInThreeFixes :: Int
+sixInThreeFixes = 6
