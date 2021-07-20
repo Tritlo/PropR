@@ -7,7 +7,7 @@ module Endemic.Configuration.Configure
     setGlobalFlags,
     CLIOptions (..),
     newQCSeed,
-    setQCSeedGenSeed
+    setQCSeedGenSeed,
   )
 where
 
@@ -30,6 +30,9 @@ import System.Random.SplitMix
 lOGCONFIG :: IORef LogConfig
 lOGCONFIG = unsafePerformIO $ newIORef def
 
+-- | Global variable to keep track of the current quickcheck seed.
+-- TODO: We should define a RepMonad (including all the arguments)
+-- and maintain the gen there, like in the GenMonad.
 {-# NOINLINE sEEDGEN #-}
 sEEDGEN :: IORef SMGen
 sEEDGEN = unsafePerformIO $ initSMGen >>= newIORef
@@ -39,7 +42,6 @@ newQCSeed = atomicModifyIORef' sEEDGEN (swap . nextInt)
 
 setQCSeedGenSeed :: Int -> IO ()
 setQCSeedGenSeed = writeIORef sEEDGEN . mkSMGen . fromIntegral
-
 
 -- | Set global flags sets the global flags to the values specified in
 -- configuration, i.e. the `lOGLOC`, `lOGLEVEL` and `dEBUG`, and the

@@ -12,28 +12,39 @@ module Endemic.Plugin where
 
 import Bag (unionBags)
 import Constraint
+import Control.Arrow (first, second)
 import Control.Monad (filterM)
-import Data.IORef (modifyIORef, newIORef, readIORef)
+import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
 import Endemic.Types (ExprFitCand (..), LogLevel (..))
 import Endemic.Util (logOut, logStr)
 import GhcPlugins
-import System.IO.Unsafe (unsafePerformIO)
 import TcHoleErrors
 import TcRnMonad
 import TyCoFVs (tyCoFVsOfTypes)
+
+type HoleHash = (RealSrcSpan, String)
 
 -- We're running the same checks over and over again, so we make the (possibly
 -- unsafe) assumption  that if we're looking for fits for the same type at the
 -- same location, then we can just skip the checks and return the fits directly.
 -- This should be OK, since our fits do not change the types, and the repairs do
 -- not introduce additional bindings into scope.
-holeFitCache :: IORef (Map.Map (Int, HoleHash) (TypedHole, [HoleFit]))
-{-# NOINLINE holeFitCache #-}
-holeFitCache = unsafePerformIO $ newIORef Map.empty
+type HoleFitCache = Map.Map (Int, HoleHash) (TypedHole, [HoleFit])
 
-type HoleHash = (RealSrcSpan, String)
+type HoleFitList = [(TypedHole, [HoleFit])]
+
+type HoleFitState = (HoleFitCache, HoleFitList)
+
+resetHoleFitCache :: HoleFitState -> HoleFitState
+resetHoleFitCache = first (const Map.empty)
+
+resetHoleFitList :: HoleFitState -> HoleFitState
+resetHoleFitList = second (const [])
+
+initialHoleFitState :: HoleFitState
+initialHoleFitState = (Map.empty, [])
 
 -- | Provides a heuristic Hash for the Typed holes, used for lookup in Caching.
 holeHash :: DynFlags -> TypedHole -> Maybe HoleHash
@@ -41,7 +52,7 @@ holeHash df TyH {tyHCt = Just ct} =
   Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr $ ctPred ct)
 holeHash _ _ = Nothing
 
-synthPlug :: Bool -> [ExprFitCand] -> IORef [(TypedHole, [HoleFit])] -> Plugin
+synthPlug :: Bool -> [ExprFitCand] -> IORef HoleFitState -> Plugin
 synthPlug useCache local_exprs plugRef =
   defaultPlugin
     { holeFitPlugin = \_ ->
@@ -53,7 +64,7 @@ synthPlug useCache local_exprs plugRef =
                 HoleFitPlugin
                   { candPlugin =
                       \h c -> do
-                        cache <- liftIO $ readIORef holeFitCache
+                        cache <- liftIO $ fst <$> readIORef plugRef
                         dflags <- getDynFlags
                         num_calls <- readTcRef iref
                         case holeHash dflags h >>= (cache Map.!?) . (num_calls,) of
@@ -65,13 +76,13 @@ synthPlug useCache local_exprs plugRef =
                             return []
                           _ -> return c,
                     fitPlugin = \h f -> do
-                      cache <- liftIO $ readIORef holeFitCache
+                      cache <- liftIO $ fst <$> readIORef plugRef
                       dflags <- getDynFlags
                       num_calls <- readTcRef iref
                       writeTcRef iref (num_calls + 1)
                       case holeHash dflags h >>= (cache Map.!?) . (num_calls,) of
                         Just cached | useCache -> liftIO $ do
-                          modifyIORef plugRef (cached :)
+                          modifyIORef' plugRef (fmap (cached :))
                           return []
                         _ -> do
                           -- Bump the number of times this plugin has been called, used
@@ -102,13 +113,13 @@ synthPlug useCache local_exprs plugRef =
                           let fits = map (RawHoleFit . ppr) exprs ++ f
                           liftIO $ do
                             let packed = (h, fits)
-                            modifyIORef plugRef (packed :)
+                            modifyIORef' plugRef (fmap (packed :))
                             case holeHash dflags h of
                               Just hash | useCache -> do
                                 logStr DEBUG "CACHING"
                                 logOut DEBUG (num_calls, hash)
                                 logOut DEBUG packed
-                                modifyIORef holeFitCache (Map.insert (num_calls, hash) packed)
+                                modifyIORef' plugRef (first (Map.insert (num_calls, hash) packed))
                               _ -> return ()
                           return fits
                   }

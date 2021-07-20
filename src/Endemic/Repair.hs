@@ -28,7 +28,7 @@ import Data.Bifunctor (Bifunctor (first))
 import Data.Char (isAlphaNum)
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
-import Data.IORef (writeIORef)
+import Data.IORef (modifyIORef', writeIORef)
 import Data.List (intercalate, sortOn)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromJust, mapMaybe)
@@ -39,6 +39,7 @@ import Desugar (deSugarExpr)
 import Endemic.Check
 import Endemic.Configuration
 import Endemic.Eval
+import Endemic.Plugin (resetHoleFitCache, resetHoleFitList)
 import Endemic.Traversals (fillHole, flattenExpr, sanctifyExpr)
 import Endemic.Types
 import Endemic.Util
@@ -86,7 +87,7 @@ getHoleFits cc local_exprs exprs =
     -- Then we can actually run the program!
     setNoDefaulting
     let exprFits expr =
-          liftIO (writeIORef plugRef [])
+          liftIO (modifyIORef' plugRef resetHoleFitList)
             >> handleSourceError
               (getHoleFitsFromError plugRef)
               (Right <$> compileParsedExpr expr)

@@ -45,7 +45,7 @@ import Desugar (deSugarExpr)
 import DynFlags
 import Endemic.Check
 import Endemic.Configuration
-import Endemic.Plugin (synthPlug)
+import Endemic.Plugin
 import Endemic.Traversals (flattenExpr)
 import Endemic.Types
 import Endemic.Util
@@ -105,7 +105,7 @@ toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming Tru
 
 -- | Initializes the context and the hole fit plugin with no
 -- expression fit candidates
-initGhcCtxt :: CompileConfig -> Ghc (IORef [(TypedHole, [HoleFit])])
+initGhcCtxt :: CompileConfig -> Ghc (IORef HoleFitState)
 initGhcCtxt cc = initGhcCtxt' False cc []
 
 -- | Intializes the hole fit plugin we use to extract fits and inject
@@ -116,12 +116,12 @@ initGhcCtxt' ::
   CompileConfig ->
   -- | The experiment configuration
   [ExprFitCand] ->
-  Ghc (IORef [(TypedHole, [HoleFit])])
+  Ghc (IORef HoleFitState)
 initGhcCtxt' use_cache CompConf {..} local_exprs = do
   -- First we have to add "base" to scope
   flags <- config hole_lvl <$> getSessionDynFlags
   --`dopt_set` Opt_D_dump_json
-  plugRef <- liftIO $ newIORef []
+  plugRef <- liftIO $ newIORef initialHoleFitState
   let flags' =
         flags
           { packageFlags =
@@ -170,12 +170,12 @@ type CompileRes = Either [ValsAndRefs] Dynamic
 -- the types and everything directly, instead of having to parse the error
 -- message)
 getHoleFitsFromError ::
-  IORef [(TypedHole, [HoleFit])] ->
+  IORef HoleFitState ->
   SourceError ->
   Ghc (Either [ValsAndRefs] b)
 getHoleFitsFromError plugRef err = do
   liftIO $ logOut DEBUG $ pprErrMsgBagWithLoc $ srcErrorMessages err
-  res <- liftIO $ readIORef plugRef
+  res <- liftIO $ snd <$> readIORef plugRef
   when (null res) (printException err)
   let gs = groupBy (sameHole `on` fst) res
       allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)

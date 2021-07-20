@@ -38,7 +38,7 @@ tastyFixTests :: TestTree
 tastyFixTests =
   testGroup
     "Tasty fix tests"
-    [ localOption (mkTimeout 180_000_000) $
+    [ localOption (mkTimeout 10_000_000) $
         testCase "Repair TastyFix" $ do
           let toFix = "tests/cases/TastyFix.hs"
               repair_target = Nothing
@@ -62,7 +62,7 @@ tastyFixTests =
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
           fixDiffs @?= expected,
-      localOption (mkTimeout 180_000_000) $
+      localOption (mkTimeout 10_000_000) $
         testCase "Repair TastyMix" $ do
           let toFix = "tests/cases/TastyMix.hs"
               repair_target = Nothing
@@ -92,7 +92,7 @@ properGenTests :: TestTree
 properGenTests =
   testGroup
     "proper generation tests"
-    [ localOption (mkTimeout 180_000_000) $
+    [ localOption (mkTimeout 300_000_000) $
         testCase "Repair ThreeFixes w/ randomness" $ do
           let toFix = "tests/cases/ThreeFixes.hs"
               repair_target = Nothing

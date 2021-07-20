@@ -15,7 +15,7 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bits
 import Data.Char (isSpace, toLower, toUpper)
-import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef)
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust)
@@ -188,7 +188,7 @@ collectStats :: (MonadIO m, HasCallStack) => m a -> m a
 collectStats a = do
   (t, r) <- time a
   let ((_, GHS.SrcLoc {..}) : _) = getCallStack callStack
-  liftIO $ modifyIORef statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
+  liftIO $ modifyIORef' statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
   withFrozenCallStack $ liftIO $ logStr AUDIT (showTime t)
   return r
 
@@ -217,7 +217,7 @@ savePatchesToFiles ::
 savePatchesToFiles _ [] = return ()
 savePatchesToFiles oc@OutputConf {..} patches@(p : ps) = do
   let n = length patches
-  saveToFile oc p (directory ++ "/fix" ++ (show n) ++ ".patch")
+  saveToFile oc p (directory ++ "/fix" ++ show n ++ ".patch")
   savePatchesToFiles oc ps
 
 -- | Saves the given String to a file.
@@ -234,7 +234,7 @@ saveToFile ::
   IO ()
 saveToFile OutputConf {..} content path = do
   fileExists <- doesFileExist path
-  if fileExists && (not overwrite)
+  if fileExists && not overwrite
     then error "File already exists - aborting creation of patch"
     else do
       -- handle <- openFile path ReadWriteMode
