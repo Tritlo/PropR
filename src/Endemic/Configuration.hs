@@ -24,11 +24,11 @@ module Endemic.Configuration
     -- Generating good random seeds for quickcheck
     newQCSeed,
     setQCSeedGenSeed,
-
     -- Configuration
     CLIOptions (..),
     getConfiguration,
     ProblemDescription (..),
+    module Endemic.Configuration.Types,
   )
 where
 
