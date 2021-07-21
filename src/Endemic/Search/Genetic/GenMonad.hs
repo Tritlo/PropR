@@ -51,11 +51,12 @@ instance Chromosome EFix where
     ProbDesc {..} <- liftDesc R.ask
     GConf {..} <- liftConf R.ask
     gen <- getGen
-    flips <- mapM (\e -> (e,) . (not (Map.null e) &&) <$> tossCoin dropRate) exprs
+    flips <- mapM (\e -> (e,) <$> tossCoin dropRate) exprs
     let (to_drop_w_inds, to_mutate_w_inds) = partition (snd . snd) $ zip [0 :: Int ..] flips
         (to_mutate_inds, to_mutate) = map fst <$> unzip to_mutate_w_inds
         (to_drop_inds, to_drop) = map fst <$> unzip to_drop_w_inds
         drop' :: EFix -> StdGen -> EFix
+        drop' e _ | Map.null e = e
         drop' e g =
           let Just (key_to_drop, _) = pickElementUniform (Map.keys e) g
            in Map.delete key_to_drop e
@@ -181,7 +182,6 @@ efixCrossover f_a f_b = do
       ([(SrcSpan, HsExpr GhcPs)], [(SrcSpan, HsExpr GhcPs)], g)
     -- For empty chromosomes, there is no crossover possible
     crossoverLists gen [] [] = ([], [], gen)
-    -- For single-gene chromosomes, there is no crossover possible
     crossoverLists gen as bs =
       let (crossoverPointA, gen') = uniformR (0, length as) gen
           (crossoverPointB, gen'') = uniformR (0, length bs) gen'
