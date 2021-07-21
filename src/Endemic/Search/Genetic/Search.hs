@@ -145,11 +145,12 @@ geneticSearch = collectStats $ do
                 ++ show (length winners)
                 ++ " Results)"
             )
-          liftIO $ do logStr AUDIT "Current gen:"
-                      mapM (logOut AUDIT) pop
-                      logStr AUDIT "Next gen:"
-                      mapM (logOut AUDIT) nextPop
-           -- End Early when any result is ok
+          liftIO $ do
+            logStr AUDIT "Current gen:"
+            mapM (logOut AUDIT) pop
+            logStr AUDIT "Next gen:"
+            mapM (logOut AUDIT) nextPop
+          -- End Early when any result is ok
           if not (null winners) && stopOnResults conf
             then return winners
             else -- Otherwise do recursive step
