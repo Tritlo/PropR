@@ -1,0 +1,14 @@
+dist*/
+fake_targets/
+cabal.project.local
+*.mix
+
+*.o
+*.hi
+
+.DS_Store
+
+output-patches-*
+
+log.txt 
+*.log

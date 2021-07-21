@@ -5,7 +5,7 @@ echo "Starting Repair-Docker - Building the command"
 # it is stitched together with any flag set in docker. 
 
 # Repairtarget must be set, otherwise it makes little sense
-commandCollector="cabal run endemic -- $REPAIR_TARGET"
+commandCollector="/app/endemic $REPAIR_TARGET"
 
 if [ -z ${LOG_LEVEL+x} ]; 
 then echo "Log-Level is not set"; 
