@@ -46,7 +46,7 @@ instance Default GeneticConfiguration where
   def = GConf {..}
     where
       mutationRate = 0.2
-      crossoverRate = 0.05
+      crossoverRate = 0.4
       iterations = 50
       populationSize = 64
       timeoutInMinutes = 5
@@ -54,7 +54,7 @@ instance Default GeneticConfiguration where
       tournamentConfiguration = Nothing
       islandConfiguration = Nothing
       -- T
-      dropRate = 0.2
+      dropRate = 0.05
       tryMinimizeFixes = False -- Not implemented
       replaceWinners = True
       useParallelMap = True
