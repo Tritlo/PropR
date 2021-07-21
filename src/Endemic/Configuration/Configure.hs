@@ -4,6 +4,7 @@
 module Endemic.Configuration.Configure
   ( lOGCONFIG,
     getConfiguration,
+    getConfiguration',
     setGlobalFlags,
     CLIOptions (..),
     newQCSeed,
@@ -14,6 +15,7 @@ where
 import Data.Aeson (eitherDecodeFileStrict', eitherDecodeStrict')
 import Data.Bifunctor (second)
 import qualified Data.ByteString.Char8 as BS
+import Data.Default
 import Data.Default (Default, def)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, writeIORef)
 import qualified Data.Map as Map
@@ -73,14 +75,23 @@ readConf fp = do
     Left err -> error err
     Right um_conf -> return um_conf
 
--- | Parses the given configuration or reads it from file (if it's a file).
--- Retursn a default configuration if none is given.
-getConfiguration :: CLIOptions -> IO Configuration
-getConfiguration opts@CLIOptions {optConfig = Nothing} = do
+getConfiguration' :: CLIOptions -> IO Configuration
+getConfiguration' opts@CLIOptions {optConfig = Nothing} = do
   seed <- newQCSeed
   addCliArguments opts (materialize (Just conjure)) {randomSeed = Just seed}
-getConfiguration opts@CLIOptions {optConfig = Just fp} =
+getConfiguration' opts@CLIOptions {optConfig = Just fp} =
   readConf fp >>= addCliArguments opts . materialize . Just
+
+-- | Parses the given configuration or reads it from file (if it's a file), and
+-- sets the internal global flags from the configuration. Use getConfiguration'
+-- if you just want the configuration.
+-- Returns a default configuration if none is given.
+getConfiguration :: CLIOptions -> IO Configuration
+getConfiguration opts =
+  do
+    c <- getConfiguration' opts
+    setGlobalFlags c
+    return c
 
 data CLIOptions = CLIOptions
   { optLogLoc :: Maybe Bool,
@@ -92,6 +103,11 @@ data CLIOptions = CLIOptions
     optOverride :: Maybe String
   }
   deriving (Eq, Show, Generic)
+
+instance Default CLIOptions where
+  def = CLIOptions n n n n n n n
+    where
+      n = Nothing
 
 addCliArguments :: CLIOptions -> Configuration -> IO Configuration
 addCliArguments CLIOptions {..} conf = do

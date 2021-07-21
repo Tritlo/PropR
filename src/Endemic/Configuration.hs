@@ -27,6 +27,7 @@ module Endemic.Configuration
     -- Configuration
     CLIOptions (..),
     getConfiguration,
+    getConfiguration',
     ProblemDescription (..),
     module Endemic.Configuration.Types,
   )
