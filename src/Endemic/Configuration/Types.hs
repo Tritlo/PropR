@@ -21,6 +21,7 @@ import Deriving.Aeson
 import Endemic.Configuration.Materializeable
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.PseudoGenetic.Configuration
+import Endemic.Search.Random.Configuration
 import Endemic.Types
 
 -- | Logging configuration
@@ -120,6 +121,7 @@ instance Materializeable Configuration where
 data SearchAlgorithm
   = Genetic GeneticConfiguration
   | PseudoGenetic PseudoGenConf
+  | Random RandomConf
   deriving (Show, Eq, Generic)
   deriving
     (FromJSON, ToJSON)
@@ -132,6 +134,7 @@ instance Materializeable SearchAlgorithm where
   data Unmaterialized SearchAlgorithm
     = UmGenetic (Unmaterialized GeneticConfiguration)
     | UmPseudoGenetic (Unmaterialized PseudoGenConf)
+    | UmRandom (Unmaterialized RandomConf)
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
@@ -150,10 +153,14 @@ instance Materializeable SearchAlgorithm where
     Genetic $ override conf (Just gc)
   override (PseudoGenetic conf) (Just (UmPseudoGenetic pgc)) =
     PseudoGenetic $ override conf (Just pgc)
+  override (Random conf) (Just (UmRandom pgc)) =
+    Random $ override conf (Just pgc)
   override _ (Just (UmPseudoGenetic psc)) =
     PseudoGenetic $ materialize $ Just psc
   override _ (Just (UmGenetic gc)) =
     Genetic $ materialize $ Just gc
+  override _ (Just (UmRandom r)) =
+    Random $ materialize $ Just r
 
 -- | Configuration for the output
 data OutputConfig = OutputConf
