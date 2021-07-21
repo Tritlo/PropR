@@ -19,10 +19,10 @@ qcCheckArgsMax :: Int -> Args
 qcCheckArgsMax ms = stdArgs {chatty = False, maxShrinks = ms}
 
 qcCheckArgsSeed :: Int -> Args
-qcCheckArgsSeed seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, seed)}
+qcCheckArgsSeed seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, 0)}
 
 qcCheckArgsMaxSeed :: Int -> Int -> Args
-qcCheckArgsMaxSeed seed ms = stdArgs {chatty = False, replay = Just (mkQCGen seed, seed), maxShrinks = ms}
+qcCheckArgsMaxSeed seed ms = stdArgs {chatty = False, replay = Just (mkQCGen seed, 0), maxShrinks = ms}
 
 qcSuccess :: Result -> Bool
 qcSuccess = isSuccess

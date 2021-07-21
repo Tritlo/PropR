@@ -21,6 +21,10 @@ module Endemic.Configuration
     -- Global flags
     setGlobalFlags,
     lOGCONFIG,
+    -- Generating good random seeds for quickcheck
+    newQCSeed,
+    setQCSeedGenSeed,
+
     -- Configuration
     CLIOptions (..),
     getConfiguration,

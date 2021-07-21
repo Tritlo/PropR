@@ -45,7 +45,7 @@ import Desugar (deSugarExpr)
 import DynFlags
 import Endemic.Check
 import Endemic.Configuration
-import Endemic.Plugin (synthPlug)
+import Endemic.Plugin
 import Endemic.Traversals (flattenExpr)
 import Endemic.Types
 import Endemic.Util
@@ -105,7 +105,7 @@ toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming Tru
 
 -- | Initializes the context and the hole fit plugin with no
 -- expression fit candidates
-initGhcCtxt :: CompileConfig -> Ghc (IORef [(TypedHole, [HoleFit])])
+initGhcCtxt :: CompileConfig -> Ghc (IORef HoleFitState)
 initGhcCtxt cc = initGhcCtxt' False cc []
 
 -- | Intializes the hole fit plugin we use to extract fits and inject
@@ -116,12 +116,12 @@ initGhcCtxt' ::
   CompileConfig ->
   -- | The experiment configuration
   [ExprFitCand] ->
-  Ghc (IORef [(TypedHole, [HoleFit])])
+  Ghc (IORef HoleFitState)
 initGhcCtxt' use_cache CompConf {..} local_exprs = do
   -- First we have to add "base" to scope
   flags <- config hole_lvl <$> getSessionDynFlags
   --`dopt_set` Opt_D_dump_json
-  plugRef <- liftIO $ newIORef []
+  plugRef <- liftIO $ newIORef initialHoleFitState
   let flags' =
         flags
           { packageFlags =
@@ -170,12 +170,12 @@ type CompileRes = Either [ValsAndRefs] Dynamic
 -- the types and everything directly, instead of having to parse the error
 -- message)
 getHoleFitsFromError ::
-  IORef [(TypedHole, [HoleFit])] ->
+  IORef HoleFitState ->
   SourceError ->
   Ghc (Either [ValsAndRefs] b)
 getHoleFitsFromError plugRef err = do
   liftIO $ logOut DEBUG $ pprErrMsgBagWithLoc $ srcErrorMessages err
-  res <- liftIO $ readIORef plugRef
+  res <- liftIO $ snd <$> readIORef plugRef
   when (null res) (printException err)
   let gs = groupBy (sameHole `on` fst) res
       allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)
@@ -388,30 +388,34 @@ buildTraceCorrel cc expr =
     <$> buildTraceCorrelExpr cc expr
 
 traceTarget ::
+  RepairConfig ->
   CompileConfig ->
   EExpr ->
   EProp ->
   [RExpr] ->
   IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
-traceTarget cc e fp ce = head <$> traceTargets cc e [(fp, ce)]
+traceTarget rc cc e fp ce = head <$> traceTargets rc cc e [(fp, ce)]
 
 -- Run HPC to get the trace information.
 traceTargets ::
+  RepairConfig ->
   CompileConfig ->
   EExpr ->
   [(EProp, [RExpr])] ->
   IO [Maybe (Tree (SrcSpan, [(BoxLabel, Integer)]))]
-traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
+traceTargets rc@RepConf {..} cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
   let tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
+  seed <- newQCSeed
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-      modTxt = exprToTraceModule cc mname correl ps_w_ce
+      modTxt = exprToTraceModule rc cc seed mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
       mixFilePath = tempDir
+      timeoutVal = fromIntegral repTimeout
 
   logStr DEBUG modTxt
   -- Note: we do not need to dump the text of the module into the file, it
@@ -506,12 +510,19 @@ traceTargets cc expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
         start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
         -- GHC Srcs end one after the end
         end = mkSrcLoc fname (el - eloff) (ec - ecoff)
-traceTargets cc e@(L _ xp) ps_w_ce = do
+traceTargets rc cc e@(L _ xp) ps_w_ce = do
   tl <- fakeBaseLoc cc e
-  traceTargets cc (L tl xp) ps_w_ce
+  traceTargets rc cc (L tl xp) ps_w_ce
 
-exprToTraceModule :: CompileConfig -> String -> LHsBind GhcPs -> [(EProp, [RExpr])] -> RExpr
-exprToTraceModule CompConf {..} mname expr ps_w_ce =
+exprToTraceModule ::
+  RepairConfig ->
+  CompileConfig ->
+  Int ->
+  String ->
+  LHsBind GhcPs ->
+  [(EProp, [RExpr])] ->
+  RExpr
+exprToTraceModule RepConf {..} CompConf {..} seed mname expr ps_w_ce =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
@@ -535,15 +546,17 @@ exprToTraceModule CompConf {..} mname expr ps_w_ce =
     nas = zip pnames failing_argss
     toCall pname args
       | "prop" /= take 4 pname =
-        "checkTastyTree " ++ show qcTime ++" ("
+        "checkTastyTree " ++ show repTimeout ++ " ("
           ++ pname
           ++ " fake_target "
           ++ unwords args
           ++ ")"
     toCall pname args =
       "fmap qcSuccess ("
-        ++ "qcWRes " ++ show qcTime ++ " ("
-        ++ showUnsafe (qcArgsExpr qcSeed Nothing)
+        ++ "qcWRes "
+        ++ show repTimeout
+        ++ " ("
+        ++ showUnsafe (qcArgsExpr seed Nothing)
         ++ ") ("
         ++ pname
         ++ " fake_target "
@@ -608,17 +621,12 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
       )
       cands
 
--- | The time to wait for everything to timeout, hardcoded to the same amount
---   as QuickCheck at the moment (1ms)
-timeoutVal :: Int
-timeoutVal = fromIntegral qcTime
-
 -- | Right True means that all the properties hold, while Right False mean that
 -- There is some error or infinite loop.
 -- Left bs indicates that the properties as ordered by bs are the ones that hold
-runCheck :: Either [ValsAndRefs] Dynamic -> IO (Either [Bool] Bool)
-runCheck (Left _) = return (Right False)
-runCheck (Right dval) =
+runCheck :: RepairConfig -> Either [ValsAndRefs] Dynamic -> IO (Either [Bool] Bool)
+runCheck _ (Left _) = return (Right False)
+runCheck RepConf {..} (Right dval) =
   -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
   -- can get more information, but then there can be a mismatch of *which*
   -- `Result` type it is... even when it's the same QuickCheck but compiled
@@ -636,7 +644,7 @@ runCheck (Right dval) =
       -- we could use lightweight threads, but that is a very big restriction,
       -- especially if we want to later embed this into a plugin.
       pid <- forkProcess (proc' fd_res)
-      res <- timeout timeoutVal (getProcessStatus True False pid)
+      res <- timeout (fromIntegral repTimeout) (getProcessStatus True False pid)
       case res of
         Just (Just (Exited ExitSuccess)) -> return $ Right True
         Nothing -> do
@@ -686,8 +694,8 @@ readHole hf@HoleFit {..} =
     map (showSDocUnsafe . ppr) hfMatches
   )
 
-exprToCheckModule :: CompileConfig -> String -> EProblem -> [EExpr] -> RExpr
-exprToCheckModule CompConf {..} mname tp fixes =
+exprToCheckModule :: RepairConfig -> CompileConfig -> Int -> String -> EProblem -> [EExpr] -> RExpr
+exprToCheckModule rc CompConf {..} seed mname tp fixes =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
@@ -710,7 +718,7 @@ exprToCheckModule CompConf {..} mname tp fixes =
            "            mapM_ (runC__ True . read) whiches"
          ]
   where
-    (ctxt, check_bind) = buildFixCheck qcSeed tp fixes
+    (ctxt, check_bind) = buildFixCheck rc seed tp fixes
 
 -- | Parse, rename and type check an expression
 justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))

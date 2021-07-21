@@ -1,8 +1,8 @@
 {-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
 
 -- |
 -- Module      : Endemic.Types
@@ -26,15 +26,15 @@
 module Endemic.Types where
 
 import Constraint (Cts)
+import Control.DeepSeq (NFData (..))
 import Data.Aeson
 import Data.Default
+import Data.Function (on)
 import Data.Map (Map, differenceWith)
 import GHC
 import GHC.Generics
-import Outputable (Outputable (ppr), text, showSDocUnsafe)
+import Outputable (Outputable (ppr), showSDocUnsafe, text)
 import qualified Outputable as O
-import Data.Function (on)
-import Control.DeepSeq (NFData(..))
 
 -- |
 -- Properties as in QuickCheck Properties.  Properties are strings, for now. We

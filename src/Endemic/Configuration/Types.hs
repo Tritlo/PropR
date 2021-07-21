@@ -5,6 +5,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE InstanceSigs #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -356,7 +357,7 @@ instance Materializeable CompileConfig where
     { umImportStmts :: Maybe [String],
       umPackages :: Maybe [String],
       umHoleLvl :: Maybe Int,
-      umQcSeed  :: Maybe Integer
+      umQcSeed :: Maybe Integer
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -370,8 +371,7 @@ instance Materializeable CompileConfig where
     CompConf
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
-        hole_lvl = fromMaybe hole_lvl umHoleLvl,
-        qcSeed = mbOverride qcSeed umQcSeed
+        hole_lvl = fromMaybe hole_lvl umHoleLvl
       }
 
 -- | Configuration for the compilation itself
@@ -381,9 +381,7 @@ data CompileConfig = CompConf
     -- | a list of packages used for the compilation
     packages :: [String],
     -- | the "depth" of the holes, see general notes on this
-    hole_lvl :: Int,
-    -- | The seed to use for quickcheck
-    qcSeed :: Maybe Integer
+    hole_lvl :: Int
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -395,16 +393,22 @@ instance Default CompileConfig where
     CompConf
       { hole_lvl = 0,
         packages = ["base"],
-        importStmts = [ "import Prelude" ],
-        qcSeed = Nothing
+        importStmts = ["import Prelude"]
       }
 
 -- | Configuration for the checking of repairs
 data RepairConfig = RepConf
   { -- | Whether or not to use Parallelisation
     repParChecks :: Bool,
-    -- | Whether or not to use compiled sources (?)
-    repUseInterpreted :: Bool
+    -- | Whether or not to use bytecode or to
+    -- just interpret the resulting code.
+    -- Usuallly safe to set to true, except
+    -- when Core-to-Core plugins are involved.
+    repUseInterpreted :: Bool,
+    -- | Set the timeout in microseconds for each
+    -- heck, after which we assume the check is
+    -- in an infinte loop.
+    repTimeout :: Integer
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -415,26 +419,29 @@ instance Default RepairConfig where
   def =
     RepConf
       { repParChecks = True,
-        repUseInterpreted = True
+        repUseInterpreted = True,
+        repTimeout = 1_000_000
       }
 
 instance Materializeable RepairConfig where
   data Unmaterialized RepairConfig = UmRepConf
     { umParChecks :: Maybe Bool,
-      umUseInterpreted :: Maybe Bool
+      umUseInterpreted :: Maybe Bool,
+      umTimeout :: Maybe Integer
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized RepairConfig)
 
-  conjure = UmRepConf Nothing Nothing
+  conjure = UmRepConf Nothing Nothing Nothing
 
   override c Nothing = c
   override RepConf {..} (Just UmRepConf {..}) =
     RepConf
       { repParChecks = fromMaybe repParChecks umParChecks,
-        repUseInterpreted = fromMaybe repUseInterpreted umUseInterpreted
+        repUseInterpreted = fromMaybe repUseInterpreted umUseInterpreted,
+        repTimeout = fromMaybe repTimeout umTimeout
       }
 
 instance Default LogConfig where

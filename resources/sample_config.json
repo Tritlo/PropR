@@ -6,12 +6,12 @@
     "packages": [
       "base"
     ],
-    "hole_lvl": 0,
-    "qc_seed": null
+    "hole_lvl": 0
   },
   "repair_config": {
     "par_checks": true,
-    "use_interpreted": true
+    "use_interpreted": true,
+    "timeout": 1000000
   },
   "output_config": {
     "locale": null,

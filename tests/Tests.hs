@@ -40,6 +40,10 @@ tests =
       sanctifyTests
     ]
 
+-- | Chosen fairly by Random.org
+tEST_SEED :: Int
+tEST_SEED = 490_100_041
+
 -- We can only do the inverse for ints up to 64, so we only support a maximum
 -- of 64 props!
 prop_BoolToBitsInverse :: [Bool] -> Property
@@ -92,6 +96,7 @@ repairTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp@EProb {..} <- translate cc rp
           fixes <- repair cc def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
@@ -150,6 +155,7 @@ repairTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           fixes <- map (trim . showUnsafe) <$> (translate def rp >>= repair def def)
           not (null fixes) @? "No fix found"
     ]
@@ -181,8 +187,9 @@ failingPropsTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp <- translate def rp
-          failed_props <- failingProps def tp
+          failed_props <- failingProps def def tp
           -- Only the first prop should be failing (due to an infinite loop)
           map showUnsafe failed_props @?= [head props],
       localOption (mkTimeout 10_000_000) $
@@ -210,8 +217,9 @@ failingPropsTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp <- translate cc rp
-          failed_props <- failingProps cc tp
+          failed_props <- failingProps def cc tp
           map showUnsafe failed_props @?= props
     ]
 
@@ -239,9 +247,10 @@ counterExampleTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just [counter_example] <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just [counter_example] <- propCounterExample def cc tp failed_prop
           let expr = "(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example
           res <- runJustParseExpr cc expr >>= compileParsedCheck cc
           case fromDynamic @Bool res of
@@ -267,9 +276,10 @@ counterExampleTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just counter_example_args <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just counter_example_args <- propCounterExample def cc tp failed_prop
           let arg_str = unwords counter_example_args
               expr = "(-) " ++ arg_str ++ " == (+) " ++ arg_str
           res <- runJustParseExpr cc expr >>= compileParsedCheck cc
@@ -301,11 +311,12 @@ counterExampleTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp <- translate cc rp
-          [failed_prop] <- failingProps cc tp
+          [failed_prop] <- failingProps def cc tp
           -- Only the first prop should be failing (due to an infinite loop)
           showUnsafe failed_prop @?= head props
-          Just counter_example_args <- propCounterExample cc tp failed_prop
+          Just counter_example_args <- propCounterExample def cc tp failed_prop
           null counter_example_args @? "The counter example should not have any arguments!"
     ]
 
@@ -328,11 +339,12 @@ traceTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp@EProb {..} <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just counter_example <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just counter_example <- propCounterExample def cc tp failed_prop
           Just Node {subForest = [tree@Node {rootLabel = (tl, tname)}]} <-
-            traceTarget cc e_prog failed_prop counter_example
+            traceTarget def cc e_prog failed_prop counter_example
           expr <- runJustParseExpr cc wrong_prog
           getLoc expr @?= mkInteractive tl
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
@@ -361,13 +373,14 @@ traceTests =
                     r_prog = wrong_prog,
                     r_props = props
                   }
+          setQCSeedGenSeed tEST_SEED
           tp@EProb {..} <- translate cc rp
-          [failed_prop] <- failingProps cc tp
-          Just counter_example_args <- propCounterExample cc tp failed_prop
+          [failed_prop] <- failingProps def cc tp
+          Just counter_example_args <- propCounterExample def cc tp failed_prop
           -- We generate the trace
           let prog_at_ty = progAtTy e_prog e_ty
           tcorrel <- buildTraceCorrel cc prog_at_ty
-          Just res <- traceTarget cc prog_at_ty failed_prop counter_example_args
+          Just res <- traceTarget def cc prog_at_ty failed_prop counter_example_args
           let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
               chain l = tcorrel Map.!? l >>= (eMap Map.!?)
               trc = map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $ flatten res
@@ -443,6 +456,7 @@ moduleTests =
                     ]
                   ]
 
+          setQCSeedGenSeed tEST_SEED
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
@@ -470,6 +484,7 @@ moduleTests =
                       " gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)"
                     ]
                   ]
+          setQCSeedGenSeed tEST_SEED
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
@@ -491,6 +506,7 @@ moduleTests =
                     ]
                   ]
 
+          setQCSeedGenSeed tEST_SEED
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes

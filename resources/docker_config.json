@@ -9,8 +9,7 @@
       "check-helpers",
       "QuickCheck"
     ],
-    "hole_lvl": 0,
-    "qc_seed": null
+    "hole_lvl": 0
   },
   "repair_config": {
     "par_checks": true,
