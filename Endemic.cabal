@@ -28,7 +28,8 @@ library
                    Endemic.Util,
                    Endemic.Search,
                    Endemic.Search.PseudoGenetic,
-                   Endemic.Search.Genetic
+                   Endemic.Search.Genetic,
+                   Endemic.Search.Random
   other-modules: Endemic.Configuration.Configure,
                  Endemic.Configuration.Types,
                  Endemic.Configuration.Materializeable,
@@ -39,7 +40,9 @@ library
                  Endemic.Search.Genetic.Types,
                  Endemic.Search.Genetic.Utils
                  Endemic.Search.PseudoGenetic.Configuration,
-                 Endemic.Search.PseudoGenetic.Search
+                 Endemic.Search.PseudoGenetic.Search,
+                 Endemic.Search.Random.Configuration,
+                 Endemic.Search.Random.Search
   build-depends: base >= 4 && < 5,
                  ghc >= 8 && < 9,
                  ghc-boot >= 8 && < 9,
