@@ -3,6 +3,10 @@
 Endemic: Genetic Program repair using GHC 🐣
 ===================
 
+
+TODO 
+
+
 Inspired by GenProg.
 
 Works, but is pretty slow at the moment, even when doing the synthesis and
