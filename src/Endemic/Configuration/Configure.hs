@@ -7,8 +7,8 @@ module Endemic.Configuration.Configure
     getConfiguration',
     setGlobalFlags,
     CLIOptions (..),
-    newQCSeed,
-    setQCSeedGenSeed,
+    newSeed,
+    setSeedGenSeed,
   )
 where
 
@@ -39,11 +39,11 @@ lOGCONFIG = unsafePerformIO $ newIORef def
 sEEDGEN :: IORef SMGen
 sEEDGEN = unsafePerformIO $ initSMGen >>= newIORef
 
-newQCSeed :: IO Int
-newQCSeed = atomicModifyIORef' sEEDGEN (swap . nextInt)
+newSeed :: IO Int
+newSeed = atomicModifyIORef' sEEDGEN (swap . nextInt)
 
-setQCSeedGenSeed :: Int -> IO ()
-setQCSeedGenSeed = writeIORef sEEDGEN . mkSMGen . fromIntegral
+setSeedGenSeed :: Int -> IO ()
+setSeedGenSeed = writeIORef sEEDGEN . mkSMGen . fromIntegral
 
 -- | Set global flags sets the global flags to the values specified in
 -- configuration, i.e. the `lOGLOC`, `lOGLEVEL` and `dEBUG`, and the
@@ -58,9 +58,9 @@ setGlobalFlags
       Just i -> do
         putStrLn "Setting sm gen to"
         print i
-        setQCSeedGenSeed i
+        setSeedGenSeed i
         putStrLn "First res"
-        newQCSeed >>= print
+        newSeed >>= print
       _ -> return ()
     writeIORef lOGCONFIG lc
 
@@ -77,7 +77,7 @@ readConf fp = do
 
 getConfiguration' :: CLIOptions -> IO Configuration
 getConfiguration' opts@CLIOptions {optConfig = Nothing} = do
-  seed <- newQCSeed
+  seed <- newSeed
   addCliArguments opts (materialize (Just conjure)) {randomSeed = Just seed}
 getConfiguration' opts@CLIOptions {optConfig = Just fp} =
   readConf fp >>= addCliArguments opts . materialize . Just

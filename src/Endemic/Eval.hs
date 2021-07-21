@@ -409,7 +409,7 @@ traceTargets rc@RepConf {..} cc tp expr@(L (RealSrcSpan realSpan) _) ps_w_ce = d
   let tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
-  seed <- newQCSeed
+  seed <- newSeed
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr

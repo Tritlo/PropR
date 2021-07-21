@@ -72,10 +72,18 @@ module Endemic.Search.Genetic
     geneticSearchPlusPostprocessing,
     module Endemic.Search.Genetic.Types,
     module Endemic.Search.Genetic.Configuration,
+    module Endemic.Search.Genetic,
   )
 where
 
+import Endemic.Configuration.Configure (newSeed)
+import Endemic.Search.Class
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.Genetic.GenMonad
 import Endemic.Search.Genetic.Search
 import Endemic.Search.Genetic.Types
+
+instance Search GeneticConfiguration where
+  runRepair conf desc = do
+    seed <- newSeed
+    runGenMonad conf desc seed geneticSearchPlusPostprocessing

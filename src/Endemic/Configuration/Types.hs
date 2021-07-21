@@ -146,14 +146,14 @@ instance Materializeable SearchAlgorithm where
   conjure = UmGenetic conjure
 
   override c Nothing = c
-  override (Genetic _) (Just (UmPseudoGenetic psc)) =
-    PseudoGenetic $ materialize $ Just psc
-  override (PseudoGenetic _) (Just (UmGenetic gc)) =
-    Genetic $ materialize $ Just gc
   override (Genetic conf) (Just (UmGenetic gc)) =
     Genetic $ override conf (Just gc)
   override (PseudoGenetic conf) (Just (UmPseudoGenetic pgc)) =
     PseudoGenetic $ override conf (Just pgc)
+  override _ (Just (UmPseudoGenetic psc)) =
+    PseudoGenetic $ materialize $ Just psc
+  override _ (Just (UmGenetic gc)) =
+    Genetic $ materialize $ Just gc
 
 -- | Configuration for the output
 data OutputConfig = OutputConf
@@ -207,15 +207,14 @@ instance Materializeable CompileConfig where
   data Unmaterialized CompileConfig = UmCompConf
     { umImportStmts :: Maybe [String],
       umPackages :: Maybe [String],
-      umHoleLvl :: Maybe Int,
-      umQcSeed :: Maybe Integer
+      umHoleLvl :: Maybe Int
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized CompileConfig)
 
-  conjure = UmCompConf Nothing Nothing Nothing Nothing
+  conjure = UmCompConf Nothing Nothing Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =

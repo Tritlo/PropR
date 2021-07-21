@@ -178,9 +178,7 @@ main = do
       logStr VERBOSE $ showUnsafe e_prog
 
       logStr INFO "REPAIRING..."
-      seed <- case optRandomSeed of
-        Just s -> return s
-        _ -> randomIO
+      seed <- newSeed
       desc <- describeProblem conf target
       (t, fixes) <- time $
         case searchAlgorithm of

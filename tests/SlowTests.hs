@@ -55,7 +55,7 @@ tastyFixTests =
                     ]
                   ]
 
-          setQCSeedGenSeed (tESTSEED + 5)
+          setSeedGenSeed (tESTSEED + 5)
           (_, modul, [EProb {..}]) <-
             moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
           desc <- describeProblem def toFix
@@ -79,7 +79,7 @@ tastyFixTests =
                     ]
                   ]
 
-          setQCSeedGenSeed tESTSEED
+          setSeedGenSeed tESTSEED
           (_, modul, [EProb {..}]) <-
             moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
           desc <- describeProblem def toFix
@@ -108,7 +108,7 @@ properGenTests =
                       "+brokenPair = (3, 4, 5)"
                     ]
                   ]
-          setQCSeedGenSeed (tESTSEED + 5)
+          setSeedGenSeed (tESTSEED + 5)
           (_, modul, [EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing
@@ -137,7 +137,7 @@ genTests =
                     ]
                   ]
 
-          setQCSeedGenSeed (tESTSEED + 5)
+          setSeedGenSeed (tESTSEED + 5)
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
@@ -160,7 +160,7 @@ genTests =
                     ]
                   ]
 
-          setQCSeedGenSeed (tESTSEED + 5)
+          setSeedGenSeed (tESTSEED + 5)
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
@@ -182,7 +182,7 @@ genTests =
                       "+brokenPair = (3, 4, 5, 6)"
                     ]
                   ]
-          setQCSeedGenSeed (tESTSEED + 5)
+          setSeedGenSeed (tESTSEED + 5)
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
