@@ -18,6 +18,7 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Format
 import Data.Time.LocalTime
 import Deriving.Aeson
+import Endemic.Configuration.Materializeable
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Types
@@ -47,28 +48,6 @@ deriving instance Generic TimeLocale
 deriving instance ToJSON TimeLocale
 
 deriving instance FromJSON TimeLocale
-
--- | The materializeable class defines the data we know how to materialize, i.e.
--- bring from undefined data, and override
--- TODO: We could definitely derive this
-class Default a => Materializeable a where
-  data Unmaterialized a :: *
-  materialize :: Maybe (Unmaterialized a) -> a
-  conjure :: Unmaterialized a
-  override :: a -> Maybe (Unmaterialized a) -> a
-  materialize = override def
-
-mbOverride :: Maybe a -> Maybe a -> Maybe a
-mbOverride _ (Just x) = Just x
-mbOverride p _ = p
-
-overrideIfPresent :: Materializeable a => Maybe a -> Maybe (Unmaterialized a) -> Maybe a
-overrideIfPresent (Just x) o = Just $ override x o
-overrideIfPresent _ x@(Just _) = Just $ materialize x
-overrideIfPresent _ _ = Nothing
-
-instance Materializeable a => Default (Unmaterialized a) where
-  def = conjure
 
 -- | A configuration contains all the settings
 data Configuration = Conf
@@ -146,136 +125,8 @@ data SearchAlgorithm
     (FromJSON, ToJSON)
     via CustomJSON '[FieldLabelModifier '[CamelToSnake], RejectUnknownFields] SearchAlgorithm
 
--- We need all these as well
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] PseudoGenConf instance (FromJSON PseudoGenConf)
-
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] PseudoGenConf instance (ToJSON PseudoGenConf)
-
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] GeneticConfiguration instance (FromJSON GeneticConfiguration)
-
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] GeneticConfiguration instance (ToJSON GeneticConfiguration)
-
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] IslandConfiguration instance (FromJSON IslandConfiguration)
-
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] IslandConfiguration instance (ToJSON IslandConfiguration)
-
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] TournamentConfiguration instance (FromJSON TournamentConfiguration)
-
-deriving via CustomJSON '[FieldLabelModifier '[CamelToSnake], OmitNothingFields, RejectUnknownFields] TournamentConfiguration instance (ToJSON TournamentConfiguration)
-
 instance Default SearchAlgorithm where
   def = Genetic def
-
--- | All parameters that are passed to the genetic configuration.
--- All Elements are Maybes, if a Nothing is found we pick the defaults.
-instance Materializeable GeneticConfiguration where
-  data Unmaterialized GeneticConfiguration = UmGeneticConfiguration
-    { umMutationRate :: Maybe Double,
-      umCrossoverRate :: Maybe Double,
-      umIterations :: Maybe Int,
-      umPopulationSize :: Maybe Int,
-      umTimeoutInMinutes :: Maybe Double,
-      umStopOnResults :: Maybe Bool,
-      umTournamentConfiguration :: Maybe (Unmaterialized TournamentConfiguration),
-      umIslandConfiguration :: Maybe (Unmaterialized IslandConfiguration),
-      umDropRate :: Maybe Double,
-      umTryMinimizeFixes :: Maybe Bool,
-      umReplaceWinners :: Maybe Bool,
-      umUseParallelMap :: Maybe Bool
-    }
-    deriving (Show, Eq, Generic)
-    deriving
-      (FromJSON, ToJSON)
-      via CustomJSON
-            '[ OmitNothingFields,
-               RejectUnknownFields,
-               FieldLabelModifier '[StripPrefix "um", CamelToSnake]
-             ]
-            (Unmaterialized GeneticConfiguration)
-
-  conjure = UmGeneticConfiguration n n n n n n n n n n n n
-    where
-      n = Nothing
-
-  override conf Nothing = conf
-  override GConf {..} (Just UmGeneticConfiguration {..}) =
-    GConf
-      { mutationRate = fromMaybe mutationRate umMutationRate,
-        crossoverRate = fromMaybe crossoverRate umCrossoverRate,
-        iterations = fromMaybe iterations umIterations,
-        populationSize = fromMaybe populationSize umPopulationSize,
-        timeoutInMinutes = fromMaybe timeoutInMinutes umTimeoutInMinutes,
-        stopOnResults = fromMaybe stopOnResults umStopOnResults,
-        dropRate = fromMaybe dropRate umDropRate,
-        tryMinimizeFixes = fromMaybe tryMinimizeFixes umTryMinimizeFixes,
-        replaceWinners = fromMaybe replaceWinners umReplaceWinners,
-        useParallelMap = fromMaybe useParallelMap umUseParallelMap,
-        tournamentConfiguration = overrideIfPresent tournamentConfiguration umTournamentConfiguration,
-        islandConfiguration = overrideIfPresent islandConfiguration umIslandConfiguration
-      }
-
-instance Materializeable PseudoGenConf where
-  data Unmaterialized PseudoGenConf = UmPseudoGeneticConfiguration
-    { umGenIndividuals :: Maybe Int,
-      umGenRounds :: Maybe Int,
-      umGenPar :: Maybe Bool
-    }
-    deriving (Show, Eq, Generic)
-    deriving
-      (FromJSON, ToJSON)
-      via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized PseudoGenConf)
-
-  conjure = UmPseudoGeneticConfiguration Nothing Nothing Nothing
-
-  override x Nothing = x
-  override PseudoGenConf {..} (Just UmPseudoGeneticConfiguration {..}) =
-    PseudoGenConf
-      { genIndividuals = fromMaybe genIndividuals umGenIndividuals,
-        genRounds = fromMaybe genRounds umGenRounds,
-        genPar = fromMaybe genPar umGenPar
-      }
-
-instance Materializeable TournamentConfiguration where
-  data Unmaterialized TournamentConfiguration = UmTournamentConfiguration
-    { umTSize :: Maybe Int,
-      umTRounds :: Maybe Int
-    }
-    deriving (Show, Eq, Generic)
-    deriving
-      (FromJSON, ToJSON)
-      via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized TournamentConfiguration)
-
-  conjure = UmTournamentConfiguration Nothing Nothing
-
-  override x Nothing = x
-  override TConf {..} (Just UmTournamentConfiguration {..}) =
-    TConf
-      { tSize = fromMaybe tSize umTSize,
-        tRounds = fromMaybe tRounds umTSize
-      }
-
-instance Materializeable IslandConfiguration where
-  data Unmaterialized IslandConfiguration = UmIslandConfiguration
-    { umIslands :: Maybe Int,
-      umMigrationInterval :: Maybe Int,
-      umMigrationSize :: Maybe Int,
-      umRingwiseMigration :: Maybe Bool
-    }
-    deriving (Show, Eq, Generic)
-    deriving
-      (FromJSON, ToJSON)
-      via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized IslandConfiguration)
-
-  conjure = UmIslandConfiguration Nothing Nothing Nothing Nothing
-
-  override x Nothing = x
-  override IConf {..} (Just UmIslandConfiguration {..}) =
-    IConf
-      { islands = fromMaybe islands umIslands,
-        migrationInterval = fromMaybe migrationInterval umMigrationInterval,
-        migrationSize = fromMaybe migrationSize umMigrationSize,
-        ringwiseMigration = fromMaybe ringwiseMigration umRingwiseMigration
-      }
 
 instance Materializeable SearchAlgorithm where
   data Unmaterialized SearchAlgorithm

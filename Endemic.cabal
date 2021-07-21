@@ -31,6 +31,7 @@ library
                    Endemic.Search.Genetic
   other-modules: Endemic.Configuration.Configure,
                  Endemic.Configuration.Types,
+                 Endemic.Configuration.Materializeable,
                  Endemic.Search.Genetic.Configuration,
                  Endemic.Search.Genetic.GenMonad,
                  Endemic.Search.Genetic.Search,

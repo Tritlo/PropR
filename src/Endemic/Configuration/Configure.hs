@@ -16,10 +16,10 @@ import Data.Aeson (eitherDecodeFileStrict', eitherDecodeStrict')
 import Data.Bifunctor (second)
 import qualified Data.ByteString.Char8 as BS
 import Data.Default
-import Data.Default (Default, def)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, writeIORef)
 import qualified Data.Map as Map
 import Data.Tuple (swap)
+import Endemic.Configuration.Materializeable
 import Endemic.Configuration.Types
 import Endemic.Types
 import GHC.Generics (Generic)
