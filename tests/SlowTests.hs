@@ -5,16 +5,14 @@
 module Main where
 
 import Data.Default
+import Data.IORef (readIORef)
 import Data.Maybe (isJust, mapMaybe)
 import qualified Data.Set as Set
 import Endemic (getExprFitCands)
 import Endemic.Configuration
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
 import Endemic.Eval
-import Endemic.Search
-  ( geneticSearchPlusPostprocessing,
-    runGenMonad,
-  )
+import Endemic.Search (GeneticConfiguration (..), geneticSearchPlusPostprocessing, runGenMonad)
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
@@ -31,8 +29,11 @@ tests =
     [tastyFixTests, properGenTests, genTests]
 
 -- | Chosen fairly by Random.org
-tEST_SEED :: Int
-tEST_SEED = 703_039_772
+tESTSEED :: Int
+tESTSEED = 703_039_772
+
+tESTGENCONF :: GeneticConfiguration
+tESTGENCONF = def {crossoverRate = 0.95, mutationRate = 0.05, dropRate = 0.05}
 
 tastyFixTests :: TestTree
 tastyFixTests =
@@ -54,11 +55,11 @@ tastyFixTests =
                     ]
                   ]
 
-          setQCSeedGenSeed tEST_SEED
+          setQCSeedGenSeed (tESTSEED + 5)
           (_, modul, [EProb {..}]) <-
             moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
           desc <- describeProblem def toFix
-          fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
+          fixes <- runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
           fixDiffs @?= expected,
@@ -78,11 +79,11 @@ tastyFixTests =
                     ]
                   ]
 
-          setQCSeedGenSeed tEST_SEED
+          setQCSeedGenSeed tESTSEED
           (_, modul, [EProb {..}]) <-
             moduleToProb (def {packages = def packages ++ ["tasty", "tasty-hunit"]}) toFix repair_target
           desc <- describeProblem def toFix
-          fixes <- runGenMonad def desc 69420 geneticSearchPlusPostprocessing
+          fixes <- runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
           fixDiffs @?= expected
@@ -92,7 +93,7 @@ properGenTests :: TestTree
 properGenTests =
   testGroup
     "proper generation tests"
-    [ localOption (mkTimeout 480_000_000) $
+    [ localOption (mkTimeout 60_000_000) $
         testCase "Repair ThreeFixes w/ randomness" $ do
           let toFix = "tests/cases/ThreeFixes.hs"
               repair_target = Nothing
@@ -107,24 +108,16 @@ properGenTests =
                       "+brokenPair = (3, 4, 5)"
                     ]
                   ]
-              config@Conf {..} =
-                materialize $
-                  Just $
-                    def
-                      { umSearchAlgorithm =
-                          Just (UmGenetic $ def {umTimeoutInMinutes = Just 15})
-                      }
-              Conf {searchAlgorithm = Genetic genConf} = config
-
-          setQCSeedGenSeed tEST_SEED
-          (_, modul, [EProb {..}]) <- moduleToProb compileConfig toFix repair_target
-          desc <- describeProblem config toFix
-          fixes <- runGenMonad genConf desc 69420 geneticSearchPlusPostprocessing
+          setQCSeedGenSeed (tESTSEED + 5)
+          (_, modul, [EProb {..}]) <- moduleToProb def toFix repair_target
+          desc <- describeProblem def toFix
+          fixes <- runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
           fixDiffs @?= expected
     ]
 
+genTests :: TestTree
 genTests =
   testGroup
     "Generation tests"
@@ -144,7 +137,7 @@ genTests =
                     ]
                   ]
 
-          setQCSeedGenSeed tEST_SEED
+          setQCSeedGenSeed (tESTSEED + 5)
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
@@ -167,7 +160,7 @@ genTests =
                     ]
                   ]
 
-          setQCSeedGenSeed tEST_SEED
+          setQCSeedGenSeed (tESTSEED + 5)
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
@@ -189,7 +182,7 @@ genTests =
                       "+brokenPair = (3, 4, 5, 6)"
                     ]
                   ]
-          setQCSeedGenSeed tEST_SEED
+          setQCSeedGenSeed (tESTSEED + 5)
           (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
           desc <- describeProblem def toFix
           fixes <- pseudoGeneticRepair def desc
