@@ -182,10 +182,9 @@ efixCrossover f_a f_b = do
     -- For empty chromosomes, there is no crossover possible
     crossoverLists gen [] [] = ([], [], gen)
     -- For single-gene chromosomes, there is no crossover possible
-    crossoverLists gen [a] [b] = ([a], [b], gen)
     crossoverLists gen as bs =
-      let (crossoverPointA, gen') = uniformR (1, length as) gen
-          (crossoverPointB, gen'') = uniformR (1, length bs) gen'
+      let (crossoverPointA, gen') = uniformR (0, length as) gen
+          (crossoverPointB, gen'') = uniformR (0, length bs) gen'
           (part1A, part2A) = splitAt crossoverPointA as
           (part1B, part2B) = splitAt crossoverPointB bs
        in (mf' part1A part2B, mf' part1B part2A, gen'')
