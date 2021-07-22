@@ -217,8 +217,8 @@ repair cc rc prob@EProb {..} = do
   let desc = ProbDesc {progProblem = prob, exprFitCands = ecfs, compConf = cc, repConf = rc}
   map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt desc
 
--- | To localize the fault, we find those holes in the program that are
--- evaluated by failing tests
+-- | Finds the locations in the program that are evaluated by failing tests
+-- and returns those as programs with holes at that location.
 findEvaluatedHoles ::
   ProblemDescription ->
   IO [LHsExpr GhcPs]
@@ -264,6 +264,25 @@ findEvaluatedHoles
         non_zero_holes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
     return non_zero_holes
 
+-- | Takes a list of list of list of hole fits and processes each fit so that
+-- it becomes a proper HsExpr
+processFits :: CompileConfig -> [[[HoleFit]]] -> IO [[[HsExpr GhcPs]]]
+processFits cc fits = do
+  -- We process the fits ourselves, since we might have some expression fits
+  let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
+      processFit HoleFit {..} =
+        return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
+        where
+          -- NukeExact copied from RdrName
+          nukeExact :: Name -> RdrName
+          nukeExact n
+            | isExternalName n = Orig (nameModule n) (nameOccName n)
+            | otherwise = Unqual (nameOccName n)
+      processFit (RawHoleFit sd) =
+        unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
+  runGhc (Just libdir) $
+    initGhcCtxt cc >> mapM (mapM (mapM processFit)) fits
+
 -- | This method tries to repair a given Problem.
 -- It first creates the program with holes in it and runs it against the properties.
 -- From this, candidates are retrieved of touched holes and fixes are created and run.
@@ -284,131 +303,121 @@ repairAttempt
         addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
 
     nzh <- findEvaluatedHoles desc
-    fits <- collectStats $ zip nzh <$> getHoleFits cc efcs (map addContext nzh)
-    -- We process the fits ourselves, since we might have some expression fits
-    let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
-        processFit HoleFit {..} =
-          return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
-          where
-            -- NukeExact copied from RdrName
-            nukeExact :: Name -> RdrName
-            nukeExact n
-              | isExternalName n = Orig (nameModule n) (nameOccName n)
-              | otherwise = Unqual (nameOccName n)
-        processFit (RawHoleFit sd) =
-          unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
+    fits <- collectStats $ getHoleFits cc efcs (map addContext nzh)
+    processed_fits <- collectStats $ processFits cc fits
 
-    processed_fits <-
-      runGhc (Just libdir) $
-        initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
-
-    let repls = processed_fits >>= uncurry replacements
+    let fix_cands :: [(EFix, EExpr)]
+        fix_cands = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
 
     logStr DEBUG "Fix candidates:"
-    mapM_ (logOut DEBUG) repls
+    mapM_ (logOut DEBUG) fix_cands
     logStr DEBUG "Those were all of them!"
     let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
     collectStats $
-      zipWith (\(fs, _) r -> (Map.fromList fs, r)) repls
-        <$> checkFixes cc rc tp (map snd repls)
+      zipWith (\(fs, _) r -> (fs, r)) fix_cands
+        <$> checkFixes desc (map snd fix_cands)
 
 -- TODO: DOCUMENT
 -- Returns an empty list when the EExpr list is empty
 checkFixes ::
-  CompileConfig ->
-  RepairConfig ->
-  EProblem ->
+  ProblemDescription ->
   [EExpr] ->
   IO [Either [Bool] Bool]
-checkFixes cc rc tp fixes = do
-  let RepConf {..} = rc
-      tempDir = "./fake_targets"
-  createDirectoryIfMissing False tempDir
-  (the_f, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
-  seed <- newSeed
-  -- We generate the name of the module from the temporary file
-  let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-      modTxt = exprToCheckModule rc cc seed mname tp fixes
-      strBuff = stringToStringBuffer modTxt
-      exeName = dropExtension the_f
-      timeoutVal = fromIntegral repTimeout
-  -- mixFilePath = tempDir
+checkFixes
+  ProbDesc
+    { compConf = cc,
+      repConf = rc,
+      progProblem = tp
+    }
+  fixes = do
+    let RepConf {..} = rc
+        tempDir = "./fake_targets"
+    createDirectoryIfMissing False tempDir
+    (the_f, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
+    seed <- newSeed
+    -- We generate the name of the module from the temporary file
+    let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
+        modTxt = exprToCheckModule rc cc seed mname tp fixes
+        strBuff = stringToStringBuffer modTxt
+        exeName = dropExtension the_f
+        timeoutVal = fromIntegral repTimeout
+    -- mixFilePath = tempDir
 
-  logStr DEBUG modTxt
-  -- Note: we do not need to dump the text of the module into the file, it
-  -- only needs to exist. Otherwise we would have to write something like
-  -- `hPutStr handle modTxt`
-  hClose handle
-  liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
-  runGhc (Just libdir) $ do
-    _ <- initGhcCtxt cc
-    -- We set the module as the main module, which makes GHC generate
-    -- the executable.
-    dynFlags <- getSessionDynFlags
-    _ <-
-      setSessionDynFlags $
-        flip (foldl gopt_unset) setFlags $ -- Remove the HPC
-          dynFlags
-            { mainModIs = mkMainModule $ fsLit mname,
-              mainFunIs = Just "main__",
-              hpcDir = "./fake_targets",
-              ghcMode = if repUseInterpreted then CompManager else OneShot,
-              ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
-              hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
-              --optLevel = 2
-            }
-    now <- liftIO getCurrentTime
-    let tid = TargetFile the_f Nothing
-        target = Target tid True $ Just (strBuff, now)
+    logStr DEBUG modTxt
+    -- Note: we do not need to dump the text of the module into the file, it
+    -- only needs to exist. Otherwise we would have to write something like
+    -- `hPutStr handle modTxt`
+    hClose handle
+    liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
+    runGhc (Just libdir) $ do
+      _ <- initGhcCtxt cc
+      -- We set the module as the main module, which makes GHC generate
+      -- the executable.
+      dynFlags <- getSessionDynFlags
+      _ <-
+        setSessionDynFlags $
+          flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+            dynFlags
+              { mainModIs = mkMainModule $ fsLit mname,
+                mainFunIs = Just "main__",
+                hpcDir = "./fake_targets",
+                ghcMode = if repUseInterpreted then CompManager else OneShot,
+                ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
+                hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
+                --optLevel = 2
+              }
+      now <- liftIO getCurrentTime
+      let tid = TargetFile the_f Nothing
+          target = Target tid True $ Just (strBuff, now)
 
-    -- Adding and loading the target causes the compilation to kick
-    -- off and compiles the file.
-    addTarget target
-    _ <- collectStats $ load LoadAllTargets
-    let p '1' = Just True
-        p '0' = Just False
-        p _ = Nothing
-        startCheck :: Int -> IO (Handle, ProcessHandle)
-        startCheck which = do
-          let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
-          (_, Just hout, _, ph) <-
-            createProcess
-              (proc exeName [show which])
-                { env = Just [("HPCTIXFILE", tixFilePath)],
-                  -- We ignore the output
-                  std_out = CreatePipe
-                }
-          return (hout, ph)
-        waitOnCheck :: (Handle, ProcessHandle) -> IO (Either [Bool] Bool)
-        waitOnCheck (hout, ph) = do
-          ec <- timeout timeoutVal $ waitForProcess ph
-          case ec of
-            Nothing -> terminateProcess ph >> return (Right False)
-            Just _ -> do
-              res <- hGetLine hout
-              let parsed = mapMaybe p res
-              return $
-                if length parsed == length res
-                  then if and parsed then Right True else Left parsed
-                  else Right False
+      -- Adding and loading the target causes the compilation to kick
+      -- off and compiles the file.
+      addTarget target
+      _ <- collectStats $ load LoadAllTargets
+      let p '1' = Just True
+          p '0' = Just False
+          p _ = Nothing
+          startCheck :: Int -> IO (Handle, ProcessHandle)
+          startCheck which = do
+            let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+            (_, Just hout, _, ph) <-
+              createProcess
+                (proc exeName [show which])
+                  { env = Just [("HPCTIXFILE", tixFilePath)],
+                    -- We ignore the output
+                    std_out = CreatePipe
+                  }
+            return (hout, ph)
+          waitOnCheck :: (Handle, ProcessHandle) -> IO (Either [Bool] Bool)
+          waitOnCheck (hout, ph) = do
+            ec <- timeout timeoutVal $ waitForProcess ph
+            case ec of
+              Nothing -> terminateProcess ph >> return (Right False)
+              Just _ -> do
+                res <- hGetLine hout
+                let parsed = mapMaybe p res
+                return $
+                  if length parsed == length res
+                    then if and parsed then Right True else Left parsed
+                    else Right False
 
-    let inds = take (length fixes) [0 ..]
-    if repUseInterpreted
-      then do
-        let m_name = mkModuleName mname
-            checkArr arr = if and arr then Right True else Left arr
-        setContext [IIDecl $ simpleImportDecl m_name]
-        checks_expr <- compileExpr "checks__"
-        let checks :: [IO [Bool]]
-            checks = unsafeCoerce# checks_expr
-            evf = if repParChecks then mapConcurrently else mapM
-        liftIO $ collectStats $ evf (checkArr <$>) checks
-      else
-        liftIO $
-          if repParChecks
-            then do
-              -- By starting all the processes and then waiting on them, we get more
-              -- mode parallelism.
-              procs <- collectStats $ mapM startCheck inds
-              collectStats $ mapM waitOnCheck procs
-            else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+      let inds = take (length fixes) [0 ..]
+      if repUseInterpreted
+        then do
+          let m_name = mkModuleName mname
+              checkArr arr = if and arr then Right True else Left arr
+          setContext [IIDecl $ simpleImportDecl m_name]
+          checks_expr <- compileExpr "checks__"
+          let checks :: [IO [Bool]]
+              checks = unsafeCoerce# checks_expr
+              evf = if repParChecks then mapConcurrently else mapM
+          liftIO $ collectStats $ evf (checkArr <$>) checks
+        else
+          liftIO $
+            if repParChecks
+              then do
+                -- By starting all the processes and then waiting on them, we get more
+                -- mode parallelism.
+                procs <- collectStats $ mapM startCheck inds
+                collectStats $ mapM waitOnCheck procs
+              else collectStats $ mapM (startCheck >=> waitOnCheck) inds

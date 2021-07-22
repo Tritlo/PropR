@@ -125,7 +125,7 @@ pseudoGeneticRepair
             runGen (fix, _) = do
               let n_prog = replaceExpr fix prog_at_ty
               map (\(f, r) -> (f `mergeFixes` fix, r))
-                <$> collectStats (repairAttempt (desc `setProg` n_prog))
+                <$> collectStats (repairAttempt (desc ~> n_prog))
             loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
@@ -164,13 +164,3 @@ deDupOn f as = map snd $ filter ((`Set.member` grouped) . fst) zas
     zas = zip [(0 :: Int) ..] as
     zbs = zip [(0 :: Int) ..] $ map f as
     grouped = Set.fromList $ map (fst . head) $ groupBy ((==) `on` snd) $ sortOn snd zbs
-
--- | Merging fix-candidates is mostly applying the list of changes in order.
---   The only addressed special case is to discard the next change,
---   if the next change is also used at the same place in the second fix.
-mergeFixes :: EFix -> EFix -> EFix
-mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
-  where
-    mf' [] xs = xs
-    mf' xs [] = xs
-    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)

@@ -30,7 +30,7 @@ import GhcPlugins (liftIO)
 -- This is the primary method of this module.
 -- It runs a genetic search that terminates in three cases:
 --     a) x iterations done
---     b) n minutes passed
+--     b) n seconds passed
 --     c) solutions found (optionally with early exit)
 -- It will return an empty List in case of no found solutions.
 --

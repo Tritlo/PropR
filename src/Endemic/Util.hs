@@ -22,7 +22,7 @@ import Data.Maybe (fromJust, isJust)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Endemic.Configuration
-import Endemic.Types (EExpr, EType, LogLevel (..))
+import Endemic.Types (EExpr, EFix, EType, LogLevel (..))
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
@@ -249,3 +249,16 @@ formattedTime OutputConf {..} = do
   let format = "%Y-%m-%d-%HH-%MM"
   -- TODO: Save locale here?
   return (formatTime defaultTimeLocale format time)
+
+-- | Merging fix-candidates is mostly applying the list of changes in order.
+--   The only addressed special case is to discard the next change,
+--   if the next change is also used at the same place in the second fix.
+mergeFixes :: EFix -> EFix -> EFix
+mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
+  where
+    mf' = mergeFixes'
+
+mergeFixes' :: [(SrcSpan, HsExpr GhcPs)] -> [(SrcSpan, HsExpr GhcPs)] -> [(SrcSpan, HsExpr GhcPs)]
+mergeFixes' [] xs = xs
+mergeFixes' xs [] = xs
+mergeFixes' (x : xs) ys = x : mergeFixes' xs (filter (not . isSubspanOf (fst x) . fst) ys)

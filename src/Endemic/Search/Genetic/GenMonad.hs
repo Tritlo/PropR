@@ -25,7 +25,7 @@ import Endemic.Search.Genetic.Types
 import Endemic.Search.Genetic.Utils
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types (EFix, EProblem (..))
-import Endemic.Util (collectStats, progAtTy)
+import Endemic.Util (collectStats, mergeFixes, mergeFixes', progAtTy)
 import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
 import GhcPlugins (Outputable (..), liftIO, ppr, showSDocUnsafe)
 import System.Random
@@ -104,16 +104,14 @@ instance Chromosome EFix where
     if null to_compute
       then return $ map snd done
       else do
-        ProbDesc {..} <- liftDesc R.ask
+        desc@ProbDesc {..} <- liftDesc R.ask
         GConf {..} <- liftConf R.ask
         let EProb {..} = progProblem
             prog_at_ty = progAtTy e_prog e_ty
-            cc = compConf
-            rc = repConf
             n_progs = map (`replaceExpr` prog_at_ty) to_compute
         res <-
           zipWith (\e f -> (e, basicFitness e f)) to_compute
-            <$> liftIO (checkFixes cc rc progProblem n_progs)
+            <$> liftIO (checkFixes desc n_progs)
         putCache (Map.fromList res `Map.union` fc)
         return $
           map (snd . snd) $
@@ -162,10 +160,6 @@ efixCrossover f_a f_b = do
   putGen gen'
   return (Map.fromList crossedAs, Map.fromList crossedBs)
   where
-    mf' :: [(SrcSpan, HsExpr GhcPs)] -> [(SrcSpan, HsExpr GhcPs)] -> [(SrcSpan, HsExpr GhcPs)]
-    mf' [] xs = xs
-    mf' xs [] = xs
-    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
     crossoverLists ::
       (RandomGen g) =>
       g ->
@@ -179,17 +173,7 @@ efixCrossover f_a f_b = do
           (crossoverPointB, gen'') = uniformR (0, length bs) gen'
           (part1A, part2A) = splitAt crossoverPointA as
           (part1B, part2B) = splitAt crossoverPointB bs
-       in (mf' part1A part2B, mf' part1B part2A, gen'')
-
--- | Merging fix-candidates is mostly applying the list of changes in order.
---   The only addressed special case is to discard the next change,
---   if the next change is also used at the same place in the second fix.
-mergeFixes :: EFix -> EFix -> EFix
-mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
-  where
-    mf' [] xs = xs
-    mf' xs [] = xs
-    mf' (x : xs) ys = x : mf' xs (filter (not . isSubspanOf (fst x) . fst) ys)
+       in (mergeFixes' part1A part2B, mergeFixes' part1B part2A, gen'')
 
 -- | This method tries to reduce a Fix to a smaller, but yet still correct Fix.
 -- To achieve this, the Parts of a Fix are tried to be removed and the fitness function is re-run.
