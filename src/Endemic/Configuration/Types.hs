@@ -23,6 +23,7 @@ import Endemic.Search.Genetic.Configuration
 import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Search.Random.Configuration
 import Endemic.Types
+import GHC (ParsedModule)
 
 -- | Logging configuration
 data LogConfig = LogConf
@@ -333,7 +334,9 @@ data ProblemDescription = ProbDesc
   { progProblem :: EProblem,
     exprFitCands :: [ExprFitCand],
     compConf :: CompileConfig,
-    repConf :: RepairConfig
+    repConf :: RepairConfig,
+    -- | The parsed module, if available
+    probModule :: Maybe ParsedModule
   }
 
 setProg :: ProblemDescription -> EExpr -> ProblemDescription

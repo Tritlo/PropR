@@ -21,9 +21,12 @@ import Control.Exception (assert)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
+import Endemic.Configuration (ProblemDescription (..))
 import Endemic.Traversals (replaceExpr)
-import Endemic.Types (EFix, RFix)
-import Endemic.Util (showUnsafe)
+import Endemic.Types
+import Endemic.Util (progAtTy, showUnsafe)
 import FastString (unpackFS)
 import GHC
 import GhcPlugins (Outputable)
@@ -118,3 +121,12 @@ ppDiff (L o1 d, L o2 d') =
     range _ _ = "@@ -" ++ d'' ++ " +" ++ d'' ++ " @@" ++ header
       where
         d'' = show $ length diffs
+
+fixesToDiffs :: ProblemDescription -> Set EFix -> [String]
+fixesToDiffs desc@ProbDesc {probModule = Just modul} fixes =
+  map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
+  where
+    ProbDesc {..} = desc
+    EProb {..} = progProblem
+    fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
+fixesToDiffs _ _ = error "Cannot print diff if module not available!"

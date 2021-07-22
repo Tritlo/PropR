@@ -22,9 +22,9 @@ module Endemic.Repair where
 
 import Bag (bagToList, emptyBag, listToBag)
 import Constraint
+import Control.Arrow (first, second)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (when, (>=>))
-import Data.Bifunctor (Bifunctor (first))
 import Data.Char (isAlphaNum)
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
@@ -214,7 +214,14 @@ failingProps rc cc ep@EProb {..} = do
 repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
 repair cc rc prob@EProb {..} = do
   ecfs <- getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-  let desc = ProbDesc {progProblem = prob, exprFitCands = ecfs, compConf = cc, repConf = rc}
+  let desc =
+        ProbDesc
+          { progProblem = prob,
+            exprFitCands = ecfs,
+            compConf = cc,
+            repConf = rc,
+            probModule = Nothing
+          }
   map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt desc
 
 -- | Finds the locations in the program that are evaluated by failing tests

@@ -20,7 +20,10 @@ import GHC.Generics
 
 data RandomConf = RandConf
   { -- | Random budget in seconds
-    randSearchBudget :: Int
+    randSearchBudget :: Int,
+    randMaxFixSize :: Int,
+    randIgnoreFailing :: Bool,
+    randStopOnResults :: Bool
   }
   deriving (Show, Eq, Generic, Read)
   deriving
@@ -28,21 +31,33 @@ data RandomConf = RandConf
     via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[CamelToSnake]] RandomConf
 
 instance Default RandomConf where
-  def = RandConf {randSearchBudget = 5 * 60}
+  def =
+    RandConf
+      { randSearchBudget = 5 * 60,
+        randMaxFixSize = 10,
+        randIgnoreFailing = False,
+        randStopOnResults = False
+      }
 
 instance Materializeable RandomConf where
   data Unmaterialized RandomConf = UmRandomRepairConfiguration
-    { umRandSearchBudget :: Maybe Int
+    { umRandSearchBudget :: Maybe Int,
+      umRandMaxFixSize :: Maybe Int,
+      umRandIgnoreFailing :: Maybe Bool,
+      umRandStopOnResults :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized RandomConf)
 
-  conjure = UmRandomRepairConfiguration Nothing
+  conjure = UmRandomRepairConfiguration Nothing Nothing Nothing Nothing
 
   override x Nothing = x
   override RandConf {..} (Just UmRandomRepairConfiguration {..}) =
     RandConf
-      { randSearchBudget = fromMaybe randSearchBudget umRandSearchBudget
+      { randSearchBudget = fromMaybe randSearchBudget umRandSearchBudget,
+        randMaxFixSize = fromMaybe randMaxFixSize umRandMaxFixSize,
+        randIgnoreFailing = fromMaybe randIgnoreFailing umRandIgnoreFailing,
+        randStopOnResults = fromMaybe randStopOnResults umRandStopOnResults
       }
