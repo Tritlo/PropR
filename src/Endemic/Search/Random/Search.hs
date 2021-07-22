@@ -9,7 +9,7 @@ import qualified Data.Map as Map
 import qualified Data.Map.Merge.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Endemic.Configuration (ProblemDescription (..), newSeed, (~>))
+import Endemic.Configuration
 import Endemic.Eval
 import Endemic.Repair (checkFixes, findEvaluatedHoles, getHoleFits, processFits, repairAttempt, replacements)
 import Endemic.Search.Random.Configuration (RandomConf (..))
@@ -43,7 +43,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
               randomRepair' start gen Map.empty
         else do
           let prog' = replaceExpr fix_so_far prog_at_ty
-          hole_cands <- collectStats $ findEvaluatedHoles (desc ~> prog')
+          hole_cands <- collectStats $ findEvaluatedHoles (desc <~ prog')
           let (r_hole_ind, gen') = nextInteger 0 (fromIntegral (length hole_cands - 1)) gen
               chosen_hole = hole_cands !! fromIntegral r_hole_ind
           -- We get a  list of list of fits. However, we assume that there are

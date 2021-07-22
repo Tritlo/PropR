@@ -125,7 +125,7 @@ pseudoGeneticRepair
             runGen (fix, _) = do
               let n_prog = replaceExpr fix prog_at_ty
               map (\(f, r) -> (f `mergeFixes` fix, r))
-                <$> collectStats (repairAttempt (desc ~> n_prog))
+                <$> collectStats (repairAttempt (desc <~ n_prog))
             loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
