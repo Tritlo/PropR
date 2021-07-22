@@ -335,3 +335,6 @@ data ProblemDescription = ProbDesc
     compConf :: CompileConfig,
     repConf :: RepairConfig
   }
+
+setProg :: ProblemDescription -> EExpr -> ProblemDescription
+setProg desc@ProbDesc {progProblem = pp} prog = desc {progProblem = pp {e_prog = prog}}

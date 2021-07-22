@@ -180,10 +180,7 @@ main = do
       logStr INFO "REPAIRING..."
       seed <- newSeed
       desc <- describeProblem conf target
-      (t, fixes) <- time $
-        case searchAlgorithm of
-          Genetic gconf -> runGenMonad gconf desc seed geneticSearchPlusPostprocessing
-          PseudoGenetic pgc -> pseudoGeneticRepair pgc desc
+      (t, fixes) <- time $ runRepair searchAlgorithm desc
       let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
           fbs = map getFixBinds newProgs
           prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs

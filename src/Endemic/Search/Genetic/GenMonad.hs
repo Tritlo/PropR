@@ -48,7 +48,7 @@ instance Chromosome EFix where
 
   mutate e1 = head <$> mutateMany [e1]
   mutateMany exprs = collectStats $ do
-    ProbDesc {..} <- liftDesc R.ask
+    desc@ProbDesc {..} <- liftDesc R.ask
     GConf {..} <- liftConf R.ask
     gen <- getGen
     flips <- mapM (\e -> (e,) <$> tossCoin dropRate) exprs
@@ -65,10 +65,6 @@ instance Chromosome EFix where
 
         EProb {..} = progProblem
         prog_at_ty = progAtTy e_prog e_ty
-        cc = compConf
-        rc = repConf
-        prob = progProblem
-        ecfs = Just exprFitCands
         n_progs = map (`replaceExpr` prog_at_ty) to_mutate
         (gen'' : gens') = splitGenList gen'
         selection ((p, pFixes), generation) =
@@ -92,7 +88,7 @@ instance Chromosome EFix where
       collectStats $
         if null n_progs
           then return []
-          else liftIO $ mapGen (\p -> repairAttempt cc rc prob {e_prog = p} ecfs) n_progs
+          else liftIO $ mapGen (repairAttempt . setProg desc) n_progs
     mutated <- mapM selection (zip (zip to_mutate possibleFixes) gens')
     putGen gen''
     return $ map snd $ sortOn fst $ zip to_mutate_inds mutated ++ zip to_drop_inds dropped
@@ -127,13 +123,9 @@ instance Chromosome EFix where
   initialPopulation 0 = return [] -- We don't want to do any work if there's no work to do.
   initialPopulation n = collectStats $
     do
-      ProbDesc {..} <- liftDesc R.ask
+      desc@ProbDesc {..} <- liftDesc R.ask
       GConf {..} <- liftConf R.ask
-      let cc = compConf
-          rc = repConf
-          prob = progProblem
-          ecfs = Just exprFitCands
-      possibleFixes <- liftIO $ repairAttempt cc rc prob ecfs
+      possibleFixes <- liftIO $ repairAttempt desc
       replicateM n $ do
         gen <- getGen
         case pickElementUniform possibleFixes gen of

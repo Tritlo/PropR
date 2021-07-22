@@ -212,51 +212,57 @@ failingProps rc cc ep@EProb {..} = do
 -- It takes a program & configuration,
 -- a (translated) repair problem and returns a list of potential fixes.
 repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
-repair cc rc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc rc prob Nothing
+repair cc rc prob@EProb {..} = do
+  ecfs <- getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  let desc = ProbDesc {progProblem = prob, exprFitCands = ecfs, compConf = cc, repConf = rc}
+  map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt desc
 
 -- | To localize the fault, we find those holes in the program that are
 -- evaluated by failing tests
 findEvaluatedHoles ::
-  CompileConfig ->
-  RepairConfig ->
-  EProblem ->
+  ProblemDescription ->
   IO [LHsExpr GhcPs]
-findEvaluatedHoles cc rc tp@EProb {..} = collectStats $ do
-  let prog_at_ty = progAtTy e_prog e_ty
-      holey_exprs = sanctifyExpr prog_at_ty
+findEvaluatedHoles
+  ProbDesc
+    { compConf = cc,
+      repConf = rc,
+      progProblem = tp@EProb {..}
+    } = collectStats $ do
+    let prog_at_ty = progAtTy e_prog e_ty
+        holey_exprs = sanctifyExpr prog_at_ty
 
-  logOut DEBUG prog_at_ty
-  logOut DEBUG holey_exprs
+    logOut DEBUG prog_at_ty
+    logOut DEBUG holey_exprs
 
-  trace_correl <- buildTraceCorrel cc prog_at_ty
+    trace_correl <- buildTraceCorrel cc prog_at_ty
 
-  -- We can use the failing_props and the counter_examples to filter
-  -- out locations that we know won't matter.
-  failing_props <- collectStats $ failingProps rc cc tp
+    -- We can use the failing_props and the counter_examples to filter
+    -- out locations that we know won't matter.
+    failing_props <- collectStats $ failingProps rc cc tp
 
-  counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
+    counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
 
-  let hasCE (p, Just ce) = Just (p, ce)
-      hasCE _ = Nothing
-      ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
-      only_max (src, r) = (mkInteractive src, maximum $ map snd r)
-      toInvokes res = Map.fromList $ map only_max $ flatten res
-  -- We compute the locations that are touched by the failing counter-examples
-  invokes <-
-    collectStats $
-      Map.toList
-        . Map.unionsWith (+)
-        . map toInvokes
-        . catMaybes
-        <$> traceTargets rc cc tp prog_at_ty ps_w_ce
+    let hasCE (p, Just ce) = Just (p, ce)
+        hasCE _ = Nothing
+        ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
+        only_max (src, r) = (mkInteractive src, maximum $ map snd r)
+        toInvokes res = Map.fromList $ map only_max $ flatten res
+    -- We compute the locations that are touched by the failing counter-examples
+    invokes <-
+      collectStats $
+        Map.toList
+          . Map.unionsWith (+)
+          . map toInvokes
+          . catMaybes
+          <$> traceTargets rc cc tp prog_at_ty ps_w_ce
 
-  -- We then remove suggested holes that are unlikely to help (naively for now
-  -- in the sense that we remove only holes which did not get evaluated at all,
-  -- so they are definitely not going to matter).
-  let non_zero = filter ((> 0) . snd) invokes
-      non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-      non_zero_holes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
-  return non_zero_holes
+    -- We then remove suggested holes that are unlikely to help (naively for now
+    -- in the sense that we remove only holes which did not get evaluated at all,
+    -- so they are definitely not going to matter).
+    let non_zero = filter ((> 0) . snd) invokes
+        non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+        non_zero_holes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
+    return non_zero_holes
 
 -- | This method tries to repair a given Problem.
 -- It first creates the program with holes in it and runs it against the properties.
@@ -264,51 +270,47 @@ findEvaluatedHoles cc rc tp@EProb {..} = collectStats $ do
 -- Quite some information can be printed when the program is run in DEBUG.
 -- As an important sidenote, places that are not in failing properties will not be altered.
 repairAttempt ::
-  CompileConfig ->
-  RepairConfig ->
-  -- | The problem that is to fix, consisting of a program and a failing suite of properties
-  EProblem ->
-  -- | Manually passed Candidates, if "Nothing" collected from program runtime
-  Maybe [ExprFitCand] ->
+  ProblemDescription ->
   IO [(EFix, Either [Bool] Bool)]
-repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
-  -- We add the context by replacing a hole in a let.
-  let inContext = noLoc . HsLet NoExtField e_ctxt
-      addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
+repairAttempt
+  desc@ProbDesc
+    { compConf = cc,
+      repConf = rc,
+      progProblem = tp@EProb {..},
+      exprFitCands = efcs
+    } = collectStats $ do
+    -- We add the context by replacing a hole in a let.
+    let inContext = noLoc . HsLet NoExtField e_ctxt
+        addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
 
-  -- We find expressions that can be used as candidates in the program. Since
-  -- these remain the same between attempts for the same program, we allow it
-  -- to be precomputed.
-  expr_cands <- case efcs of
-    Just cands -> return cands
-    _ -> collectStats $ getExprFitCands cc $ inContext $ noLoc undefVar
+    nzh <- findEvaluatedHoles desc
+    fits <- collectStats $ zip nzh <$> getHoleFits cc efcs (map addContext nzh)
+    -- We process the fits ourselves, since we might have some expression fits
+    let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
+        processFit HoleFit {..} =
+          return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
+          where
+            -- NukeExact copied from RdrName
+            nukeExact :: Name -> RdrName
+            nukeExact n
+              | isExternalName n = Orig (nameModule n) (nameOccName n)
+              | otherwise = Unqual (nameOccName n)
+        processFit (RawHoleFit sd) =
+          unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
 
-  nzh <- findEvaluatedHoles cc rc tp
-  fits <- collectStats $ zip nzh <$> getHoleFits cc expr_cands (map addContext nzh)
-  -- We process the fits ourselves, since we might have some expression fits
-  let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
-      processFit HoleFit {..} =
-        return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
-        where
-          -- NukeExact copied from RdrName
-          nukeExact :: Name -> RdrName
-          nukeExact n
-            | isExternalName n = Orig (nameModule n) (nameOccName n)
-            | otherwise = Unqual (nameOccName n)
-      processFit (RawHoleFit sd) =
-        unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
+    processed_fits <-
+      runGhc (Just libdir) $
+        initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
 
-  processed_fits <-
-    runGhc (Just libdir) $
-      initGhcCtxt cc >> mapM (\(e, fs) -> (e,) <$> mapM (mapM processFit) fs) fits
+    let repls = processed_fits >>= uncurry replacements
 
-  let repls = processed_fits >>= uncurry replacements
-
-  logStr DEBUG "Fix candidates:"
-  mapM_ (logOut DEBUG) repls
-  logStr DEBUG "Those were all of them!"
-  let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-  collectStats $ zipWith (\(fs, _) r -> (Map.fromList fs, r)) repls <$> checkFixes cc rc tp (map snd repls)
+    logStr DEBUG "Fix candidates:"
+    mapM_ (logOut DEBUG) repls
+    logStr DEBUG "Those were all of them!"
+    let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
+    collectStats $
+      zipWith (\(fs, _) r -> (Map.fromList fs, r)) repls
+        <$> checkFixes cc rc tp (map snd repls)
 
 -- TODO: DOCUMENT
 -- Returns an empty list when the EExpr list is empty
