@@ -1,40 +1,40 @@
 {
-  "compile_config": {
-    "import_stmts": [
-      "import Prelude"
-    ],
-    "packages": [
-      "base",
-      "process",
-      "check-helpers",
-      "QuickCheck"
-    ],
-    "hole_lvl": 0
-  },
-  "repair_config": {
-    "par_checks": true,
-    "use_interpreted": true
-  },
-  "output_config": {
-    "locale": null,
-    "directory": "/output/output-patches-",
-    "overwrite": false,
-    "save_patches": true
-  },
-  "search_algorithm": {
-    "tag": "Genetic",
-    "contents": {
-      "mutation_rate": 0.3,
-      "crossover_rate": 0.4,
-      "iterations": 50,
-      "population_size": 64,
-      "timeout_in_minutes": 5,
-      "stop_on_results": false,
-      "drop_rate": 0.25,
-      "try_minimize_fixes": false,
-      "replace_winners": true,
-      "use_parallel_map": true
-    }
-  },
-  "random_seed": 42
+        "compile_config": {
+                "import_stmts": [
+                        "import Prelude"
+                ],
+                "packages": [
+                        "base",
+                        "process",
+                        "check-helpers",
+                        "QuickCheck"
+                ],
+                "hole_lvl": 0
+        },
+        "repair_config": {
+                "par_checks": true,
+                "use_interpreted": true
+        },
+        "output_config": {
+                "locale": null,
+                "directory": "/output/output-patches-",
+                "overwrite": false,
+                "save_patches": true
+        },
+        "search_algorithm": {
+                "tag": "Genetic",
+                "contents": {
+                        "mutation_rate": 0.3,
+                        "crossover_rate": 0.4,
+                        "iterations": 50,
+                        "population_size": 64,
+                        "timeout_in_seconds": 300,
+                        "stop_on_results": false,
+                        "drop_rate": 0.25,
+                        "try_minimize_fixes": false,
+                        "replace_winners": true,
+                        "use_parallel_map": true
+                }
+        },
+        "random_seed": 42
 }

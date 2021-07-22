@@ -31,7 +31,7 @@ data GeneticConfiguration = GConf
     -- | How many Chromosomes are in one Population. In case of Island Evolution, each Island will have this population.
     populationSize :: Int,
     -- | How long the process should run (in Minutes)
-    timeoutInMinutes :: Double,
+    timeoutInSeconds :: Double,
     -- | Whether or not to stop at the generation that first produces positive results
     stopOnResults :: Bool,
     -- | Nothing to not do Tournament Selection, existing Conf will use Tournament instead (See below for more info)
@@ -60,7 +60,7 @@ instance Default GeneticConfiguration where
       crossoverRate = 0.4
       iterations = 50
       populationSize = 64
-      timeoutInMinutes = 5
+      timeoutInSeconds = 5 * 60
       stopOnResults = True
       tournamentConfiguration = Nothing
       islandConfiguration = Nothing
@@ -78,7 +78,7 @@ instance Materializeable GeneticConfiguration where
       umCrossoverRate :: Maybe Double,
       umIterations :: Maybe Int,
       umPopulationSize :: Maybe Int,
-      umTimeoutInMinutes :: Maybe Double,
+      umTimeoutInSeconds :: Maybe Double,
       umStopOnResults :: Maybe Bool,
       umTournamentConfiguration :: Maybe (Unmaterialized TournamentConfiguration),
       umIslandConfiguration :: Maybe (Unmaterialized IslandConfiguration),
@@ -108,7 +108,7 @@ instance Materializeable GeneticConfiguration where
         crossoverRate = fromMaybe crossoverRate umCrossoverRate,
         iterations = fromMaybe iterations umIterations,
         populationSize = fromMaybe populationSize umPopulationSize,
-        timeoutInMinutes = fromMaybe timeoutInMinutes umTimeoutInMinutes,
+        timeoutInSeconds = fromMaybe timeoutInSeconds umTimeoutInSeconds,
         stopOnResults = fromMaybe stopOnResults umStopOnResults,
         dropRate = fromMaybe dropRate umDropRate,
         tryMinimizeFixes = fromMaybe tryMinimizeFixes umTryMinimizeFixes,

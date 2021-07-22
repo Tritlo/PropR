@@ -1,54 +1,54 @@
 {
-  "compile_config": {
-    "import_stmts": [
-      "import Prelude"
-    ],
-    "packages": [
-      "base"
-    ],
-    "hole_lvl": 0
-  },
-  "repair_config": {
-    "par_checks": true,
-    "use_interpreted": true,
-    "timeout": 1000000
-  },
-  "output_config": {
-    "locale": null,
-    "directory": "./output-patches-",
-    "overwrite": false,
-    "save_patches": true
-  },
-  "search_algorithm": {
-    "tag": "Genetic",
-    "contents": {
-      "mutation_rate": 0.1,
-      "crossover_rate": 0.4,
-      "iterations": 50,
-      "population_size": 64,
-      "timeout_in_minutes": 5,
-      "stop_on_results": false,
-      "tournament_configuration": {
-        "t_size": 8,
-        "t_rounds": 8
-      },
-      "island_configuration": {
-        "islands": 4,
-        "migration_interval": 8,
-        "migration_size": 4,
-        "ringwise_migration": true
-      },
-      "drop_rate": 0.25,
-      "try_minimize_fixes": false,
-      "replace_winners": true,
-      "use_parallel_map": true
-    }
-  },
-  "log_config": {
-    "log_loc": false,
-    "log_level": "WARN",
-    "log_timestamp": true,
-    "log_file": null
-  },
-  "random_seed": 42
+        "compile_config": {
+                "import_stmts": [
+                        "import Prelude"
+                ],
+                "packages": [
+                        "base"
+                ],
+                "hole_lvl": 0
+        },
+        "repair_config": {
+                "par_checks": true,
+                "use_interpreted": true,
+                "timeout": 1000000
+        },
+        "output_config": {
+                "locale": null,
+                "directory": "./output-patches-",
+                "overwrite": false,
+                "save_patches": true
+        },
+        "search_algorithm": {
+                "tag": "Genetic",
+                "contents": {
+                        "mutation_rate": 0.1,
+                        "crossover_rate": 0.4,
+                        "iterations": 50,
+                        "population_size": 64,
+                        "timeout_in_seconds": 300,
+                        "stop_on_results": false,
+                        "tournament_configuration": {
+                                "t_size": 8,
+                                "t_rounds": 8
+                        },
+                        "island_configuration": {
+                                "islands": 4,
+                                "migration_interval": 8,
+                                "migration_size": 4,
+                                "ringwise_migration": true
+                        },
+                        "drop_rate": 0.25,
+                        "try_minimize_fixes": false,
+                        "replace_winners": true,
+                        "use_parallel_map": true
+                }
+        },
+        "log_config": {
+                "log_loc": false,
+                "log_level": "WARN",
+                "log_timestamp": true,
+                "log_file": null
+        },
+        "random_seed": 42
 }

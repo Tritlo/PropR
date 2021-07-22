@@ -19,7 +19,7 @@ import System.Random (Random (randomR), RandomGen, uniformR)
 
 -- | Reads the timeOutInMinutes of a configuration and rounds it to the nearest ms
 maxTimeInMS :: GeneticConfiguration -> Int
-maxTimeInMS conf = round $ 1000 * 60 * timeoutInMinutes conf
+maxTimeInMS conf = round $ 1000 * timeoutInSeconds conf
 
 -- | removes a given pair from a List, e.g.
 -- > removePairFromList [2,7,12,5,1] (1,2)
