@@ -214,6 +214,50 @@ failingProps rc cc ep@EProb {..} = do
 repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
 repair cc rc prob = map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt cc rc prob Nothing
 
+-- | To localize the fault, we find those holes in the program that are
+-- evaluated by failing tests
+findEvaluatedHoles ::
+  CompileConfig ->
+  RepairConfig ->
+  EProblem ->
+  IO [LHsExpr GhcPs]
+findEvaluatedHoles cc rc tp@EProb {..} = collectStats $ do
+  let prog_at_ty = progAtTy e_prog e_ty
+      holey_exprs = sanctifyExpr prog_at_ty
+
+  logOut DEBUG prog_at_ty
+  logOut DEBUG holey_exprs
+
+  trace_correl <- buildTraceCorrel cc prog_at_ty
+
+  -- We can use the failing_props and the counter_examples to filter
+  -- out locations that we know won't matter.
+  failing_props <- collectStats $ failingProps rc cc tp
+
+  counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
+
+  let hasCE (p, Just ce) = Just (p, ce)
+      hasCE _ = Nothing
+      ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
+      only_max (src, r) = (mkInteractive src, maximum $ map snd r)
+      toInvokes res = Map.fromList $ map only_max $ flatten res
+  -- We compute the locations that are touched by the failing counter-examples
+  invokes <-
+    collectStats $
+      Map.toList
+        . Map.unionsWith (+)
+        . map toInvokes
+        . catMaybes
+        <$> traceTargets rc cc tp prog_at_ty ps_w_ce
+
+  -- We then remove suggested holes that are unlikely to help (naively for now
+  -- in the sense that we remove only holes which did not get evaluated at all,
+  -- so they are definitely not going to matter).
+  let non_zero = filter ((> 0) . snd) invokes
+      non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+      non_zero_holes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
+  return non_zero_holes
+
 -- | This method tries to repair a given Problem.
 -- It first creates the program with holes in it and runs it against the properties.
 -- From this, candidates are retrieved of touched holes and fixes are created and run.
@@ -228,11 +272,9 @@ repairAttempt ::
   Maybe [ExprFitCand] ->
   IO [(EFix, Either [Bool] Bool)]
 repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
-  let prog_at_ty = progAtTy e_prog e_ty
-      holey_exprs = sanctifyExpr prog_at_ty
-      -- We add the context by replacing a hole in a let.
-      inContext = noLoc . HsLet NoExtField e_ctxt
-      holeyContext = inContext hole
+  -- We add the context by replacing a hole in a let.
+  let inContext = noLoc . HsLet NoExtField e_ctxt
+      addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
 
   -- We find expressions that can be used as candidates in the program. Since
   -- these remain the same between attempts for the same program, we allow it
@@ -241,42 +283,7 @@ repairAttempt cc rc tp@EProb {..} efcs = collectStats $ do
     Just cands -> return cands
     _ -> collectStats $ getExprFitCands cc $ inContext $ noLoc undefVar
 
-  trace_correl <- buildTraceCorrel cc prog_at_ty
-
-  logOut DEBUG prog_at_ty
-  logOut DEBUG holey_exprs
-
-  -- We can use the failing_props and the counter_examples to filter
-  -- out locations that we know won't matter.
-  failing_props <- collectStats $ failingProps rc cc tp
-
-  -- It only makes sense to generate counter-examples for quickcheck properties.
-  counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
-
-  let hasCE (p, Just ce) = Just (p, ce)
-      hasCE _ = Nothing
-      -- We find the ones with counter-examples and pick the shortest one
-      ps_w_ce =
-        sortOn (length . snd) $ mapMaybe hasCE $ zip failing_props counter_examples
-  let only_max (src, r) = (mkInteractive src, maximum $ map snd r)
-      toInvokes res = Map.fromList $ map only_max $ flatten res
-  invokes <-
-    collectStats $
-      Map.toList
-        . Map.unionsWith (+)
-        . map toInvokes
-        . catMaybes
-        <$> traceTargets rc cc tp prog_at_ty ps_w_ce
-  -- We then remove suggested holes that are unlikely to help (naively for now
-  -- in the sense that we remove only holes which did not get evaluated at all,
-  -- so they are definitely not going to matter).
-  let non_zero = filter ((> 0) . snd) invokes
-      non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-      non_zero_holes :: [(SrcSpan, LHsExpr GhcPs)]
-      non_zero_holes = filter ((`Set.member` non_zero_src) . fst) holey_exprs
-      addContext = snd . fromJust . flip fillHole holeyContext . unLoc
-      nzh = map snd non_zero_holes
-
+  nzh <- findEvaluatedHoles cc rc tp
   fits <- collectStats $ zip nzh <$> getHoleFits cc expr_cands (map addContext nzh)
   -- We process the fits ourselves, since we might have some expression fits
   let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
