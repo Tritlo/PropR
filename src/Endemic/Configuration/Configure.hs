@@ -12,6 +12,7 @@ module Endemic.Configuration.Configure
   )
 where
 
+import Control.Monad
 import Data.Aeson (eitherDecodeFileStrict', eitherDecodeStrict')
 import Data.Bifunctor (second)
 import qualified Data.ByteString.Char8 as BS
@@ -54,14 +55,7 @@ setGlobalFlags
     { logConfig = lc,
       randomSeed = seed
     } = do
-    case seed of
-      Just i -> do
-        putStrLn "Setting sm gen to"
-        print i
-        setSeedGenSeed i
-        putStrLn "First res"
-        newSeed >>= print
-      _ -> return ()
+    forM_ seed setSeedGenSeed
     writeIORef lOGCONFIG lc
 
 readConf :: String -> IO (Unmaterialized Configuration)
@@ -79,8 +73,13 @@ getConfiguration' :: CLIOptions -> IO Configuration
 getConfiguration' opts@CLIOptions {optConfig = Nothing} = do
   seed <- newSeed
   addCliArguments opts (materialize (Just conjure)) {randomSeed = Just seed}
-getConfiguration' opts@CLIOptions {optConfig = Just fp} =
-  readConf fp >>= addCliArguments opts . materialize . Just
+getConfiguration' opts@CLIOptions {optConfig = Just fp} = do
+  conf <- readConf fp >>= addCliArguments opts . materialize . Just
+  case randomSeed conf of
+    Just seed -> return conf
+    Nothing -> do
+      seed <- newSeed
+      return conf {randomSeed = Just seed}
 
 -- | Parses the given configuration or reads it from file (if it's a file), and
 -- sets the internal global flags from the configuration. Use getConfiguration'
