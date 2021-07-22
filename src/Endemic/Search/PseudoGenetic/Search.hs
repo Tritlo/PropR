@@ -111,13 +111,13 @@ selection gc indivs = pure $ pruneGeneration gc de_duped
 pseudoGeneticRepair :: PseudoGenConf -> ProblemDescription -> IO (Set EFix)
 pseudoGeneticRepair
   gc@PseudoGenConf {..}
-  ProbDesc
+  desc@ProbDesc
     { compConf = cc,
       repConf = rc,
       progProblem = prob@EProb {..},
       exprFitCands = efcs
     } = do
-    first_attempt <- collectStats $ repairAttempt cc rc prob (Just efcs)
+    first_attempt <- collectStats $ repairAttempt desc
     if not $ null $ successful first_attempt
       then return (Set.fromList $ map fst $ successful first_attempt)
       else do
@@ -125,7 +125,7 @@ pseudoGeneticRepair
             runGen (fix, _) = do
               let n_prog = replaceExpr fix prog_at_ty
               map (\(f, r) -> (f `mergeFixes` fix, r))
-                <$> collectStats (repairAttempt cc rc prob {e_prog = n_prog} (Just efcs))
+                <$> collectStats (repairAttempt (desc `setProg` n_prog))
             loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
