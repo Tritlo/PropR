@@ -12,7 +12,7 @@ import Endemic (getExprFitCands)
 import Endemic.Configuration
 import Endemic.Diff (applyFixes, getFixBinds, ppDiff)
 import Endemic.Eval
-import Endemic.Search (GeneticConfiguration (..), geneticSearchPlusPostprocessing, runGenMonad)
+import Endemic.Search
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
@@ -26,7 +26,7 @@ tests :: TestTree
 tests =
   testGroup
     "Tests"
-    [tastyFixTests, properGenTests, genTests]
+    [tastyFixTests, randTests, properGenTests, genTests]
 
 -- | Chosen fairly by Random.org
 tESTSEED :: Int
@@ -89,12 +89,39 @@ tastyFixTests =
           fixDiffs @?= expected
     ]
 
+randTests :: TestTree
+randTests =
+  testGroup
+    "Random search tests"
+    [ localOption (mkTimeout 60_000_000) $
+        testCase "Repair TastyFix" $ do
+          let toFix = "tests/cases/TastyFix.hs"
+              expected =
+                map
+                  unlines
+                  [ [ "diff --git a/tests/cases/TastyFix.hs b/tests/cases/TastyFix.hs",
+                      "--- a/tests/cases/TastyFix.hs",
+                      "+++ b/tests/cases/TastyFix.hs",
+                      "@@ -7,1 +7,1 @@ x = 2",
+                      "-x = 2",
+                      "+x = 3"
+                    ]
+                  ]
+              randConf = def {randStopOnResults = True, randIgnoreFailing = True}
+          setSeedGenSeed (tESTSEED + 5)
+          fixes <- describeProblem def toFix >>= runRepair (Random randConf)
+          (_, modul, [EProb {..}]) <- moduleToProb def toFix Nothing
+          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
+              fixDiffs = map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
+          fixDiffs @?= expected
+    ]
+
 properGenTests :: TestTree
 properGenTests =
   testGroup
     "proper generation tests"
     [ localOption (mkTimeout 60_000_000) $
-        testCase "Repair ThreeFixes w/ randomness" $ do
+        testCase "Repair ThreeFixes" $ do
           let toFix = "tests/cases/ThreeFixes.hs"
               repair_target = Nothing
               expected =

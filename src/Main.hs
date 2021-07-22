@@ -178,12 +178,10 @@ main = do
       logStr VERBOSE $ showUnsafe e_prog
 
       logStr INFO "REPAIRING..."
-      seed <- newSeed
       desc <- describeProblem conf target
       (t, fixes) <- time $ runRepair searchAlgorithm desc
-      let newProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
-          fbs = map getFixBinds newProgs
-          prettyPrinted = map (concatMap ppDiff . snd . applyFixes modul) fbs
+
+      let diffs = fixesToDiffs desc fixes
 
       when (savePatches outputConfig) $ do
         -- Here we write the found solutions to respective files, we just number them 1 .. n
@@ -192,8 +190,8 @@ main = do
             oc = outputConfig {directory = dir'}
         dirExists <- doesDirectoryExist dir'
         unless dirExists $ createDirectory dir'
-        savePatchesToFiles oc prettyPrinted
+        savePatchesToFiles oc diffs
 
-      mapM_ (putStrLn . concatMap (colorizeDiff . ppDiff) . snd . applyFixes modul) fbs
+      mapM_ (putStrLn . colorizeDiff) diffs
       reportStats' VERBOSE
       logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"

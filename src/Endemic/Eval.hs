@@ -824,7 +824,8 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
 
 describeProblem :: Configuration -> FilePath -> IO ProblemDescription
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
-  (compConf, _, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
+  (compConf, modul, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
+  let probModule = Just modul
   exprFitCands <-
     getExprFitCands compConf $
       noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
