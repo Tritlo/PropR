@@ -343,5 +343,5 @@ setProg :: ProblemDescription -> EExpr -> ProblemDescription
 setProg desc@ProbDesc {progProblem = pp} prog = desc {progProblem = pp {e_prog = prog}}
 
 -- Inline version of setProg
-(~>) :: ProblemDescription -> EExpr -> ProblemDescription
-(~>) = setProg
+(<~) :: ProblemDescription -> EExpr -> ProblemDescription
+(<~) = setProg
