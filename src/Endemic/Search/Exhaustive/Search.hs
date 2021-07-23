@@ -55,12 +55,12 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
             fixes <-
               Set.fromList . map fst
                 . filter (isFixed . snd)
-                . zip to_check
+                . zip check_list
                 <$> checkFixes desc (map (`replaceExpr` prog_at_ty) check_list)
             if Set.null fixes
               then loop checked' (rest : lvls)
               else do
-                logStr INFO $ "Found fixes after" ++ show (Set.size checked') ++ " checks!"
+                logStr INFO $ "Found fixes after " ++ show (Set.size checked') ++ " checks!"
                 mapM_ (logOut INFO) $ Set.toList fixes
                 if exhStopOnResults
                   then return fixes
