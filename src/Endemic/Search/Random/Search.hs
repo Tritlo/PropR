@@ -4,26 +4,22 @@
 module Endemic.Search.Random.Search where
 
 import Control.Arrow (first)
-import Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.Map.Merge.Strict as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration
-import Endemic.Eval
 import Endemic.Repair (checkFixes, findEvaluatedHoles, getHoleFits, processFits, repairAttempt, replacements)
 import Endemic.Search.Random.Configuration (RandomConf (..))
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
-import GHC (HsExpr (..), NoExtField (NoExtField))
-import GhcPlugins
 import System.CPUTime (getCPUTime)
 import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 
 randomRepair :: RandomConf -> ProblemDescription -> IO (Set EFix)
 randomRepair r@RandConf {..} desc@ProbDesc {..} = do
-  start <- liftIO getCPUTime
+  logStr VERBOSE "Starting random search!"
+  start <- getCPUTime
   seed <- newSeed
   randomRepair' start (mkSMGen $ fromIntegral seed) Map.empty
   where
