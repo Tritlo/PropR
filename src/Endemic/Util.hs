@@ -5,6 +5,7 @@
 -- Description : Contains general and other orphaned functions of Endemic
 -- License     : MIT
 -- Stability   : experimental
+--
 -- Your everyday Util file.
 -- Most of the functions contained are about logging.
 -- This is a pure module.

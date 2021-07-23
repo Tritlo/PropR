@@ -21,8 +21,11 @@ import GHC.Generics
 data RandomConf = RandConf
   { -- | Random budget in seconds
     randSearchBudget :: Int,
+    -- | The maximum number of holes that will be tried for a single attempt. Limits the fixsize to [1,randMaxFixSize]
     randMaxFixSize :: Int,
+    -- | Whether or not we consider failing or non-terminating programs as (potentially valid) fixes. False for skipping them, True for trying them.
     randIgnoreFailing :: Bool,
+    -- | Whether to stop the search on the first result, or to exhaust the search budget
     randStopOnResults :: Bool
   }
   deriving (Show, Eq, Generic, Read)

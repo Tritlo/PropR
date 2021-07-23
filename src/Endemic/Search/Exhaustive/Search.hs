@@ -1,6 +1,17 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
-
+-- |
+-- Module      : Endemic.Search.Exhaustive.Search
+-- Description : Provides an Exhaustive Search Algorithm based on typed holes.
+-- License     : MIT
+-- Stability   : experimental
+-- Portability : POSIX
+--
+-- This module provides a simple exhaustive search algorithm.
+-- For Pseudocode see "exhaustiveRepair".
+-- 
+-- Exhaustive Search is expected to perform well for small programs, 
+-- with bigger programs it's a bit of luck whether you happen to visit the relevant parts first.
 module Endemic.Search.Exhaustive.Search where
 
 import Control.Arrow (first, (***))
@@ -16,14 +27,11 @@ import Endemic.Types
 import Endemic.Util
 import System.CPUTime (getCPUTime)
 
--- | Finally, some lazy evaluation magic!
-lazyAllCombsByLevel :: [EFix] -> [[EFix]]
-lazyAllCombsByLevel fixes = fixes : lacbl' fixes fixes
-  where
-    lacbl' orig cur_level = merged : lacbl' orig merged
-      where
-        merged = orig >>= (flip map cur_level . mergeFixes)
-
+-- | Tries to repair a program by exhaustively replacing all elements with holes, 
+-- Then checking all possible replacements for the hole. 
+-- After all expressions have been replaced by holes and their respective hole-fits, 
+-- the program is similiarly tried to be fixed with two-holes-at-once. 
+-- This procedure is repeated until a time-budget is over.
 exhaustiveRepair :: ExhaustiveConf -> ProblemDescription -> IO (Set EFix)
 exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
   start <- getCPUTime
@@ -70,4 +78,17 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
   where
     EProb {..} = progProblem
     prog_at_ty = progAtTy e_prog e_ty
+    -- PicoSeconds are the granularity provided by the CPU-Time
     budgetInPicoSeconds = fromIntegral exhSearchBudget * 1_000_000_000_000
+
+-- | Provides all combinations of fixes, for a given level, in a lazy way.
+-- Crucial, as otherwise all Fixes would need to be computed pre-emptively, making an iterative search nearly impossible.
+--   
+-- "Finally, some lazy evaluation magic!"
+lazyAllCombsByLevel :: [EFix] -> [[EFix]]
+lazyAllCombsByLevel fixes = fixes : lacbl' fixes fixes
+  where
+    lacbl' orig cur_level = merged : lacbl' orig merged
+      where
+        merged = orig >>= (flip map cur_level . mergeFixes)
+

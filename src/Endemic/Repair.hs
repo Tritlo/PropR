@@ -10,7 +10,6 @@
 -- Stability   : experimental
 --
 -- This is a highlevel module that utilizes most of the other modules implemented.
---
 -- This is an impure module, as GHC is run which requires IO.
 --
 -- Note on (SrcSpan, LHsExpr GhcPs):
@@ -324,8 +323,12 @@ repairAttempt
       zipWith (\(fs, _) r -> (fs, r)) fix_cands
         <$> checkFixes desc (map snd fix_cands)
 
--- TODO: DOCUMENT
--- Returns an empty list when the EExpr list is empty
+-- | Runs a given (changed) Program against the Test-Suite described in ProblemDescription.
+-- The Result is the Test-Suite-Result, where
+-- Right True is full success (the tests exited with 0), Right False is full failure (e.g., timeout or errors in the test-framework)
+-- Left [Bool] expresses a list of the results of each run test, where true is passing and false is failing.
+-- Shortwires an empty list when the EExpr list is empty.
+-- TODO: DOCUMENT (Further)
 checkFixes ::
   ProblemDescription ->
   [EExpr] ->
