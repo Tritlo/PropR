@@ -1,6 +1,18 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
-
+-- |
+-- Module      : Endemic.Search.Random.Search
+-- Description : Provides an Random Search Algorithm based on typed holes.
+-- License     : MIT
+-- Stability   : experimental
+-- Portability : POSIX
+--
+-- This module provides a simple random search algorithm.
+-- For Pseudocode see "randomRepair".
+-- 
+-- Random Search sometimes performs suprisingly well, see https://dl.acm.org/doi/abs/10.1145/2568225.2568254. 
+-- We use it mostly to justify the use of Genetic algorithms, as random search is a good baseline to show that genetic search actually yields benefits. 
+-- Nevertheless, it might be faster as it is low on ritual and for easy problems, or simply by luck, it can find solutions faster.
 module Endemic.Search.Random.Search where
 
 import Control.Arrow (first)
@@ -16,6 +28,17 @@ import Endemic.Util
 import System.CPUTime (getCPUTime)
 import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 
+-- | Tries to repair a program by randomly punching holes and trying random replacements.
+-- 
+-- Pseudocode:
+-- While SearchBudget Left 
+--    pick random number N between [1,maxFixSize]
+--    punch N holes in the Program 
+--    fill every hole with a random fix
+--    if Fix-Not-Seen
+--      Check fix
+--      Add Fix either to Results or Seen-Fixes
+--    Update Timer 
 randomRepair :: RandomConf -> ProblemDescription -> IO (Set EFix)
 randomRepair r@RandConf {..} desc@ProbDesc {..} = do
   logStr VERBOSE "Starting random search!"
@@ -56,7 +79,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
 
           let keep_going = randomRepair' start gen'' complete_fix
               done = do
-                logStr INFO "Fix found!"
+                logStr INFO "Fix found in Random Search!"
                 logOut INFO complete_fix
                 logOut DEBUG fixed_prog
                 if randStopOnResults

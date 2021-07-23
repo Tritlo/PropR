@@ -21,7 +21,9 @@ import GHC.Generics
 data ExhaustiveConf = ExhaustiveConf
   { -- | Exhaustive budget in seconds
     exhSearchBudget :: Int,
+    -- | Whether to exit early on the first results, or to use the full search budget.
     exhStopOnResults :: Bool,
+    -- | How many fixes to check at once
     exhBatchSize :: Int
   }
   deriving (Show, Eq, Generic, Read)
