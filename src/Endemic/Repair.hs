@@ -219,7 +219,8 @@ repair cc rc prob@EProb {..} = do
             exprFitCands = ecfs,
             compConf = cc,
             repConf = rc,
-            probModule = Nothing
+            probModule = Nothing,
+            initialFixes = Nothing
           }
   map fst . filter (isFixed . snd) <$> repairAttempt desc
 
@@ -431,3 +432,25 @@ checkFixes
                 procs <- collectStats $ mapM startCheck inds
                 collectStats $ mapM waitOnCheck procs
               else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+
+describeProblem :: Configuration -> FilePath -> IO ProblemDescription
+describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
+  (compConf, modul, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
+
+  exprFitCands <-
+    getExprFitCands compConf $
+      noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  let probModule = Just modul
+      initialFixes = Nothing
+      desc' = ProbDesc {..}
+
+  let inContext = noLoc . HsLet NoExtField e_ctxt
+      addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
+  nzh <- findEvaluatedHoles desc'
+  fits <- collectStats $ getHoleFits compConf exprFitCands (map addContext nzh)
+  processed_fits <- collectStats $ processFits compConf fits
+  let fix_cands :: [(EFix, EExpr)]
+      fix_cands = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
+      initialFixes' = Just $ map fst fix_cands
+
+  return $ desc' {initialFixes = initialFixes'}

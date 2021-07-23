@@ -347,7 +347,9 @@ data ProblemDescription = ProbDesc
     compConf :: CompileConfig,
     repConf :: RepairConfig,
     -- | The parsed module, if available
-    probModule :: Maybe ParsedModule
+    probModule :: Maybe ParsedModule,
+    -- | Fix candidates, if available
+    initialFixes :: Maybe [EFix]
   }
 
 setProg :: ProblemDescription -> EExpr -> ProblemDescription

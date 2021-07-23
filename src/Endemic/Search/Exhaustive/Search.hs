@@ -39,8 +39,14 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
   -- We use BFS, i.e. check all 1 level fixes, then all 2 level fixes, etc:
   logStr VERBOSE "Starting exhaustive search!"
   -- Note: we don't have to recompute the fixes again and again
-  all_fix_combs <- lazyAllCombsByLevel . map fst <$> repairAttempt desc
-  let loop :: Set EFix -> [[EFix]] -> IO (Set EFix)
+  all_fix_combs <-
+    lazyAllCombsByLevel <$> case initialFixes of
+      Just fixes -> return fixes
+      _ -> map fst <$> repairAttempt desc
+
+  let isFixed (Right x) = x
+      isFixed (Left ps) = and ps
+      loop :: Set EFix -> [[EFix]] -> IO (Set EFix)
       loop _ [] = return Set.empty
       loop checked ([] : lvls) = loop checked lvls
       loop checked (lvl : lvls) = do

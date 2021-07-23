@@ -6,6 +6,7 @@
 
 module Endemic.Search.Genetic.GenMonad where
 
+import Control.Arrow (second)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.DeepSeq (NFData (..))
 import Control.Monad (replicateM)
@@ -79,16 +80,23 @@ instance Chromosome EFix where
             -- + Right False if the program doesn't terminate (worst fitness)..
             --    Blacklist this fix?
             -- + Left [Bool] if it's somewhere in between.
-            Just ((fix, fix_res), _) -> do
+            Just ((fix, mb_fix_res), _) -> do
               let mf = mergeFixes fix p
-              updateCache (mf, basicFitness mf fix_res)
+              case mb_fix_res of
+                Just fix_res -> updateCache (mf, basicFitness mf fix_res)
+                _ -> return ()
               return mf
         mapGen = if useParallelMap then mapConcurrently else mapM
-    possibleFixes <-
-      collectStats $
-        if null n_progs
-          then return []
-          else liftIO $ mapGen (repairAttempt . setProg desc) n_progs
+
+    -- TODO: Is it safe to use the initial_fixes here? Should be, since fixes
+    -- will only ever make types MORE specific, meaning that subsequent
+    -- replacements will either be OK or cause a compilation error (which then)
+    -- receives the lowest possible fitness.
+    possibleFixes <- case initialFixes of
+      Just fixes -> return $ replicate (length n_progs) $ zip fixes (repeat Nothing)
+      _ ->
+        collectStats $
+          liftIO $ mapGen (fmap (map (second Just)) . repairAttempt . setProg desc) n_progs
     mutated <- mapM selection (zip (zip to_mutate possibleFixes) gens')
     putGen gen''
     return $ map snd $ sortOn fst $ zip to_mutate_inds mutated ++ zip to_drop_inds dropped
@@ -123,7 +131,10 @@ instance Chromosome EFix where
     do
       desc@ProbDesc {..} <- liftDesc R.ask
       GConf {..} <- liftConf R.ask
-      possibleFixes <- liftIO $ repairAttempt desc
+      possibleFixes <- case initialFixes of
+        Just fixes -> return $ zip fixes (repeat Nothing)
+        _ -> liftIO $ map (second Just) <$> repairAttempt desc
+
       replicateM n $ do
         gen <- getGen
         case pickElementUniform possibleFixes gen of
@@ -133,8 +144,10 @@ instance Chromosome EFix where
           -- + Right False if the program doesn't terminate (worst fitness)..
           --    Blacklist this fix?
           -- + Left [Bool] if it's somewhere in between.
-          Just ((fix, fix_res), gen''') -> do
-            updateCache (fix, basicFitness fix fix_res)
+          Just ((fix, mb_fix_res), gen''') -> do
+            case mb_fix_res of
+              Just fix_res -> updateCache (fix, basicFitness fix fix_res)
+              _ -> return ()
             putGen gen'''
             return fix
 
