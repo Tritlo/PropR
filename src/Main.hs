@@ -28,7 +28,7 @@ import GHC (HsExpr (HsLet), NoExtField (..))
 import GhcPlugins (noLoc)
 import Options.Applicative
 import Options.Applicative.Types (readerAsk)
-import Paths_Endemic (version)
+import qualified Paths_Endemic as PE (version)
 import System.Directory (createDirectory, doesDirectoryExist)
 import System.Environment (getArgs)
 import System.IO
@@ -139,7 +139,7 @@ optParser = info (pickOpt <**> helper) modinfo
     modinfo =
       briefDesc
         <> progDesc "Repair TARGET using the endemic genetic method"
-        <> header "endemic - Genetic program repair for Haskell"
+        <> header ("endemic " ++ showVersion PE.version ++ " - Genetic program repair for Haskell")
     dumpConfig =
       flag'
         True
@@ -165,7 +165,7 @@ main = do
   conf@Conf {..} <- getConfiguration clOpts
   case optPicked of
     DumpConfig _ _ -> BS.putStrLn (encode conf)
-    ShowVersion _ _ -> putStrLn $ "endemic version " ++ showVersion version
+    ShowVersion _ _ -> putStrLn $ "endemic version " ++ showVersion PE.version
     Repair _ target -> do
       -- Set the global flags
       setGlobalFlags conf
