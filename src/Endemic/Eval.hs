@@ -935,12 +935,3 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
           not (isEmptyVarSet (ctFreeVarSet ct))
             && anyFVMentioned ct
             && not (isHoleCt ct)
-
-describeProblem :: Configuration -> FilePath -> IO ProblemDescription
-describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
-  (compConf, modul, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
-  let probModule = Just modul
-  exprFitCands <-
-    getExprFitCands compConf $
-      noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-  return $ ProbDesc {..}

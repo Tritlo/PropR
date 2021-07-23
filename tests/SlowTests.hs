@@ -9,7 +9,7 @@ import Data.IORef (readIORef, writeIORef)
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Endemic (getExprFitCands)
+import Endemic (describeProblem, getExprFitCands)
 import Endemic.Configuration
 import Endemic.Diff (applyFixes, fixesToDiffs, getFixBinds, ppDiff)
 import Endemic.Eval
@@ -156,7 +156,7 @@ exhaustiveTests =
 properGenTests :: TestTree
 properGenTests =
   testGroup
-    "proper generation tests"
+    "Genetic search tests"
     [ mkGenConfTest 60_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs" $
         map
           unlines
@@ -198,7 +198,7 @@ properGenTests =
 genTests :: TestTree
 genTests =
   testGroup
-    "Generation tests"
+    "PseudoGenetic search tests"
     [ mkPseudoGenTest 120_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs" $
         map
           unlines
