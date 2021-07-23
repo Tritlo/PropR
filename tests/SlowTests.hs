@@ -122,7 +122,7 @@ exhaustiveTests =
                   "+x = 3"
                 ]
               ],
-      let conf = Exhaustive def {exhStopOnResults = True, exhIgnoreFailing = True}
+      let conf = Exhaustive def {exhStopOnResults = True}
        in mkSearchTest conf 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs" $
             map
               unlines
