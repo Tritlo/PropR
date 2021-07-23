@@ -51,7 +51,7 @@ fitness = fromIntegral . length . filter id . snd
 complementary :: PseudoGenConf -> Individual -> Individual -> Float
 complementary gc a b = avg $ map fitness $ crossover gc a b
 
-individuals :: [(EFix, Either [Bool] Bool)] -> [Individual]
+individuals :: [(EFix, TestSuiteResult)] -> [Individual]
 individuals = mapMaybe fromHelpful
   where
     fromHelpful (fs, Left r) | or r = Just (fs, r)
@@ -79,8 +79,8 @@ pruneGeneration PseudoGenConf {..} new_gen =
     isFit _ = Nothing
 
 -- | Checks a given fix-result for successfulness, that is passing all tests.
-successful :: Eq b => [(a, Either b Bool)] -> [(a, Either b Bool)]
-successful = filter (\(_, r) -> r == Right True)
+successful :: [(a, TestSuiteResult)] -> [(a, TestSuiteResult)]
+successful = filter (isFixed . snd)
 
 -- |
 --   This method combines individuals by merging their fixes.
@@ -126,7 +126,7 @@ pseudoGeneticRepair
               let n_prog = replaceExpr fix prog_at_ty
               map (\(f, r) -> (f `mergeFixes` fix, r))
                 <$> collectStats (repairAttempt (desc <~ n_prog))
-            loop :: [(EFix, Either [Bool] Bool)] -> Int -> IO (Set EFix)
+            loop :: [(EFix, TestSuiteResult)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
                 do

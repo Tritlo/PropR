@@ -1,5 +1,6 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
+
 -- |
 -- Module      : Endemic.Search.Random.Search
 -- Description : Provides an Random Search Algorithm based on typed holes.
@@ -9,9 +10,9 @@
 --
 -- This module provides a simple random search algorithm.
 -- For Pseudocode see "randomRepair".
--- 
--- Random Search sometimes performs suprisingly well, see https://dl.acm.org/doi/abs/10.1145/2568225.2568254. 
--- We use it mostly to justify the use of Genetic algorithms, as random search is a good baseline to show that genetic search actually yields benefits. 
+--
+-- Random Search sometimes performs suprisingly well, see https://dl.acm.org/doi/abs/10.1145/2568225.2568254.
+-- We use it mostly to justify the use of Genetic algorithms, as random search is a good baseline to show that genetic search actually yields benefits.
 -- Nevertheless, it might be faster as it is low on ritual and for easy problems, or simply by luck, it can find solutions faster.
 module Endemic.Search.Random.Search where
 
@@ -29,16 +30,16 @@ import System.CPUTime (getCPUTime)
 import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 
 -- | Tries to repair a program by randomly punching holes and trying random replacements.
--- 
+--
 -- Pseudocode:
--- While SearchBudget Left 
+-- While SearchBudget Left
 --    pick random number N between [1,maxFixSize]
---    punch N holes in the Program 
+--    punch N holes in the Program
 --    fill every hole with a random fix
 --    if Fix-Not-Seen
 --      Check fix
 --      Add Fix either to Results or Seen-Fixes
---    Update Timer 
+--    Update Timer
 randomRepair :: RandomConf -> ProblemDescription -> IO (Set EFix)
 randomRepair r@RandConf {..} desc@ProbDesc {..} = do
   logStr VERBOSE "Starting random search!"
@@ -88,13 +89,12 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
               try_again = randomRepair' start gen'' fix_so_far
 
           case check_res of
-            Right True -> done
             -- We might want to avoid programs that timeout or fail for some reason.
             Right False ->
               if randIgnoreFailing
                 then try_again
                 else keep_going
-            Left res -> if and res then done else keep_going
+            res -> if isFixed res then done else keep_going
 
     efcs = Just exprFitCands
     EProb {..} = progProblem

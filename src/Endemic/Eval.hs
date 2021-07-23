@@ -629,7 +629,7 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
 -- | Right True means that all the properties hold, while Right False mean that
 -- There is some error or infinite loop.
 -- Left bs indicates that the properties as ordered by bs are the ones that hold
-runCheck :: RepairConfig -> Either [ValsAndRefs] Dynamic -> IO (Either [Bool] Bool)
+runCheck :: RepairConfig -> Either [ValsAndRefs] Dynamic -> IO TestSuiteResult
 runCheck _ (Left _) = return (Right False)
 runCheck RepConf {..} (Right dval) =
   -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we

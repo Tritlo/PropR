@@ -66,6 +66,17 @@ type EType = LHsSigWcType GhcPs
 
 type EExpr = LHsExpr GhcPs
 
+-- | A Result from running a check.
+-- +  Right True means all the checks were satisfied,
+-- +  Right False is full failure (e.g., timeout or errors in the test-framework), and
+-- + Left [Bool] expresses a list of the results of each run test,
+--    where True is passing and False is failing.
+type TestSuiteResult = Either [Bool] Bool
+
+isFixed :: TestSuiteResult -> Bool
+isFixed (Right x) = True
+isFixed (Left xs) = and xs
+
 -- | A fix is a list of replacements and their locations
 type EFix = Map SrcSpan (HsExpr GhcPs)
 
