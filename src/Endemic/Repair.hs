@@ -221,7 +221,7 @@ repair cc rc prob@EProb {..} = do
             repConf = rc,
             probModule = Nothing
           }
-  map fst . filter (\(_, r) -> r == Right True) <$> repairAttempt desc
+  map fst . filter (isFixed . snd) <$> repairAttempt desc
 
 -- | Finds the locations in the program that are evaluated by failing tests
 -- and returns those as programs with holes at that location.
@@ -296,7 +296,7 @@ processFits cc fits = do
 -- As an important sidenote, places that are not in failing properties will not be altered.
 repairAttempt ::
   ProblemDescription ->
-  IO [(EFix, Either [Bool] Bool)]
+  IO [(EFix, TestSuiteResult)]
 repairAttempt
   desc@ProbDesc
     { compConf = cc,
@@ -332,7 +332,7 @@ repairAttempt
 checkFixes ::
   ProblemDescription ->
   [EExpr] ->
-  IO [Either [Bool] Bool]
+  IO [TestSuiteResult]
 checkFixes
   ProbDesc
     { compConf = cc,
@@ -398,7 +398,7 @@ checkFixes
                     std_out = CreatePipe
                   }
             return (hout, ph)
-          waitOnCheck :: (Handle, ProcessHandle) -> IO (Either [Bool] Bool)
+          waitOnCheck :: (Handle, ProcessHandle) -> IO TestSuiteResult
           waitOnCheck (hout, ph) = do
             ec <- timeout timeoutVal $ waitForProcess ph
             case ec of

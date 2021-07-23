@@ -24,7 +24,7 @@ import Endemic.Search.Genetic.Configuration
 import Endemic.Search.Genetic.Types
 import Endemic.Search.Genetic.Utils
 import Endemic.Traversals (replaceExpr)
-import Endemic.Types (EFix, EProblem (..))
+import Endemic.Types (EFix, EProblem (..), TestSuiteResult)
 import Endemic.Util (collectStats, mergeFixes, mergeFixes', progAtTy)
 import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
 import GhcPlugins (Outputable (..), liftIO, ppr, showSDocUnsafe)
@@ -140,7 +140,7 @@ instance Chromosome EFix where
 
 -- | Calculates the fitness of an EFix by checking it's FixResults (=The Results of the property-tests).
 -- It is intended to be cached using the Fitness Cache in the GenMonad.
-basicFitness :: EFix -> Either [Bool] Bool -> Double
+basicFitness :: EFix -> TestSuiteResult -> Double
 basicFitness mf fix_res =
   case fix_res of
     Left bools -> 1 - fitness_func (mf, bools) / fromIntegral (length bools)
