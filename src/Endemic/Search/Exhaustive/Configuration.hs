@@ -21,8 +21,8 @@ import GHC.Generics
 data ExhaustiveConf = ExhaustiveConf
   { -- | Exhaustive budget in seconds
     exhSearchBudget :: Int,
-    exhIgnoreFailing :: Bool,
-    exhStopOnResults :: Bool
+    exhStopOnResults :: Bool,
+    exhBatchSize :: Int
   }
   deriving (Show, Eq, Generic, Read)
   deriving
@@ -33,15 +33,15 @@ instance Default ExhaustiveConf where
   def =
     ExhaustiveConf
       { exhSearchBudget = 5 * 60,
-        exhIgnoreFailing = True,
-        exhStopOnResults = False
+        exhStopOnResults = False,
+        exhBatchSize = 10
       }
 
 instance Materializeable ExhaustiveConf where
   data Unmaterialized ExhaustiveConf = UmExhaustiveRepairConfiguration
     { umExhaustiveSearchBudget :: Maybe Int,
       umExhaustiveStopOnResults :: Maybe Bool,
-      umExhaustiveIgnoreFailing :: Maybe Bool
+      umExhaustiveBatchSize :: Maybe Int
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -55,5 +55,5 @@ instance Materializeable ExhaustiveConf where
     ExhaustiveConf
       { exhSearchBudget = fromMaybe exhSearchBudget umExhaustiveSearchBudget,
         exhStopOnResults = fromMaybe exhStopOnResults umExhaustiveStopOnResults,
-        exhIgnoreFailing = fromMaybe exhIgnoreFailing umExhaustiveIgnoreFailing
+        exhBatchSize = fromMaybe exhBatchSize umExhaustiveBatchSize
       }
