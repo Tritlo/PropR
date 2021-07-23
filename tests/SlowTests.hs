@@ -14,6 +14,7 @@ import Endemic.Configuration
 import Endemic.Diff (applyFixes, fixesToDiffs, getFixBinds, ppDiff)
 import Endemic.Eval
 import Endemic.Search
+import Endemic.Search.Exhaustive
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
@@ -27,7 +28,12 @@ tests :: TestTree
 tests =
   testGroup
     "Tests"
-    [tastyFixTests, randTests, properGenTests, genTests]
+    [ tastyFixTests,
+      randTests,
+      properGenTests,
+      genTests,
+      exhaustiveTests
+    ]
 
 -- | Chosen fairly by Random.org
 tESTSEED :: Int
@@ -96,6 +102,36 @@ randTests =
                   "@@ -7,1 +7,1 @@ x = 2",
                   "-x = 2",
                   "+x = 3"
+                ]
+              ]
+    ]
+
+exhaustiveTests :: TestTree
+exhaustiveTests =
+  testGroup
+    "Exhaustive search tests"
+    [ let conf = Exhaustive def {exhStopOnResults = True, exhIgnoreFailing = True}
+       in mkSearchTest conf 60_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs" $
+            map
+              unlines
+              [ [ "diff --git a/tests/cases/TastyFix.hs b/tests/cases/TastyFix.hs",
+                  "--- a/tests/cases/TastyFix.hs",
+                  "+++ b/tests/cases/TastyFix.hs",
+                  "@@ -7,1 +7,1 @@ x = 2",
+                  "-x = 2",
+                  "+x = 3"
+                ]
+              ],
+      let conf = Exhaustive def {exhStopOnResults = True, exhIgnoreFailing = True}
+       in mkSearchTest conf 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs" $
+            map
+              unlines
+              [ [ "diff --git a/tests/cases/TwoFixes.hs b/tests/cases/TwoFixes.hs",
+                  "--- a/tests/cases/TwoFixes.hs",
+                  "+++ b/tests/cases/TwoFixes.hs",
+                  "@@ -12,1 +12,1 @@ brokenPair = (1, 2)",
+                  "-brokenPair = (1, 2)",
+                  "+brokenPair = (3, 4)"
                 ]
               ]
     ]
