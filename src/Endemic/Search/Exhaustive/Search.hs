@@ -16,6 +16,7 @@ import Endemic.Types
 import Endemic.Util
 import System.CPUTime (getCPUTime)
 
+-- | Finally, some lazy evaluation magic!
 lazyAllCombsByLevel :: [EFix] -> [[EFix]]
 lazyAllCombsByLevel fixes = fixes : lacbl' fixes fixes
   where
@@ -47,14 +48,15 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                 -- Our way of constructing the combinations gives a lot of
                 -- repition, so we can cache tose we've checked already
                 -- to avoid having to check again.
-                not_checked = filter (not . (`Set.member` checked)) to_check
-                checked' = Set.fromList not_checked `Set.union` checked
-            mapM_ (logOut VERBOSE) not_checked
+                not_checked = Set.fromList $ filter (not . (`Set.member` checked)) to_check
+                checked' = not_checked `Set.union` checked
+                check_list = Set.toList not_checked
+            mapM_ (logOut VERBOSE) check_list
             fixes <-
               Set.fromList . map fst
                 . filter (isFixed . snd)
                 . zip to_check
-                <$> checkFixes desc (map (`replaceExpr` prog_at_ty) to_check)
+                <$> checkFixes desc (map (`replaceExpr` prog_at_ty) check_list)
             if Set.null fixes
               then loop checked' (rest : lvls)
               else do
