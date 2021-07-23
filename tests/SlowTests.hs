@@ -110,7 +110,7 @@ exhaustiveTests :: TestTree
 exhaustiveTests =
   testGroup
     "Exhaustive search tests"
-    [ let conf = Exhaustive def {exhStopOnResults = True, exhIgnoreFailing = True}
+    [ let conf = Exhaustive def {exhStopOnResults = True}
        in mkSearchTest conf 60_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs" $
             map
               unlines
