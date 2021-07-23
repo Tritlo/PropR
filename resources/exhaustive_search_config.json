@@ -1,0 +1,37 @@
+{
+        "compile_config": {
+                "import_stmts": [
+                        "import Prelude"
+                ],
+                "packages": [
+                        "base"
+                ],
+                "hole_lvl": 0
+        },
+        "repair_config": {
+                "par_checks": true,
+                "use_interpreted": true,
+                "timeout": 1000000
+        },
+        "output_config": {
+                "locale": null,
+                "directory": "./output-patches-",
+                "overwrite": false,
+                "save_patches": true
+        },
+        "search_algorithm": {
+                "tag": "Exhaustive",
+                "contents": {
+                        "exh_search_budget": 300,
+                        "exh_stop_on_results": true,
+                        "exh_batch_size": 10
+                }
+        },
+        "log_config": {
+                "log_loc": false,
+                "log_level": "WARN",
+                "log_timestamp": true,
+                "log_file": null
+        },
+        "random_seed": -911372734310229019
+}
