@@ -14,6 +14,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import Data.Time.LocalTime (utc)
+import Data.Version (showVersion)
 import Endemic
 import Endemic.Check (buildSuccessCheck, checkImports)
 import Endemic.Diff
@@ -27,6 +28,7 @@ import GHC (HsExpr (HsLet), NoExtField (..))
 import GhcPlugins (noLoc)
 import Options.Applicative
 import Options.Applicative.Types (readerAsk)
+import Paths_Endemic (version)
 import System.Directory (createDirectory, doesDirectoryExist)
 import System.Environment (getArgs)
 import System.IO
@@ -35,40 +37,37 @@ import System.Random
 data OptPicked
   = Repair {opts :: CLIOptions, clTarget :: String}
   | DumpConfig {opts :: CLIOptions, dcFlagSet :: Bool}
+  | ShowVersion {opts :: CLIOptions, vFlagSet :: Bool}
 
 optParser :: ParserInfo OptPicked
 optParser = info (pickOpt <**> helper) modinfo
   where
     locParse =
       optional $
-        ( flag'
-            True
-            ( long "log-loc"
-                <> help "Add location to log messages"
-            )
-        )
-          <|> ( flag'
-                  False
-                  ( long "no-log-loc"
-                      <> help "Remove locations from log messages"
-                      <> internal
-                  )
-              )
-    tsParse =
-      optional $
-        ( flag'
-            True
-            ( long "log-timestamp"
-                <> help "Add timestamps to log messages"
+        flag'
+          True
+          ( long "log-loc"
+              <> help "Add location to log messages"
+          )
+          <|> flag'
+            False
+            ( long "no-log-loc"
+                <> help "Remove locations from log messages"
                 <> internal
             )
-        )
-          <|> ( flag'
-                  False
-                  ( long "no-log-timestamp"
-                      <> help "Remove timestamps from log messages"
-                  )
-              )
+    tsParse =
+      optional $
+        flag'
+          True
+          ( long "log-timestamp"
+              <> help "Add timestamps to log messages"
+              <> internal
+          )
+          <|> flag'
+            False
+            ( long "no-log-timestamp"
+                <> help "Remove timestamps from log messages"
+            )
     lvlParse =
       optional $
         option
@@ -131,12 +130,16 @@ optParser = info (pickOpt <**> helper) modinfo
         <*> randSeed
         <*> confParse
         <*> overrideParse
-    pickOpt = ((flip Repair <$> targetParse) <|> (flip DumpConfig <$> dumpConfig)) <*> cliOpts
-    modinfo =
-      ( briefDesc
-          <> progDesc "Repair TARGET using the endemic genetic method"
-          <> header "endemic - Genetic program repair for Haskell"
+    pickOpt =
+      ( (flip Repair <$> targetParse)
+          <|> (flip DumpConfig <$> dumpConfig)
+          <|> (flip ShowVersion <$> version)
       )
+        <*> cliOpts
+    modinfo =
+      briefDesc
+        <> progDesc "Repair TARGET using the endemic genetic method"
+        <> header "endemic - Genetic program repair for Haskell"
     dumpConfig =
       flag'
         True
@@ -145,6 +148,13 @@ optParser = info (pickOpt <**> helper) modinfo
               ( "Dump the current configuration"
                   ++ " with all overrides and flags applied"
               )
+        )
+    version =
+      flag'
+        True
+        ( long "version"
+            <> help
+              "Print version information"
         )
 
 main :: IO ()
@@ -155,6 +165,7 @@ main = do
   conf@Conf {..} <- getConfiguration clOpts
   case optPicked of
     DumpConfig _ _ -> BS.putStrLn (encode conf)
+    ShowVersion _ _ -> putStrLn $ "endemic version " ++ showVersion version
     Repair _ target -> do
       -- Set the global flags
       setGlobalFlags conf
