@@ -10,6 +10,7 @@ import Test.QuickCheck.Random
 import Test.Tasty
 import Test.Tasty (defaultMain, localOption, mkTimeout)
 import Test.Tasty.Ingredients
+import qualified Test.Tasty.Runners as TR
 
 -- QuickCheck helpers
 qcCheckArgs :: Args
@@ -43,3 +44,11 @@ checkTastyTree timeout tt =
   catch
     (withArgs ["-q"] (fmap (const True) $ defaultMain $ localOption (mkTimeout (fromIntegral timeout)) tt))
     (return . (==) ExitSuccess)
+
+unfoldTastyTests :: TestTree -> [TestTree]
+unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
+  where
+    fs' opts name test = [TR.PlusTestOptions (opts <>) $ TR.SingleTest name test]
+
+testTreeNthTest :: Int -> TestTree -> TestTree
+testTreeNthTest n tree = (unfoldTastyTests tree) !! n

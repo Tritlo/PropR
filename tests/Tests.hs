@@ -220,7 +220,12 @@ failingPropsTests =
           setSeedGenSeed tESTSEED
           tp <- translate cc rp
           failed_props <- failingProps def cc tp
-          map showUnsafe failed_props @?= props
+          map showUnsafe failed_props @?= props,
+      localOption (mkTimeout 10_000_000) $
+        testCase "Two failing TastyProps" $ do
+          desc@ProbDesc {..} <- describeProblem def "tests/cases/TastyTwoFix.hs"
+          failed_props <- failingProps repConf compConf progProblem
+          length failed_props @?= 2
     ]
 
 counterExampleTests =

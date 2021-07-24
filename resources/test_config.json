@@ -21,11 +21,18 @@
                 "save_patches": true
         },
         "search_algorithm": {
-                "tag": "Exhaustive",
+                "tag": "Genetic",
                 "contents": {
-                        "exhaustive_search_budget": 300,
-                        "exhaustive_stop_on_results": true,
-                        "exhaustive_batch_size": 10
+                        "mutation_rate": 5.0e-2,
+                        "crossover_rate": 0.95,
+                        "iterations": 50,
+                        "population_size": 64,
+                        "timeout_in_seconds": 300.0,
+                        "stop_on_results": true,
+                        "drop_rate": 5.0e-2,
+                        "try_minimize_fixes": false,
+                        "replace_winners": true,
+                        "use_parallel_map": true
                 }
         },
         "log_config": {
@@ -34,5 +41,5 @@
                 "log_timestamp": true,
                 "log_file": null
         },
-        "random_seed": -911372734310229019
+        "random_seed": 703039777
 }

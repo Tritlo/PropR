@@ -23,8 +23,9 @@
 -- 4. Configuration for this and other parts of the project
 module Endemic.Eval where
 
-import Bag (Bag, bagToList, concatMapBag, emptyBag, listToBag, mapMaybeBag, unitBag)
+import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag, mapMaybeBag, unitBag)
 import Constraint
+import Control.Arrow ((***))
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (when, (>=>))
 import qualified CoreUtils
@@ -218,13 +219,24 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
   let target = Target (TargetFile mod_path Nothing) True Nothing
   -- Feed the given Module into GHC
   runGhc (Just libdir) $ do
-    _ <- initGhcCtxt cc
+    _ <- initGhcCtxt cc {importStmts = importStmts ++ checkImports}
     addTarget target
     _ <- load LoadAllTargets
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
     -- Retrieve the parsed module
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
     tc_modul@TypecheckedModule {..} <- typecheckModule modul
+
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+          dynFlags
+            { ghcMode = CompManager,
+              ghcLink = LinkInMemory,
+              hscTarget = HscInterpreted
+            }
+
     let (L _ HsModule {..}) = pm_parsed_source
         cc' = cc {importStmts = importStmts ++ imps'}
           where
@@ -248,20 +260,31 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
         ctxt = toCtxt valueDeclarations
 
         tests :: Set OccName
-        tests = Set.fromList $ bagToList $ concatMapBag fromTPropD tm_typechecked_source
+        tests = tastyTests `Set.union` qcProps
+        tastyTests = Set.fromList testTreeList
+        (testTreeList, qcProps) = Set.fromList <$> tjoin tm_typechecked_source
           where
-            fromTPropD :: LHsBind GhcTc -> Bag OccName
+            tjoin :: LHsBinds GhcTc -> ([OccName], [OccName])
+            tjoin binds =
+              let (tt, ps) = unzip $ bagToList $ mapBag fromTPropD binds
+               in (mconcat tt, mconcat ps)
+            fromTPropD :: LHsBind GhcTc -> ([OccName], [OccName])
             fromTPropD b@(L l FunBind {..})
               | t <- idType $ unLoc fun_id,
                 isTestTree t || isProp t (unLoc fun_id) =
-                unitBag (getOccName $ unLoc fun_id)
+                let res = [getOccName $ unLoc fun_id]
+                 in if isTestTree t
+                      then (res, mempty)
+                      else (mempty, res)
             fromTPropD b@(L l VarBind {..})
               | t <- idType var_id,
                 isTestTree t || isProp t var_id =
-                unitBag $ getOccName var_id
-            fromTPropD b@(L l AbsBinds {..}) =
-              concatMapBag fromTPropD abs_binds
-            fromTPropD _ = emptyBag
+                let res = [getOccName var_id]
+                 in if isTestTree t
+                      then (res, mempty)
+                      else (mempty, res)
+            fromTPropD b@(L l AbsBinds {..}) = tjoin abs_binds
+            fromTPropD _ = (mempty, mempty)
             isTestTree (TyConApp tt _) =
               ((==) "TestTree" . occNameString . getOccName) tt
             isTestTree _ = False
@@ -269,7 +292,25 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             isProp :: Type -> Id -> Bool
             isProp _ = (==) "prop" . take 4 . occNameString . occName
 
-        props :: [LHsBind GhcPs]
+    -- We want to unfold the tests:
+    unfoldedTasty <-
+      if unfoldTastyTests
+        then do
+          let thisMod = IIDecl $ simpleImportDecl mname
+          getContext >>= setContext . (thisMod :)
+          imports <- mapM (fmap IIDecl . parseImportDecl) (importStmts ++ checkImports)
+          getContext >>= setContext . ((thisMod : imports) ++)
+          let countExpr =
+                "map (length . unfoldTastyTests) ["
+                  ++ intercalate ", " (map (showSDocUnsafe . ppr) testTreeList)
+                  ++ "]"
+          countTrees <- compileExpr countExpr
+          let treeLengths :: [Int]
+              treeLengths = unsafeCoerce# countTrees
+          return $ Map.fromList $ zip testTreeList treeLengths
+        else return Map.empty
+
+    let props :: [LHsBind GhcPs]
         props = mapMaybe fromPropD hsmodDecls
           where
             fromPropD (L l (ValD _ b@FunBind {..}))
@@ -310,28 +351,62 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             getTType (L _ (SigD _ ts@(TypeSig _ ids _)))
               | t_name `elem` map unLoc ids = Just ts
             getTType _ = Nothing
+
             -- takes prop :: t ==> prop' :: target_type -> t since our
             -- previous assumptions relied on the properties to take in the
             -- function being fixed  as the first argument.
-            wrapProp :: LHsBind GhcPs -> LHsBind GhcPs
-            wrapProp (L l fb@FunBind {..}) = L l fb {fun_id = nfid, fun_matches = nmatches fun_matches}
+
+            -- wrap prop helpers:
+            mkFid nocc (L l' (Unqual occ)) = L l' (Unqual (nocc occ))
+            mkFid nocc (L l' (Qual m occ)) = L l' (Qual m (nocc occ))
+            mkFid _ b = b
+
+            nmatches nfid mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
               where
-                mkFid (L l' (Unqual occ)) = L l' (Unqual (nocc occ))
-                mkFid (L l' (Qual m occ)) = L l' (Qual m (nocc occ))
-                nfid = mkFid fun_id
-                nocc o = mkOccName (occNameSpace o) $ insertAt 4 '\'' $ occNameString o
-                nmatches mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
+                nalt (L l'' m@Match {..}) = L l'' m {m_pats = nvpat : m_pats, m_ctxt = n_ctxt}
                   where
-                    nalt (L l'' m@Match {..}) = L l'' m {m_pats = nvpat : m_pats, m_ctxt = n_ctxt}
+                    n_ctxt =
+                      case m_ctxt of
+                        fh@FunRhs {mc_fun = L l''' _} ->
+                          fh {mc_fun = L l''' $ unLoc nfid}
+                        o -> o
+                nalt alt = alt
+                nvpat = noLoc $ VarPat NoExtField $ noLoc t_name
+            nmatches _ mg = mg
+
+            wrapProp :: LHsBind GhcPs -> [LHsBind GhcPs]
+            wrapProp (L l fb@FunBind {..})
+              | Just num_cases <- unfoldedTasty Map.!? rdr_occ =
+                map toBind [0 .. (num_cases -1)]
+              where
+                rdr_occ = rdrNameOcc (unLoc fun_id)
+                nocc :: Int -> OccName -> OccName
+                nocc i o = mkOccName (occNameSpace o) $ occNameString o ++ "__test_" ++ show i
+                toBind i = L l fb {fun_id = nfid, fun_matches = run_i_only change_target}
+                  where
+                    nfid = mkFid (nocc i) fun_id
+                    change_target = nmatches nfid fun_matches
+                    run_i_only :: MatchGroup GhcPs (LHsExpr GhcPs) -> MatchGroup GhcPs (LHsExpr GhcPs)
+                    run_i_only mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
                       where
-                        n_ctxt =
-                          case m_ctxt of
-                            fh@FunRhs {mc_fun = L l''' _} ->
-                              fh {mc_fun = L l''' $ unLoc nfid}
-                            o -> o
-                    nvpat = noLoc $ VarPat NoExtField $ noLoc t_name
-            wrapProp e = e
-            wrapped_props = map wrapProp props
+                        nalt (L l'' m@Match {..}) = L l'' m {m_grhss = n_grhss m_grhss}
+                        nalt m = m
+                        n_grhss grhss@GRHSs {..} = grhss {grhssGRHSs = map nGRHSS grhssGRHSs}
+                        n_grhss g = g
+                        nGRHSS (L l3 (GRHS x guards bod)) = L l3 (GRHS x guards nbod)
+                          where
+                            nbod = noLoc $ HsApp ext nthapp (noLoc $ HsPar ext bod)
+                            ext = noExtField
+                            nthapp = noLoc $ HsPar ext (noLoc $ HsApp ext (tf "testTreeNthTest") (il $ fromIntegral i))
+                        nGRHSS xg = xg
+                    run_i_only mg = mg
+            wrapProp (L l fb@FunBind {..}) =
+              [L l fb {fun_id = nfid, fun_matches = nmatches nfid fun_matches}]
+              where
+                nfid = mkFid nocc fun_id
+                nocc o = mkOccName (occNameSpace o) $ insertAt 4 '\'' $ occNameString o
+            wrapProp e = [e]
+            wrapped_props = concatMap wrapProp props
             prog_binds :: LHsBindsLR GhcPs GhcPs
             prog_binds = listToBag $ mapMaybe f $ filter isTDef hsmodDecls
               where
@@ -352,12 +427,14 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                 lbs =
                   HsValBinds noExtField $
                     ValBinds noExtField prog_binds [noLoc prog_sig']
+
         probs = case mb_target of
           Just t ->
             case getTarget (mkVarUnqual $ fsLit t) of
               Just r -> [r]
               _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
           Nothing -> mapMaybe getTarget fix_targets
+
     return (cc', modul, probs)
 
 -- Create a fake base loc for a trace.

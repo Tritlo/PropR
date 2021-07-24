@@ -1,7 +1,7 @@
 name: check-helpers
 cabal-version: 1.24
 build-type: Simple
-version: 0.0.2
+version: 0.0.3
 category: Compiler Plugin
 license: MIT
 license-file: LICENSE
