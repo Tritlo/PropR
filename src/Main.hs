@@ -170,7 +170,6 @@ main = do
     Repair _ target -> do
       -- Set the global flags
       setGlobalFlags conf
-      putStrLn $ "Repairing " ++ show target ++ " with seed " ++ show (fromJust randomSeed)
       (_, modul, probs) <- moduleToProb compileConfig target Nothing
       let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
           RProb {..} = detranslate tp
