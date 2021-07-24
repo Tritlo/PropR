@@ -2,13 +2,17 @@
 
 module Check.Helpers where
 
+import Control.Concurrent
+import Control.Concurrent.STM
 import Control.Exception (catch)
+import qualified Data.IntMap as IntMap
 import System.Environment (getArgs, withArgs)
 import System.Exit (ExitCode (ExitSuccess))
 import Test.QuickCheck
 import Test.QuickCheck.Random
 import Test.Tasty
 import Test.Tasty (defaultMain, localOption, mkTimeout)
+import qualified Test.Tasty as Tasty
 import Test.Tasty.Ingredients
 import qualified Test.Tasty.Runners as TR
 
@@ -40,10 +44,24 @@ failureToMaybe _ = Nothing
 
 -- Tasty helpers
 checkTastyTree :: Int -> TestTree -> IO Bool
-checkTastyTree timeout tt =
-  catch
-    (withArgs ["-q"] (fmap (const True) $ defaultMain $ localOption (mkTimeout (fromIntegral timeout)) tt))
-    (return . (==) ExitSuccess)
+checkTastyTree timeout test =
+  case tryIngredients [TestReporter [] (\opts tt -> Just reportFun)] mempty with_timeout of
+    Just act -> act
+    _ -> return False
+  where
+    with_timeout = localOption (mkTimeout (fromIntegral timeout)) test
+    waitUntilDone :: TVar TR.Status -> IO Bool
+    waitUntilDone status_var = atomically $ do
+      status <- readTVar status_var
+      case status of
+        TR.Done res -> return $ TR.resultSuccessful res
+        _ -> retry
+
+    reportFun :: TR.StatusMap -> IO (TR.Time -> IO Bool)
+    -- We completely ignore the parallelism here
+    reportFun smap = do
+      results <- mapM waitUntilDone $ IntMap.elems smap
+      return (\_ -> return $ and results)
 
 unfoldTastyTests :: TestTree -> [TestTree]
 unfoldTastyTests = TR.foldTestTree (TR.trivialFold {TR.foldSingle = fs'}) mempty
