@@ -222,21 +222,23 @@ instance Materializeable CompileConfig where
   data Unmaterialized CompileConfig = UmCompConf
     { umImportStmts :: Maybe [String],
       umPackages :: Maybe [String],
-      umHoleLvl :: Maybe Int
+      umHoleLvl :: Maybe Int,
+      umUnfoldTastyTests :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized CompileConfig)
 
-  conjure = UmCompConf Nothing Nothing Nothing
+  conjure = UmCompConf Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
     CompConf
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
-        hole_lvl = fromMaybe hole_lvl umHoleLvl
+        hole_lvl = fromMaybe hole_lvl umHoleLvl,
+        unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests
       }
 
 -- | Configuration for the compilation itself
@@ -246,7 +248,8 @@ data CompileConfig = CompConf
     -- | a list of packages used for the compilation
     packages :: [String],
     -- | the "depth" of the holes, see general notes on this
-    hole_lvl :: Int
+    hole_lvl :: Int,
+    unfoldTastyTests :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -258,7 +261,8 @@ instance Default CompileConfig where
     CompConf
       { hole_lvl = 0,
         packages = ["base"],
-        importStmts = ["import Prelude"]
+        importStmts = ["import Prelude"],
+        unfoldTastyTests = True
       }
 
 -- | Configuration for the checking of repairs

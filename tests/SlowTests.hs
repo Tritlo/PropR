@@ -5,7 +5,7 @@
 module Main where
 
 import Data.Default
-import Data.IORef (readIORef)
+import Data.IORef (readIORef, writeIORef)
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -41,6 +41,12 @@ tESTSEED = 703_039_772
 
 tESTGENCONF :: GeneticConfiguration
 tESTGENCONF = def {crossoverRate = 0.95, mutationRate = 0.05, dropRate = 0.05}
+
+-- | For debugging tests
+setLogLevel :: LogLevel -> IO ()
+setLogLevel lvl = do
+  lc <- readIORef lOGCONFIG
+  writeIORef lOGCONFIG lc {logLevel = lvl}
 
 mkRepairTest :: (ProblemDescription -> IO (Set EFix)) -> Integer -> TestName -> FilePath -> [String] -> TestTree
 mkRepairTest how timeout tag file expected =
@@ -84,6 +90,17 @@ tastyFixTests =
               "@@ -7,1 +7,1 @@ x = 2",
               "-x = 2",
               "+x = 3"
+            ]
+          ],
+      mkGenConfTest 180_000_000 "Repair TastyTwoFix" "tests/cases/TastyTwoFix.hs" $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/TastyTwoFix.hs b/tests/cases/TastyTwoFix.hs",
+              "--- a/tests/cases/TastyTwoFix.hs",
+              "+++ b/tests/cases/TastyTwoFix.hs",
+              "@@ -7,1 +7,1 @@ wrong_pair = (1, 2)",
+              "-wrong_pair = (1, 2)",
+              "+wrong_pair = (3, 4)"
             ]
           ]
     ]

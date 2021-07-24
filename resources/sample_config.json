@@ -6,7 +6,8 @@
                 "packages": [
                         "base"
                 ],
-                "hole_lvl": 0
+                "hole_lvl": 0,
+                "unfold_tasty_tests": true
         },
         "repair_config": {
                 "par_checks": true,
