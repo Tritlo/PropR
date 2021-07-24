@@ -12,6 +12,7 @@ import Data.Default (def)
 import Data.IORef (IORef, atomicModifyIORef', readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Time.LocalTime (utc)
 import Data.Version (showVersion)
@@ -169,7 +170,7 @@ main = do
     Repair _ target -> do
       -- Set the global flags
       setGlobalFlags conf
-
+      putStrLn $ "Repairing " ++ show target ++ " with seed " ++ show (fromJust randomSeed)
       (_, modul, probs) <- moduleToProb compileConfig target Nothing
       let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
           RProb {..} = detranslate tp
