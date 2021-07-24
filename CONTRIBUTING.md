@@ -1,6 +1,17 @@
 Contributing
 ============
 
+Communication Conventions
+-------------------------
+
+Thanks for your interest!
+
+As your help is highly appreciated, there are only two hard constraints:
+
+- Be friendly and patient in issues, PRs and comments.
+- Create code,commits and assets in english.
+- Please consider opening an issue discussing your contribution before a PR . Feel free to tag any maintainer, we are happy to help you.
+
 Commit conventions
 -------------------
 

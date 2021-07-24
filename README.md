@@ -1,23 +1,31 @@
 [![Haskell CI](https://github.com/Tritlo/Endemic/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/Endemic/actions/workflows/haskell.yml)
+[![Docker CI](https://github.com/Tritlo/Endemic/actions/workflows/docker.yml/badge.svg)](https://github.com/Tritlo/Endemic/actions/workflows/docker.yml)
+![License: MIT](https://img.shields.io/badge/License-MIT-hotpink.svg)
 
-Endemic: Genetic Program repair using GHC 🐣
-===================
+# Endemic: Genetic Program repair using GHC 🐣
 
-Inspired by GenProg.
+> Inspired by GenProg.
 
-Works, but is pretty slow at the moment, even when doing the synthesis and
-testing in parallel, but it works! Requires QuickCheck to be installed globally,
-(or in someway such that it is picked up by the GHC API, from the libdir I guess)
-otherwise the internal synthesizer cannot run the tests.
+Welcome! 
 
-The synthesis part itself is quite fast... it's the filtering of the search
-space that's slow, since we are essentially compiling every expression and
-booting the whole GHC each time... but we have to do it in a new process due
-to potentially infinite expressions (which cannot be timedout if they are
-non-yielding, unless we recompile the base libraries).
+This repository holds *Endemic*, a program repair library in and for Haskell. 
+With just a few dependencies, we can help you repair your program using GHC and genetic search! 
 
+Key aspects:
 
-Usage
+- Module-Level Repair
+- QuickCheck & Tasty-TestTrees are supported
+- Genetic, Random and Exhaustive Search Algorithms
+- Output of the Repair is a git-patch
+
+We are happy if you give it a try and reach out to us - feel free to open an issue with feedback or drop us an email. 
+
+The repair process uses arcane knowledge that yet has to be molded into a publication. 
+To give a coarse-grained overview, we utilize punching typed holes in the expressions touched by failing properties, 
+and ask GHC for valid hole-fits. 
+The compilers suggestions are used as components for the genetic search, where we mix and match them until all properties are passed.
+
+## Usage
 -----
 This program requires version `3.4` or higher of `cabal`, and version `8.10` or
 higher of `ghc`. A complete environment required to run (minus the `QuickCheck`)
@@ -145,7 +153,7 @@ seen at the top of this document.
 To try it out for different scenarios, feel free to change the `Broken` modules
 in `examples/`, but note that AST coverage is pretty limited at the moment.
 
-Usage
+## Configuration
 ---------
 
 ```
@@ -182,4 +190,7 @@ The <LogLevel> parameter can be set to the following levels:
 + `ERROR` for errors only, and
 + `FATAL` for fatal errors (an irrecoverable crash)
 
+You can also find a lot example configurations in [resources](./resources).
 
+The program will tell you if you are using wrong key-words in your config, 
+and with `VERBOSE` you will see a print of the configuration once the program starts.
