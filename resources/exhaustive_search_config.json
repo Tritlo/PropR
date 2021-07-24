@@ -22,9 +22,9 @@
         "search_algorithm": {
                 "tag": "Exhaustive",
                 "contents": {
-                        "exh_search_budget": 300,
-                        "exh_stop_on_results": true,
-                        "exh_batch_size": 10
+                        "exhaustive_search_budget": 300,
+                        "exhaustive_stop_on_results": true,
+                        "exhaustive_batch_size": 10
                 }
         },
         "log_config": {
