@@ -13,6 +13,7 @@ import Data.IORef (IORef, atomicModifyIORef', readIORef, writeIORef)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (fromJust)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.LocalTime (utc)
 import Data.Version (showVersion)
@@ -20,6 +21,7 @@ import Endemic
 import Endemic.Check (buildSuccessCheck, checkImports)
 import Endemic.Diff
 import Endemic.Eval
+import Endemic.Packages (repairPackage)
 import Endemic.Repair (detranslate, translate)
 import Endemic.Search.Genetic (geneticSearchPlusPostprocessing, runGenMonad)
 import Endemic.Traversals (replaceExpr)
@@ -158,6 +160,30 @@ optParser = info (pickOpt <**> helper) modinfo
               "Print version information"
         )
 
+repairModule :: Configuration -> FilePath -> IO [String]
+repairModule conf@Conf {..} target = do
+  -- Set the global flags
+  desc@ProbDesc {..} <- describeProblem conf target
+  let tp@EProb {..} = progProblem
+      RProb {..} = detranslate tp
+  logStr INFO $ "TARGET:"
+  logStr INFO $ ("  `" ++ r_target ++ "` in " ++ target)
+  logStr VERBOSE $ "CONFIG:"
+  logStr VERBOSE $ show conf
+  logStr VERBOSE $ "SCOPE:"
+  mapM_ (logStr VERBOSE . ("  " ++)) (importStmts compileConfig)
+  logStr INFO $ "TARGET TYPE:"
+  logStr INFO $ "  " ++ r_ty
+  logStr INFO $ "MUST SATISFY:"
+  mapM_ (logStr INFO . ("  " ++)) r_props
+  logStr VERBOSE $ "IN CONTEXT:"
+  mapM_ (logStr VERBOSE . ("  " ++)) r_ctxt
+  logStr VERBOSE $ "PROGRAM TO REPAIR: "
+  logStr VERBOSE $ showUnsafe e_prog
+
+  logStr INFO "REPAIRING..."
+  fixesToDiffs desc <$> runRepair searchAlgorithm desc
+
 main :: IO ()
 main = do
   optPicked <- execParser optParser
@@ -168,30 +194,9 @@ main = do
     DumpConfig _ _ -> BS.putStrLn (encode conf)
     ShowVersion _ _ -> putStrLn $ "endemic version " ++ showVersion PE.version
     Repair _ target -> do
-      -- Set the global flags
       setGlobalFlags conf
-      desc@ProbDesc {..} <- describeProblem conf target
-      let tp@EProb {..} = progProblem
-          RProb {..} = detranslate tp
-      logStr INFO $ "TARGET:"
-      logStr INFO $ ("  `" ++ r_target ++ "` in " ++ target)
-      logStr VERBOSE $ "CONFIG:"
-      logStr VERBOSE $ show conf
-      logStr VERBOSE $ "SCOPE:"
-      mapM_ (logStr VERBOSE . ("  " ++)) (importStmts compileConfig)
-      logStr INFO $ "TARGET TYPE:"
-      logStr INFO $ "  " ++ r_ty
-      logStr INFO $ "MUST SATISFY:"
-      mapM_ (logStr INFO . ("  " ++)) r_props
-      logStr VERBOSE $ "IN CONTEXT:"
-      mapM_ (logStr VERBOSE . ("  " ++)) r_ctxt
-      logStr VERBOSE $ "PROGRAM TO REPAIR: "
-      logStr VERBOSE $ showUnsafe e_prog
-
-      logStr INFO "REPAIRING..."
-      (t, fixes) <- time $ runRepair searchAlgorithm desc
-
-      let diffs = fixesToDiffs desc fixes
+      isDir <- doesDirectoryExist target
+      (t, diffs) <- time $ (if isDir then repairPackage else repairModule) conf target
 
       when (savePatches outputConfig) $ do
         -- Here we write the found solutions to respective files, we just number them 1 .. n
