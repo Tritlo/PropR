@@ -71,7 +71,7 @@ repairTests =
     "Repair"
     [ -- A simple tests to see if we can repair (foldl (-) 0) to (foldl (+) 0)
       -- in a reasonable amount of time (here 10s)
-      localOption (mkTimeout 10_000_000) $
+      localOption (mkTimeout 30_000_000) $
         testCase "Repair `foldl (-) 0`" $ do
           let cc =
                 def
