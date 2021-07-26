@@ -30,7 +30,8 @@ library
                    Endemic.Search.PseudoGenetic,
                    Endemic.Search.Genetic,
                    Endemic.Search.Random,
-                   Endemic.Search.Exhaustive
+                   Endemic.Search.Exhaustive,
+                   Endemic.Packages
   other-modules: Endemic.Configuration.Configure,
                  Endemic.Configuration.Types,
                  Endemic.Configuration.Materializeable,
@@ -72,6 +73,7 @@ library
                  deriving-aeson >= 0.2 && < 0.3,
                  bytestring >= 0.10 && < 0.11,
                  splitmix >= 0.1 && < 0.2,
+                 Cabal >= 3.4 && < 3.5,
                  aeson >= 1.5 && < 1.6
 
 executable endemic
