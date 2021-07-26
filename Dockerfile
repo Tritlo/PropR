@@ -1,5 +1,5 @@
 ARG HASKELL_VERSION=8.10.4
-ARG ENDEMIC_VERSION=0.0.1
+ARG ENDEMIC_VERSION=0.5.0
 ARG RUN_TESTS
 # ==========================================
 # =         Stage 1: Build & Test          =
