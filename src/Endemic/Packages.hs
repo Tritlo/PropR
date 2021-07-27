@@ -1,10 +1,16 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TupleSections #-}
 
 module Endemic.Packages where
 
+import Control.Arrow (first, (&&&), (***))
+import Control.Monad (join)
 import Data.IORef
+import Data.List (partition)
+import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Distribution.ModuleName
 import Distribution.PackageDescription
 import Distribution.PackageDescription.Configuration
 import Distribution.PackageDescription.Parsec
@@ -18,7 +24,9 @@ import Distribution.Types.GenericPackageDescription
 import Distribution.Types.LocalBuildInfo
 import Distribution.Verbosity
 import Endemic
+import Endemic.Util
 import System.Directory
+import System.FilePath
 
 -- | Finds the cabal file in the given file, errors if there's no such file or
 -- multiple files.
@@ -36,16 +44,56 @@ findCabalFile = do
 repairPackage :: Configuration -> FilePath -> IO [String]
 repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
   cabal_file <- findCabalFile
-  print cabal_file
+  logStr DEBUG $ "Using cabal file " ++ cabal_file
   g_desc <- readGenericPackageDescription silent cabal_file
-  lbi_res <- newIORef Nothing
-  let hooks =
-        simpleUserHooks
-          { postBuild = \_ _ _ lbi ->
-              writeIORef lbi_res (Just lbi)
-          }
-  defaultMainWithHooksNoReadArgs hooks g_desc ["configure"]
-  defaultMainWithHooksNoReadArgs hooks g_desc ["build"]
-  Just lbi <- readIORef lbi_res
-  print lbi
-  return []
+  --   lbi_res <- newIORef Nothing
+  --   let hooks =
+  --         simpleUserHooks
+  --           { postBuild = \_ _ _ lbi ->
+  --               writeIORef lbi_res (Just lbi)
+  --           }
+  let p_desc@PackageDescription {..} = flattenPackageDescription g_desc
+      PackageIdentifier {pkgName = pname} = package
+      testModName TestSuite {testInterface = TestSuiteExeV10 _ fp, ..} =
+        Just
+          (testBuildInfo, addHsSourceDir testBuildInfo fp)
+      testModName TestSuite {testInterface = TestSuiteLibV09 _ mname, ..} =
+        Just
+          (testBuildInfo, addHsSourceDir testBuildInfo $ toFilePath mname <.> ".hs")
+      testModName _ = Nothing
+      addHsSourceDir BuildInfo {..} = (dir </>)
+        where
+          dir = case hsSourceDirs of
+            [d] -> d
+            _ -> error "Multiple source dirs not supported!"
+  let found_mods = mapMaybe testModName testSuites
+      non_local_deps BuildInfo {..} = partition (\(Dependency dname _ _) -> dname /= pname) targetBuildDepends
+
+  found_tests <- mapM (\(b, p) -> (b,) <$> makeAbsolute p) found_mods
+  logStr DEBUG $ "Found test modules:"
+  mapM_ (logStr DEBUG . show . snd) found_tests
+  logStr DEBUG $ "Non local deps"
+  let packages =
+        map
+          ( join (***) (map (\(Dependency dname _ _) -> unPackageName dname))
+              . non_local_deps
+              . fst
+          )
+          found_tests
+      m_w_pkgs = zipWith (\(b, m) p -> (m, b, p)) found_tests packages
+  case m_w_pkgs of
+    [] -> error "No repairable testsuite found!"
+    -- TODO: Add a test-suite argument to disambiguate when there are multiple
+    -- testsuites:
+    (_ : _ : _) -> error "Multiple repairable testsuites found!"
+    [(testMod, buildInfo, (lcl_pkgs, non_lcl_pkgs))] -> do
+      logStr DEBUG testMod
+      logStr DEBUG $ show packages
+      -- TODO: Add the source dirs from the library being fixed, and the
+      -- pacakges required by the library to be fixed.
+      test_dirs <- mapM makeAbsolute (hsSourceDirs buildInfo)
+      let dirs = test_dirs ++ lib_dirs
+          lib_dirs = []
+          conf' = conf {compileConfig = compileConfig {packages = lcl_pkgs, modBase = dirs}}
+      logStr DEBUG $ show conf'
+      return []

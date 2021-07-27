@@ -208,8 +208,8 @@ monomorphiseType cc ty =
 
 -- | addLocalTargets adds any modules that are mentioned that should be in a
 -- directory close to the target.
-addLocalTargets :: GhcMonad m => [InteractiveImport] -> Maybe FilePath -> m ()
-addLocalTargets imports (Just mod_base) = do
+addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m SuccessFlag
+addLocalTargets imports local_paths = do
   mg <- depanal [] False
   -- We (crudely) add any missing local modules:
   let mg_mods = map (map unLoc . ms_home_imps) (mgModSummaries mg)
@@ -225,15 +225,13 @@ addLocalTargets imports (Just mod_base) = do
           rep ('.' : xs) = pathSeparator : rep xs
           rep (x : xs) = x : rep xs
           mod_name_path = rep mod_name
-          mod_path' = mod_base </> mod_name_path <.> ".hs"
-      abs_path <- liftIO $ makeAbsolute mod_path'
-      exists <- liftIO $ doesFileExist abs_path
-      let t' = Target (TargetFile abs_path Nothing) True Nothing
-      when exists $ do
-        addTarget t'
-        _ <- load $ LoadUpTo mod
-        return ()
-addLocalTargets _ _ = return ()
+      forM_ local_paths $ \mod_base -> do
+        let mod_path' = mod_base </> mod_name_path <.> ".hs"
+        abs_path <- liftIO $ makeAbsolute mod_path'
+        exists <- liftIO $ doesFileExist abs_path
+        let t' = Target (TargetFile abs_path Nothing) True Nothing
+        when exists $ addTarget t'
+  load LoadAllTargets
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
@@ -250,8 +248,8 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
   -- Feed the given Module into GHC
   runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc {importStmts = importStmts ++ checkImports}
+    addLocalTargets [] (modBase ++ [dropFileName mod_path])
     addTarget target
-    addLocalTargets [] (Just $ dropFileName mod_path)
     _ <- load LoadAllTargets
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
     -- Retrieve the parsed module
@@ -272,7 +270,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
         cc' =
           cc
             { importStmts = importStmts ++ imps',
-              modBase = Just (dropFileName mod_path)
+              modBase = dropFileName mod_path : modBase
             }
           where
             imps' = map showUnsafe hsmodImports
