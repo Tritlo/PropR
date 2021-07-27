@@ -167,6 +167,31 @@ properGenTests =
               "-brokenPair = (1, 2, 3)",
               "+brokenPair = (3, 4, 5)"
             ]
+          ],
+      mkGenConfTest 15_000_000 "Repair UsesDependency" "tests/cases/UsesDependency.hs" $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
+              "--- a/tests/cases/UsesDependency.hs",
+              "+++ b/tests/cases/UsesDependency.hs",
+              "@@ -9,1 +9,1 @@ result = dependency + 3",
+              "-result = dependency + 3",
+              "+result = 42"
+            ],
+            [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
+              "--- a/tests/cases/UsesDependency.hs",
+              "+++ b/tests/cases/UsesDependency.hs",
+              "@@ -9,1 +9,1 @@ result = dependency + 3",
+              "-result = dependency + 3",
+              "+result = dependency + 1"
+            ],
+            [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
+              "--- a/tests/cases/UsesDependency.hs",
+              "+++ b/tests/cases/UsesDependency.hs",
+              "@@ -9,1 +9,1 @@ result = dependency + 3",
+              "-result = dependency + 3",
+              "+result = dependency + one"
+            ]
           ]
     ]
 

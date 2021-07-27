@@ -27,7 +27,7 @@ import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag
 import Constraint
 import Control.Arrow ((***))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (when, (>=>))
+import Control.Monad (forM_, when, (>=>))
 import qualified CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
@@ -59,9 +59,9 @@ import GhcPlugins hiding (exprType)
 import PrelNames (mkMainModule, toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
 import System.Exit (ExitCode (..))
-import System.FilePath (dropExtension, takeFileName)
+import System.FilePath
 import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
 import System.Posix.Signals
@@ -71,7 +71,7 @@ import TcExpr (tcInferSigma)
 import TcHoleErrors (HoleFit (..), TypedHole (..))
 import TcSimplify (captureTopConstraints)
 import Trace.Hpc.Mix
-import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix)
+import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix, tixModuleName)
 import Trace.Hpc.Util (HpcPos, fromHpcPos)
 import TyCoRep
 
@@ -141,6 +141,7 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
   imports <- mapM (fmap IIDecl . parseImportDecl) importStmts
+  addLocalTargets imports modBase
   getContext >>= setContext . (imports ++)
   return plugRef
 
@@ -205,6 +206,35 @@ monomorphiseType cc ty =
       where
         (tvs, base_ty) = splitForAllTys ty'
 
+-- | addLocalTargets adds any modules that are mentioned that should be in a
+-- directory close to the target.
+addLocalTargets :: GhcMonad m => [InteractiveImport] -> Maybe FilePath -> m ()
+addLocalTargets imports (Just mod_base) = do
+  mg <- depanal [] False
+  -- We (crudely) add any missing local modules:
+  let mg_mods = map (map unLoc . ms_home_imps) (mgModSummaries mg)
+      imods = mapMaybe toModName imports
+      toModName (IIDecl id@ImportDecl {ideclName = L _ mname}) = Just mname
+      toModName (IIModule mname) = Just mname
+      toModName _ = Nothing
+
+  forM_ (imods : mg_mods) $ \lmods ->
+    forM_ lmods $ \mod -> do
+      let mod_name = moduleNameString mod
+          rep [] = []
+          rep ('.' : xs) = pathSeparator : rep xs
+          rep (x : xs) = x : rep xs
+          mod_name_path = rep mod_name
+          mod_path' = mod_base </> mod_name_path <.> ".hs"
+      abs_path <- liftIO $ makeAbsolute mod_path'
+      exists <- liftIO $ doesFileExist abs_path
+      let t' = Target (TargetFile abs_path Nothing) True Nothing
+      when exists $ do
+        addTarget t'
+        _ <- load $ LoadUpTo mod
+        return ()
+addLocalTargets _ _ = return ()
+
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
 moduleToProb ::
@@ -221,6 +251,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
   runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc {importStmts = importStmts ++ checkImports}
     addTarget target
+    addLocalTargets [] (Just $ dropFileName mod_path)
     _ <- load LoadAllTargets
     let mname = mkModuleName $ dropExtension $ takeFileName mod_path
     -- Retrieve the parsed module
@@ -238,7 +269,11 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             }
 
     let (L _ HsModule {..}) = pm_parsed_source
-        cc' = cc {importStmts = importStmts ++ imps'}
+        cc' =
+          cc
+            { importStmts = importStmts ++ imps',
+              modBase = Just (dropFileName mod_path)
+            }
           where
             imps' = map showUnsafe hsmodImports
         -- Retrieves the Values declared in the given Haskell-Module
@@ -559,12 +594,14 @@ traceTargets rc@RepConf {..} cc tp expr@(L (RealSrcSpan realSpan) _) ps_w_ce = d
 
           tix <- readTix tixFilePath
           let rm m = (m,) <$> readMix [mixFilePath] (Right m)
+              isTargetMod = (mname ==) . tixModuleName
           case tix of
             Just (Tix mods) -> do
               -- We throw away any extra functions in the file, such as
               -- the properties and the main function, and only look at
               -- the ticks for our expression
-              [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm mods
+              let fake_only = filter isTargetMod mods
+              [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm fake_only
               return $ Just (fmap (Data.Bifunctor.first (toFakeSpan the_f root)) n)
             _ -> return Nothing
     removeTarget tid
