@@ -27,7 +27,7 @@ import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag
 import Constraint
 import Control.Arrow ((***))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (forM_, when, (>=>))
+import Control.Monad (forM_, void, when, (>=>))
 import qualified CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
@@ -35,7 +35,7 @@ import Data.Char (isAlphaNum)
 import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
 import Data.IORef (IORef, newIORef, readIORef)
-import Data.List (groupBy, intercalate, partition)
+import Data.List (groupBy, intercalate, partition, stripPrefix)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isNothing, mapMaybe)
 import Data.Set (Set)
@@ -208,7 +208,7 @@ monomorphiseType cc ty =
 
 -- | addLocalTargets adds any modules that are mentioned that should be in a
 -- directory close to the target.
-addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m SuccessFlag
+addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m ()
 addLocalTargets imports local_paths = do
   mg <- depanal [] False
   -- We (crudely) add any missing local modules:
@@ -220,18 +220,14 @@ addLocalTargets imports local_paths = do
 
   forM_ (imods : mg_mods) $ \lmods ->
     forM_ lmods $ \mod -> do
-      let mod_name = moduleNameString mod
-          rep [] = []
-          rep ('.' : xs) = pathSeparator : rep xs
-          rep (x : xs) = x : rep xs
-          mod_name_path = rep mod_name
+      let mod_name = moduleNameSlashes mod
       forM_ local_paths $ \mod_base -> do
-        let mod_path' = mod_base </> mod_name_path <.> ".hs"
+        let mod_path' = mod_base </> mod_name <.> ".hs"
         abs_path <- liftIO $ makeAbsolute mod_path'
         exists <- liftIO $ doesFileExist abs_path
         let t' = Target (TargetFile abs_path Nothing) True Nothing
-        when exists $ addTarget t'
-  load LoadAllTargets
+        when exists $
+          void (addTarget t' >> load (LoadUpTo mod))
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
@@ -248,13 +244,27 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
   -- Feed the given Module into GHC
   runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc {importStmts = importStmts ++ checkImports}
-    addLocalTargets [] (modBase ++ [dropFileName mod_path])
+    liftIO $ logStr DEBUG "Loading module targets..."
+
+    mnames_before <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
     addTarget target
+    mnames_after <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
+    let mname = Set.findMin $ mnames_after `Set.difference` mnames_before
+        no_ext = dropExtension mod_path
+        thisModBase = case stripPrefix (reverse $ moduleNameSlashes mname) no_ext of
+          Just dir -> reverse dir
+          _ -> dropFileName no_ext
+
+    addLocalTargets [] (thisModBase : modBase)
+    mnames_after_local <- depanal [] False
     _ <- load LoadAllTargets
-    let mname = mkModuleName $ dropExtension $ takeFileName mod_path
+    liftIO $ logStr DEBUG "Done loading module targets!"
+    liftIO $ logStr DEBUG "Parsing module..."
     -- Retrieve the parsed module
+    liftIO $ logStr DEBUG "Parsing module..."
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
     tc_modul@TypecheckedModule {..} <- typecheckModule modul
+    liftIO $ logStr DEBUG "Done parsing module!"
 
     dynFlags <- getSessionDynFlags
     _ <-
@@ -350,18 +360,31 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               | rdrNameOcc (unLoc fun_id) `elem` tests = Just (L l b)
             fromPropD _ = Nothing
 
-        fix_targets :: [RdrName]
-        fix_targets = Set.toList $ fun_ids `Set.intersection` prop_vars
+        local_prop_var_names :: [Name]
+        local_prop_var_names = filter fromLocalPackage prop_var_names
           where
-            funId (L _ (ValD _ FunBind {..})) = Just $ unLoc fun_id
-            funId _ = Nothing
-            fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
-            mbVar (L _ (HsVar _ v)) = Just $ unLoc v
-            mbVar _ = Nothing
+            fromLocalPackage name
+              | Just mod <- nameModule_maybe name =
+                mgElemModule mnames_after_local mod
+            fromLocalPackage _ = False
+            prop_var_names :: [Name]
+            prop_var_names = filter ((`Set.member` prop_var_occs) . occName) top_lvl_names
+            prop_var_occs = Set.map occName prop_vars
+            Just top_lvl_names = modInfoTopLevelScope (moduleInfo tc_modul)
             prop_vars =
               Set.fromList $
                 mapMaybe mbVar $
                   flattenExpr (noLoc $ HsLet NoExtField (toCtxt props) (tf "undefined"))
+            mbVar (L _ (HsVar _ v)) = Just $ unLoc v
+            mbVar _ = Nothing
+
+        fix_targets :: [RdrName]
+        fix_targets = Set.toList $ Set.filter ((`Set.member` name_occs) . occName) fun_ids
+          where
+            name_occs = Set.map occName $ Set.fromList local_prop_var_names
+            funId (L _ (ValD _ FunBind {..})) = Just $ unLoc fun_id
+            funId _ = Nothing
+            fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
 
         getTarget :: RdrName -> Maybe EProblem
         getTarget t_name =
@@ -461,13 +484,19 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                   HsValBinds noExtField $
                     ValBinds noExtField prog_binds [noLoc prog_sig']
 
-        probs = case mb_target of
+        int_probs = case mb_target of
           Just t ->
             case getTarget (mkVarUnqual $ fsLit t) of
               Just r -> [r]
               _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
           Nothing -> mapMaybe getTarget fix_targets
-
+    liftIO $ logStr DEBUG "Module to prob finished with:"
+    liftIO $ logOut DEBUG $ local_prop_var_names
+    liftIO $ logOut DEBUG $ map isExternalName $ local_prop_var_names
+    let probs = case int_probs of
+          [] -> map ExProb local_prop_var_names
+          _ -> int_probs
+    liftIO $ logOut DEBUG $ fix_targets
     return (cc', modul, probs)
 
 -- Create a fake base loc for a trace.
@@ -554,6 +583,7 @@ traceTargets rc@RepConf {..} cc tp expr@(L (RealSrcSpan realSpan) _) ps_w_ce = d
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     addTarget target
+    addLocalTargets [] (modBase cc)
     _ <- load LoadAllTargets
     -- We should for here in case it doesn't terminate, and modify
     -- the run function so that it use the trace reflect functionality
@@ -681,6 +711,7 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname expr ps_w_ce 
         ++ "))"
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
+exprToTraceModule _ _ _ _ _ _ _ = error "External problems not supported yet!"
 
 -- | Prints the error and stops execution
 reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b

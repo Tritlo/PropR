@@ -33,7 +33,7 @@ import Data.Function (on)
 import Data.Map (Map, differenceWith)
 import GHC
 import GHC.Generics
-import Outputable (Outputable (ppr), showSDocUnsafe, text)
+import Outputable (Outputable (ppr), showSDocUnsafe, text, (<+>))
 import qualified Outputable as O
 
 -- |
@@ -90,13 +90,29 @@ instance Ord (HsExpr GhcPs) where
 instance NFData (HsExpr GhcPs) where
   rnf expr = seq (showSDocUnsafe (ppr expr)) ()
 
-data EProblem = EProb
-  { e_props :: [EProp],
-    e_ctxt :: EContext,
-    e_target :: RdrName,
-    e_ty :: EType,
-    e_prog :: EExpr
-  }
+data EProblem
+  = EProb
+      { e_props :: [EProp],
+        e_ctxt :: EContext,
+        e_target :: RdrName,
+        e_ty :: EType,
+        e_prog :: EExpr
+      }
+  | ExProb {ex_target :: Name}
+
+instance Outputable EProblem where
+  ppr EProb {..} =
+    text "EProblem {"
+      <+> (text "props:" <+> ppr e_props)
+      <+> (text "ctxt:" <+> ppr e_ctxt)
+      <+> (text "target: " <+> ppr e_target)
+      <+> (text "ty: " <+> ppr e_ty)
+      <+> (text "prog: " <+> ppr e_prog)
+      <+> text "}"
+  ppr ExProb {..} =
+    text "ExProblem {"
+      <+> (text "target: " <+> ppr ex_target)
+      <+> text "}"
 
 -- | ExprFitCands are used by the plugin to check whether an expression could fit
 -- a given hole. Since they are not supported within the HoleFit framework, we

@@ -6,7 +6,7 @@ module Endemic.Packages where
 import Control.Arrow (first, (&&&), (***))
 import Control.Monad (join)
 import Data.IORef
-import Data.List (partition)
+import Data.List (nub, partition, sort)
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -24,6 +24,7 @@ import Distribution.Types.GenericPackageDescription
 import Distribution.Types.LocalBuildInfo
 import Distribution.Verbosity
 import Endemic
+import Endemic.Diff (fixesToDiffs)
 import Endemic.Util
 import System.Directory
 import System.FilePath
@@ -73,9 +74,10 @@ repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
   logStr DEBUG $ "Found test modules:"
   mapM_ (logStr DEBUG . show . snd) found_tests
   logStr DEBUG $ "Non local deps"
-  let packages =
+  let depToName = (\(Dependency dname _ _) -> unPackageName dname)
+      packages =
         map
-          ( join (***) (map (\(Dependency dname _ _) -> unPackageName dname))
+          ( join (***) (map depToName)
               . non_local_deps
               . fst
           )
@@ -86,14 +88,34 @@ repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
     -- TODO: Add a test-suite argument to disambiguate when there are multiple
     -- testsuites:
     (_ : _ : _) -> error "Multiple repairable testsuites found!"
-    [(testMod, buildInfo, (lcl_pkgs, non_lcl_pkgs))] -> do
+    [(testMod, buildInfo, (non_lcl_pkgs, lcl_pkgs))] -> do
       logStr DEBUG testMod
       logStr DEBUG $ show packages
       -- TODO: Add the source dirs from the library being fixed, and the
       -- pacakges required by the library to be fixed.
-      test_dirs <- mapM makeAbsolute (hsSourceDirs buildInfo)
-      let dirs = test_dirs ++ lib_dirs
-          lib_dirs = []
-          conf' = conf {compileConfig = compileConfig {packages = lcl_pkgs, modBase = dirs}}
+      let (lib_dirs, lib_pkgs) =
+            if null lcl_pkgs
+              then ([], [])
+              else case library of
+                Nothing -> ([], [])
+                Just Library {..} ->
+                  ( hsSourceDirs libBuildInfo,
+                    map depToName $ fst $ non_local_deps libBuildInfo
+                  )
+          test_dirs = hsSourceDirs buildInfo
+          dirs = test_dirs ++ lib_dirs
+          pkgs = nub $ sort $ non_lcl_pkgs ++ lib_pkgs
+      abs_dirs <- mapM makeAbsolute dirs
+      let conf' =
+            conf
+              { compileConfig =
+                  compileConfig
+                    { packages = pkgs,
+                      modBase = abs_dirs
+                    }
+              }
+      -- TODO: We could instead incorporate the module vs package into
+      -- describe problem.
       logStr DEBUG $ show conf'
-      return []
+      desc <- describeProblem conf' testMod
+      fixesToDiffs desc <$> runRepair searchAlgorithm desc
