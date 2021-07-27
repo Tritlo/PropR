@@ -1,0 +1,18 @@
+# CODEOWNERS
+
+* @tritlo @lapplislazuli
+
+# Haskell Stuff
+
+*.hs @tritlo
+*.cabal @tritlo
+
+#Genetic Search Stuff
+
+/src/Endemic/Search/Genetic/ @lappislazuli
+
+#Docker stuff
+
+docker-compose.yaml @lappislazuli
+Dockerfile @lapplislazuli
+
