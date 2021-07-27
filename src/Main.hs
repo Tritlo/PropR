@@ -170,8 +170,8 @@ main = do
     Repair _ target -> do
       -- Set the global flags
       setGlobalFlags conf
-      (_, modul, probs) <- moduleToProb compileConfig target Nothing
-      let (tp@EProb {..} : _) = if null probs then error "NO TARGET FOUND!" else probs
+      desc@ProbDesc {..} <- describeProblem conf target
+      let tp@EProb {..} = progProblem
           RProb {..} = detranslate tp
       logStr INFO $ "TARGET:"
       logStr INFO $ ("  `" ++ r_target ++ "` in " ++ target)
@@ -189,7 +189,6 @@ main = do
       logStr VERBOSE $ showUnsafe e_prog
 
       logStr INFO "REPAIRING..."
-      desc <- describeProblem conf target
       (t, fixes) <- time $ runRepair searchAlgorithm desc
 
       let diffs = fixesToDiffs desc fixes

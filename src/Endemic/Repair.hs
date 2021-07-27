@@ -50,7 +50,7 @@ import GhcPlugins
 import PrelNames (mkMainModule)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing)
-import System.FilePath (dropExtension, takeFileName)
+import System.FilePath (dropExtension, dropFileName, takeFileName)
 import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
 import System.Posix.Signals
@@ -229,7 +229,7 @@ findEvaluatedHoles ::
   ProblemDescription ->
   IO [LHsExpr GhcPs]
 findEvaluatedHoles
-  ProbDesc
+  desc@ProbDesc
     { compConf = cc,
       repConf = rc,
       progProblem = tp@EProb {..}
@@ -337,7 +337,8 @@ checkFixes
   ProbDesc
     { compConf = cc,
       repConf = rc,
-      progProblem = tp
+      progProblem = tp,
+      ..
     }
   fixes = do
     let RepConf {..} = rc
