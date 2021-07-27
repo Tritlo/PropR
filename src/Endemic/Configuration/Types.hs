@@ -224,7 +224,7 @@ instance Materializeable CompileConfig where
       umPackages :: Maybe [String],
       umHoleLvl :: Maybe Int,
       umUnfoldTastyTests :: Maybe Bool,
-      umModBase :: Maybe FilePath
+      umModBase :: Maybe [FilePath]
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -239,7 +239,7 @@ instance Materializeable CompileConfig where
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
         hole_lvl = fromMaybe hole_lvl umHoleLvl,
-        modBase = mbOverride modBase umModBase,
+        modBase = fromMaybe modBase umModBase,
         unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests
       }
 
@@ -250,7 +250,7 @@ data CompileConfig = CompConf
     -- | a list of packages used for the compilation
     packages :: [String],
     -- | Base path to use for modules, if available
-    modBase :: Maybe FilePath,
+    modBase :: [FilePath],
     -- | the "depth" of the holes, see general notes on this
     hole_lvl :: Int,
     unfoldTastyTests :: Bool
@@ -267,7 +267,7 @@ instance Default CompileConfig where
         packages = ["base"],
         importStmts = ["import Prelude"],
         unfoldTastyTests = True,
-        modBase = Nothing
+        modBase = []
       }
 
 -- | Configuration for the checking of repairs
