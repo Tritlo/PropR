@@ -12,3 +12,5 @@ output-patches-*
 
 log.txt 
 *.log
+
+tests/cases/packages/TestPackage/tests/Tests
