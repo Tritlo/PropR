@@ -2,9 +2,23 @@ name: Haskell CI
 
 on:
   push:
-    branches: [ master ]
+    tags:
+      - 'v*.*.*'
+    paths:
+      - '**.hs'
+      - '**.cabal'
+      - 'Dockerfile'
+      - '**.project'
+    branches:
+      - 'master'
   pull_request:
-    branches: [ master ]
+    branches:
+      - 'master'
+    paths:
+      - '**.hs'
+      - '**.cabal'
+      - 'Dockerfile'
+      - '**.project'
 
 jobs:
   build:
