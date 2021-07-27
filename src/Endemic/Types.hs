@@ -98,7 +98,7 @@ data EProblem
         e_ty :: EType,
         e_prog :: EExpr
       }
-  | ExProb {ex_target :: Name}
+  | ExProb {ex_targets :: [Name]}
 
 instance Outputable EProblem where
   ppr EProb {..} =
@@ -111,7 +111,7 @@ instance Outputable EProblem where
       <+> text "}"
   ppr ExProb {..} =
     text "ExProblem {"
-      <+> (text "target: " <+> ppr ex_target)
+      <+> (text "target: " <+> ppr ex_targets)
       <+> text "}"
 
 -- | ExprFitCands are used by the plugin to check whether an expression could fit

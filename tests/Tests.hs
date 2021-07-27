@@ -412,7 +412,7 @@ sanctifyTests =
           let cc = def
               toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
-          (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
+          (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
           -- There are 7 ways to replace parts of the broken function in BrokenModule
           -- with holes:
           length (sanctifyExpr e_prog) @?= 7,
@@ -421,7 +421,7 @@ sanctifyTests =
           let cc = def
               toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
-          (cc', _, [EProb {..}]) <- moduleToProb cc toFix repair_target
+          (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
           let (holes, holey) = unzip $ sanctifyExpr e_prog
               filled = mapMaybe (fillHole undefVar) holey
           length filled @?= 7
@@ -462,7 +462,7 @@ moduleTests =
                   ]
 
           setSeedGenSeed tESTSEED
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
           fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
@@ -470,7 +470,7 @@ moduleTests =
       localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
           let toFix = "tests/cases/BrokenModule.hs"
-          (_, _, [EProb {..}]) <- moduleToProb def toFix Nothing
+          (_, _, Just EProb {..}) <- moduleToProb def toFix Nothing
           showUnsafe e_target @?= "broken",
       localOption (mkTimeout 90_000_000) $
         testCase "Repair BrokenGCD" $ do
@@ -490,7 +490,7 @@ moduleTests =
                     ]
                   ]
           setSeedGenSeed tESTSEED
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
           fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
@@ -512,7 +512,7 @@ moduleTests =
                   ]
 
           setSeedGenSeed tESTSEED
-          (cc', mod, [tp@EProb {..}]) <- moduleToProb def toFix repair_target
+          (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
           fixes <- repair cc' def tp
           let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
               fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
