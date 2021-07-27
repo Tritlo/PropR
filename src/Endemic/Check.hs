@@ -151,6 +151,7 @@ buildFixCheck rc seed EProb {..} fixes =
               NoExtField
               (tt "IO")
               (noLoc $ HsListTy NoExtField $ tt "Bool")
+buildFixCheck _ _ _ _ = error "External not supported!"
 
 buildSuccessCheck ::
   RepairConfig ->
@@ -213,6 +214,7 @@ buildSuccessCheck rc seed EProb {..} =
                 )
                 sq_ty
           )
+buildSuccessCheck _ _ _ = error "External not supported!"
 
 -- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result

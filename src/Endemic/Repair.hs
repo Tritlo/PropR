@@ -440,22 +440,12 @@ checkFixes
                 collectStats $ mapM waitOnCheck procs
               else collectStats $ mapM (startCheck >=> waitOnCheck) inds
 
--- | Sometimes there are multiple ways to fix the issue, so we have to pick one.
-pickProblem :: Configuration -> CompileConfig -> ParsedModule -> [EProblem] -> IO EProblem
-pickProblem _ _ _ [prob@EProb {}] = return prob
-pickProblem _ _ _ [prob@ExProb {}] = error "External problems not supported yet!"
-pickProblem _ _ _ [] = error "No target found!"
-pickProblem _ _ _ probs =
-  error $ unlines ("Multiple problems found, which one to pick?" : targets)
-  where
-    targetOccName EProb {..} = occName e_target
-    targetOccName ExProb {..} = occName ex_target
-    targets = map (occNameString . targetOccName) probs
-
 describeProblem :: Configuration -> FilePath -> IO ProblemDescription
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
-  (compConf, modul, problems) <- moduleToProb cc fp Nothing
-  progProblem@EProb {..} <- pickProblem conf compConf modul problems
+  (compConf, modul, problem) <- moduleToProb cc fp Nothing
+  let progProblem@EProb {..} = case problem of
+        Just p@EProb {} -> p
+        _ -> error "External or multi-target not supported!"
   exprFitCands <-
     getExprFitCands compConf $
       noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar

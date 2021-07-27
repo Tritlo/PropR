@@ -239,7 +239,7 @@ moduleToProb ::
   -- | The Path under which the module is located
   Maybe String ->
   -- | "mb_target" whether to target a specific type (?)
-  IO (CompileConfig, ParsedModule, [EProblem])
+  IO (CompileConfig, ParsedModule, Maybe EProblem)
 moduleToProb cc@CompConf {..} mod_path mb_target = do
   let target = Target (TargetFile mod_path Nothing) True Nothing
   -- Feed the given Module into GHC
@@ -387,27 +387,37 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             funId _ = Nothing
             fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
 
-        getTarget :: RdrName -> Maybe EProblem
-        getTarget t_name =
-          case prog_sig of
-            Just s ->
-              Just $
-                EProb
-                  { e_target = t_name,
-                    e_prog = wp_expr s,
-                    e_ctxt = ctxt,
-                    e_ty = prog_ty s,
-                    e_props = wrapped_props
-                  }
+        getTarget :: [RdrName] -> Maybe EProblem
+        getTarget t_names =
+          case targets of
+            _
+              | len <- length targets,
+                len > 0,
+                len == length t_names,
+                -- TODO: allow many programs
+                [prog] <- wp_expr targets_n_sigs,
+                [(target, sig)] <- targets_n_sigs ->
+                Just $
+                  EProb
+                    { e_prog = prog,
+                      e_ctxt = ctxt,
+                      e_props = wrapped_props,
+                      e_target = target,
+                      e_ty = prog_ty sig
+                    }
             _ -> Nothing
           where
-            isTDef (L _ (SigD _ (TypeSig _ ids _))) = t_name `elem` map unLoc ids
-            isTDef (L _ (ValD _ FunBind {..})) = t_name == unLoc fun_id
+            t_names_set = Set.fromList t_names
+            isTDef (L _ (SigD _ (TypeSig _ ids _))) =
+              not (t_names_set `Set.disjoint` Set.fromList (map unLoc ids))
+            isTDef (L _ (ValD _ FunBind {..})) =
+              (unLoc fun_id) `Set.member` t_names_set
             isTDef _ = False
+
             -- We get the type of the program
-            getTType (L _ (SigD _ ts@(TypeSig _ ids _)))
+            getTType t_name (L _ (SigD _ ts@(TypeSig _ ids _)))
               | t_name `elem` map unLoc ids = Just ts
-            getTType _ = Nothing
+            getTType _ _ = Nothing
 
             -- takes prop :: t ==> prop' :: target_type -> t since our
             -- previous assumptions relied on the properties to take in the
@@ -420,7 +430,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
 
             nmatches nfid mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
               where
-                nalt (L l'' m@Match {..}) = L l'' m {m_pats = nvpat : m_pats, m_ctxt = n_ctxt}
+                nalt (L l'' m@Match {..}) = L l'' m {m_pats = nvpats ++ m_pats, m_ctxt = n_ctxt}
                   where
                     n_ctxt =
                       case m_ctxt of
@@ -428,7 +438,8 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                           fh {mc_fun = L l''' $ unLoc nfid}
                         o -> o
                 nalt alt = alt
-                nvpat = noLoc $ VarPat NoExtField $ noLoc t_name
+                nvpat t_name = noLoc $ VarPat NoExtField $ noLoc t_name
+                nvpats = map nvpat targets
             nmatches _ mg = mg
 
             wrapProp :: LHsBind GhcPs -> [LHsBind GhcPs]
@@ -469,36 +480,47 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               where
                 f (L _ (ValD _ b)) = Just $ noLoc b
                 f _ = Nothing
-            prog_sig :: Maybe (Sig GhcPs)
-            prog_sig = case mapMaybe getTType hsmodDecls of
-              (pt : _) -> Just pt
+
+            prog_sig :: RdrName -> Maybe (RdrName, Sig GhcPs)
+            prog_sig t_name = case mapMaybe (getTType t_name) hsmodDecls of
+              (pt : _) -> Just (t_name, pt)
               _ -> Nothing
+
+            targets_n_sigs = mapMaybe prog_sig t_names
+            (targets, sigs) = unzip targets_n_sigs
+
             prog_ty :: Sig GhcPs -> EType
             prog_ty prog_sig' = sig
               where
                 (TypeSig _ _ sig) = prog_sig'
-            wp_expr :: Sig GhcPs -> LHsExpr GhcPs
-            wp_expr prog_sig' = noLoc $ HsLet noExtField (noLoc lbs) (noLoc le)
+            wp_expr :: [(RdrName, Sig GhcPs)] -> [LHsExpr GhcPs]
+            wp_expr tns = map wp' t_names
               where
-                le = HsVar noExtField $ noLoc t_name
-                lbs =
-                  HsValBinds noExtField $
-                    ValBinds noExtField prog_binds [noLoc prog_sig']
+                (t_names, sigs) = unzip tns
+                sigs' = map noLoc sigs
+                wp' :: RdrName -> LHsExpr GhcPs
+                wp' t_name = noLoc $ HsLet noExtField (noLoc lbs) (noLoc le)
+                  where
+                    le = HsVar noExtField $ noLoc t_name
+                    lbs =
+                      HsValBinds noExtField $
+                        ValBinds noExtField prog_binds sigs'
 
-        int_probs = case mb_target of
+        int_prob = case mb_target of
           Just t ->
-            case getTarget (mkVarUnqual $ fsLit t) of
-              Just r -> [r]
+            case getTarget [mkVarUnqual $ fsLit t] of
+              Just r -> Just r
               _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
-          Nothing -> mapMaybe getTarget fix_targets
+          Nothing -> getTarget fix_targets
+
     liftIO $ logStr DEBUG "Module to prob finished with:"
     liftIO $ logOut DEBUG $ local_prop_var_names
     liftIO $ logOut DEBUG $ map isExternalName $ local_prop_var_names
-    let probs = case int_probs of
-          [] -> map ExProb local_prop_var_names
-          _ -> int_probs
+    let prob = case int_prob of
+          Nothing -> Just $ ExProb local_prop_var_names
+          _ -> int_prob
     liftIO $ logOut DEBUG $ fix_targets
-    return (cc', modul, probs)
+    return (cc', modul, prob)
 
 -- Create a fake base loc for a trace.
 fakeBaseLoc :: CompileConfig -> EExpr -> IO SrcSpan
