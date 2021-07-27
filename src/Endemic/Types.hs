@@ -90,13 +90,16 @@ instance Ord (HsExpr GhcPs) where
 instance NFData (HsExpr GhcPs) where
   rnf expr = seq (showSDocUnsafe (ppr expr)) ()
 
+-- | An EProg contains a replacement for every target being fixed.
+type EProg = [(RdrName, EType, EExpr)]
+
+type EProgFix = [EExpr]
+
 data EProblem
   = EProb
       { e_props :: [EProp],
         e_ctxt :: EContext,
-        e_target :: RdrName,
-        e_ty :: EType,
-        e_prog :: EExpr
+        e_prog :: EProg
       }
   | ExProb {ex_targets :: [Name]}
 
@@ -105,8 +108,6 @@ instance Outputable EProblem where
     text "EProblem {"
       <+> (text "props:" <+> ppr e_props)
       <+> (text "ctxt:" <+> ppr e_ctxt)
-      <+> (text "target: " <+> ppr e_target)
-      <+> (text "ty: " <+> ppr e_ty)
       <+> (text "prog: " <+> ppr e_prog)
       <+> text "}"
   ppr ExProb {..} =

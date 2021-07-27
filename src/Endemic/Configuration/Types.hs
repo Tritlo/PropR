@@ -366,9 +366,9 @@ data ProblemDescription = ProbDesc
     initialFixes :: Maybe [EFix]
   }
 
-setProg :: ProblemDescription -> EExpr -> ProblemDescription
+setProg :: ProblemDescription -> EProg -> ProblemDescription
 setProg desc@ProbDesc {progProblem = pp} prog = desc {progProblem = pp {e_prog = prog}}
 
 -- Inline version of setProg
-(<~) :: ProblemDescription -> EExpr -> ProblemDescription
+(<~) :: ProblemDescription -> EProg -> ProblemDescription
 (<~) = setProg

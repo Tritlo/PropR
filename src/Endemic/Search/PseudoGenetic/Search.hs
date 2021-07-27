@@ -120,14 +120,13 @@ pseudoGeneticRepair
     } = do
     first_attempt <- case mb_initial_fixes of
       Just fixes ->
-        zip fixes <$> checkFixes desc (map (`replaceExpr` progAtTy e_prog e_ty) fixes)
+        zip fixes <$> checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) fixes)
       _ -> collectStats $ repairAttempt desc
     if not $ null $ successful first_attempt
       then return (Set.fromList $ map fst $ successful first_attempt)
       else do
-        let prog_at_ty = progAtTy e_prog e_ty
-            runGen (fix, _) = do
-              let n_prog = replaceExpr fix prog_at_ty
+        let runGen (fix, _) = do
+              let n_prog = applyFixToEProg e_prog fix
               map (\(f, r) -> (f `mergeFixes` fix, r))
                 <$> collectStats (repairAttempt (desc <~ n_prog))
             loop :: [(EFix, TestSuiteResult)] -> Int -> IO (Set EFix)
@@ -155,6 +154,7 @@ pseudoGeneticRepair
               logStr INFO $ "ROUND TIME: " ++ showTime t
               loop new_attempt (rounds + 1)
         loop first_attempt 1
+pseudoGeneticRepair _ _ = error "External fixes not supported"
 
 -- |
 -- Computes the average value of an array of integrals.

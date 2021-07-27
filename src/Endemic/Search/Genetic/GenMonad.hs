@@ -26,7 +26,7 @@ import Endemic.Search.Genetic.Types
 import Endemic.Search.Genetic.Utils
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types (EFix, EProblem (..), TestSuiteResult)
-import Endemic.Util (collectStats, mergeFixes, mergeFixes', progAtTy)
+import Endemic.Util (applyFixToEProg, collectStats, eProgToEProgFix, mergeFixes, mergeFixes', progAtTy)
 import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
 import GhcPlugins (Outputable (..), liftIO, ppr, showSDocUnsafe)
 import System.Random
@@ -65,8 +65,7 @@ instance Chromosome EFix where
         dropped = zipWith drop' to_drop gens
 
         EProb {..} = progProblem
-        prog_at_ty = progAtTy e_prog e_ty
-        n_progs = map (`replaceExpr` prog_at_ty) to_mutate
+        n_progs = map (applyFixToEProg e_prog) to_mutate
         (gen'' : gens') = splitGenList gen'
         selection ((p, pFixes), generation) =
           case pickElementUniform pFixes generation of
@@ -115,11 +114,10 @@ instance Chromosome EFix where
         desc@ProbDesc {..} <- liftDesc R.ask
         GConf {..} <- liftConf R.ask
         let EProb {..} = progProblem
-            prog_at_ty = progAtTy e_prog e_ty
-            n_progs = map (`replaceExpr` prog_at_ty) to_compute
+            n_progs = map (applyFixToEProg e_prog) to_compute
         res <-
           zipWith (\e f -> (e, basicFitness e f)) to_compute
-            <$> liftIO (checkFixes desc n_progs)
+            <$> liftIO (checkFixes desc $ map eProgToEProgFix n_progs)
         putCache (Map.fromList res `Map.union` fc)
         return $
           map (snd . snd) $

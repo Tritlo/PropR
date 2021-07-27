@@ -48,7 +48,7 @@ getFixBinds parsed =
     check (L _ (ExprWithTySig _ (L _ (HsPar _ (L _ (HsLet _ (L _ (HsValBinds _ ValBinds {})) _)))) _)) = True
     check _ = False
 
-applyFixes :: ParsedModule -> LHsBinds GhcPs -> (ParsedModule, [RFix])
+applyFixes :: ParsedModule -> [LHsBinds GhcPs] -> (ParsedModule, [RFix])
 applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nbs =
   (pm {pm_parsed_source = L lm (hm {hsmodDecls = decls'})}, swaps)
   where
@@ -65,7 +65,7 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nbs =
     bToFunId b@(L _ FunBind {..}) = Just (unLoc fun_id, b)
     bToFunId _ = Nothing
     nbMap :: Map RdrName (LHsBind GhcPs)
-    nbMap = Map.fromList $ mapMaybe bToFunId $ bagToList nbs
+    nbMap = Map.fromList $ mapMaybe bToFunId $ concatMap bagToList nbs
 
 -- | Colorize a pretty printed fix
 colorizeDiff :: String -> String
@@ -124,9 +124,14 @@ ppDiff (L o1 d, L o2 d') =
 
 fixesToDiffs :: ProblemDescription -> Set EFix -> [String]
 fixesToDiffs desc@ProbDesc {probModule = Just modul} fixes =
-  map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
+  map (concatMap ppDiff . snd . applyFixes modul . map getFixBinds) fixProgs
   where
     ProbDesc {..} = desc
     EProb {..} = progProblem
-    fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
+    fixProgs =
+      map
+        ( \(_, e_ty, e_prog) ->
+            map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
+        )
+        e_prog
 fixesToDiffs _ _ = error "Cannot print diff if module not available!"
