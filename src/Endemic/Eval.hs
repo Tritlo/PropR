@@ -27,7 +27,7 @@ import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag
 import Constraint
 import Control.Arrow ((***))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (forM_, void, when, (>=>))
+import Control.Monad (forM_, unless, void, when, (>=>))
 import qualified CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
@@ -213,21 +213,22 @@ addLocalTargets imports local_paths = do
   mg <- depanal [] False
   -- We (crudely) add any missing local modules:
   let mg_mods = map (map unLoc . ms_home_imps) (mgModSummaries mg)
+      already_a_target = Set.fromList $ map ms_mod_name $ mgModSummaries mg
       imods = mapMaybe toModName imports
       toModName (IIDecl id@ImportDecl {ideclName = L _ mname}) = Just mname
       toModName (IIModule mname) = Just mname
       toModName _ = Nothing
-
   forM_ (imods : mg_mods) $ \lmods ->
     forM_ lmods $ \mod -> do
-      let mod_name = moduleNameSlashes mod
-      forM_ local_paths $ \mod_base -> do
-        let mod_path' = mod_base </> mod_name <.> ".hs"
-        abs_path <- liftIO $ makeAbsolute mod_path'
-        exists <- liftIO $ doesFileExist abs_path
-        let t' = Target (TargetFile abs_path Nothing) True Nothing
-        when exists $
-          void (addTarget t' >> load (LoadUpTo mod))
+      unless (mod `Set.member` already_a_target) $ do
+        let mod_name = moduleNameSlashes mod
+        forM_ local_paths $ \mod_base -> do
+          let mod_path' = mod_base </> mod_name <.> ".hs"
+          abs_path <- liftIO $ makeAbsolute mod_path'
+          exists <- liftIO $ doesFileExist abs_path
+          let t' = Target (TargetFile abs_path Nothing) True Nothing
+          when exists $
+            void (addTarget t' >> load (LoadUpTo mod))
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
