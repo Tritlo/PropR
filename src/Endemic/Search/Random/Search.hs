@@ -16,7 +16,7 @@
 -- Nevertheless, it might be faster as it is low on ritual and for easy problems, or simply by luck, it can find solutions faster.
 module Endemic.Search.Random.Search where
 
-import Control.Arrow (first)
+import Control.Arrow (first, second)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -62,7 +62,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
               logStr INFO "Fix got too big, starting over!"
               randomRepair' start gen Map.empty
         else do
-          let prog' = replaceExpr fix_so_far prog_at_ty
+          let prog' = applyFixToEProg e_prog fix_so_far
           hole_cands <- collectStats $ findEvaluatedHoles (desc <~ prog')
           let (r_hole_ind, gen') = nextInteger 0 (fromIntegral (length hole_cands - 1)) gen
               chosen_hole = hole_cands !! fromIntegral r_hole_ind
@@ -70,12 +70,14 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
           -- no other holes in the program
           -- TODO: Where are the "<interactive>" coming from?
           [fits] <- collectStats $ getHoleFits compConf exprFitCands [chosen_hole] >>= processFits compConf
-          let fix_cands :: [(EFix, EExpr)]
-              fix_cands = map (first Map.fromList) $ replacements chosen_hole fits
+          let fix_cands' :: [(EFix, EExpr)]
+              fix_cands' = map (first Map.fromList) $ replacements chosen_hole fits
+              fix_cands = map (second (replicate (length e_prog))) fix_cands'
               (r_fix_ind, gen'') = nextInteger 0 (fromIntegral (length fix_cands - 1)) gen'
               (chosen_fix, fixed_prog) = fix_cands !! fromIntegral r_fix_ind
               -- We have to make sure that the chosen_fix takes precedence.
               complete_fix = mergeFixes chosen_fix fix_so_far
+          -- TODO: Does this even work?
           [check_res] <- collectStats $ checkFixes desc [fixed_prog]
 
           let keep_going = randomRepair' start gen'' complete_fix
@@ -98,5 +100,4 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
 
     efcs = Just exprFitCands
     EProb {..} = progProblem
-    prog_at_ty = progAtTy e_prog e_ty
     budgetInPicoSeconds = fromIntegral randSearchBudget * 1_000_000_000_000

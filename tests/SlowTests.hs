@@ -176,20 +176,6 @@ properGenTests =
               "+++ b/tests/cases/UsesDependency.hs",
               "@@ -9,1 +9,1 @@ result = dependency + 3",
               "-result = dependency + 3",
-              "+result = 42"
-            ],
-            [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
-              "--- a/tests/cases/UsesDependency.hs",
-              "+++ b/tests/cases/UsesDependency.hs",
-              "@@ -9,1 +9,1 @@ result = dependency + 3",
-              "-result = dependency + 3",
-              "+result = dependency + 1"
-            ],
-            [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
-              "--- a/tests/cases/UsesDependency.hs",
-              "+++ b/tests/cases/UsesDependency.hs",
-              "@@ -9,1 +9,1 @@ result = dependency + 3",
-              "-result = dependency + 3",
               "+result = dependency + one"
             ]
           ]

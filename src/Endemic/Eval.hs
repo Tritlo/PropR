@@ -219,7 +219,7 @@ addLocalTargets imports local_paths = do
       toModName (IIModule mname) = Just mname
       toModName _ = Nothing
   forM_ (imods : mg_mods) $ \lmods ->
-    forM_ lmods $ \mod -> do
+    forM_ lmods $ \mod ->
       unless (mod `Set.member` already_a_target) $ do
         let mod_name = moduleNameSlashes mod
         forM_ local_paths $ \mod_base -> do
@@ -394,16 +394,13 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               | len <- length targets,
                 len > 0,
                 len == length t_names,
-                -- TODO: allow many programs
-                [prog] <- wp_expr targets_n_sigs,
-                [(target, sig)] <- targets_n_sigs ->
+                exprs <- wp_expr targets_n_sigs,
+                tys <- map prog_ty sigs ->
                 Just $
                   EProb
-                    { e_prog = prog,
-                      e_ctxt = ctxt,
+                    { e_ctxt = ctxt,
                       e_props = wrapped_props,
-                      e_target = target,
-                      e_ty = prog_ty sig
+                      e_prog = zip3 targets tys exprs
                     }
             _ -> Nothing
           where
@@ -411,7 +408,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             isTDef (L _ (SigD _ (TypeSig _ ids _))) =
               not (t_names_set `Set.disjoint` Set.fromList (map unLoc ids))
             isTDef (L _ (ValD _ FunBind {..})) =
-              (unLoc fun_id) `Set.member` t_names_set
+              unLoc fun_id `Set.member` t_names_set
             isTDef _ = False
 
             -- We get the type of the program
@@ -871,7 +868,7 @@ exprToCheckModule ::
   Int ->
   String ->
   EProblem ->
-  [EExpr] ->
+  [EProgFix] ->
   RExpr
 exprToCheckModule rc CompConf {..} seed mname tp fixes =
   unlines $
@@ -913,7 +910,7 @@ justTcExpr cc parsed = do
 getExprTy :: HscEnv -> LHsExpr GhcTc -> IO (Maybe Type)
 getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env expr
 
--- | Takes an expression and generates HoleFitCandidates from every subexpression.
+-- | Takes an expression and generates HoleFitCandidates from every subexpresson.
 getExprFitCands ::
   -- | The general compiler setup
   CompileConfig ->

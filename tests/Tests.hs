@@ -99,8 +99,8 @@ repairTests =
           setSeedGenSeed tESTSEED
           tp@EProb {..} <- translate cc rp
           fixes <- repair cc def tp
-          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
-          expected `elem` map (trim . showUnsafe) fixProgs @? "Expected repair not found in fixes",
+          let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
+          expected `elem` concatMap (map (trim . showUnsafe)) fixProgs @? "Expected repair not found in fixes",
       localOption (mkTimeout 20_000_000) $
         testCase "GetExprCands finds important candidates" $ do
           let wrong_prog =
@@ -348,8 +348,9 @@ traceTests =
           tp@EProb {..} <- translate cc rp
           [failed_prop] <- failingProps def cc tp
           Just counter_example <- propCounterExample def cc tp failed_prop
+          let [(_, _, e_prog')] = e_prog
           Just Node {subForest = [tree@Node {rootLabel = (tl, tname)}]} <-
-            traceTarget def cc tp e_prog failed_prop counter_example
+            traceTarget def cc tp e_prog' failed_prop counter_example
           expr <- runJustParseExpr cc wrong_prog
           getLoc expr @?= mkInteractive tl
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
@@ -383,7 +384,8 @@ traceTests =
           [failed_prop] <- failingProps def cc tp
           Just counter_example_args <- propCounterExample def cc tp failed_prop
           -- We generate the trace
-          let prog_at_ty = progAtTy e_prog e_ty
+          let [(_, e_ty, e_prog')] = e_prog
+              prog_at_ty = progAtTy e_prog' e_ty
           tcorrel <- buildTraceCorrel cc prog_at_ty
           Just res <- traceTarget def cc tp prog_at_ty failed_prop counter_example_args
           let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
@@ -415,108 +417,90 @@ sanctifyTests =
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
           -- There are 7 ways to replace parts of the broken function in BrokenModule
           -- with holes:
-          length (sanctifyExpr e_prog) @?= 7,
+          let [(_, _, e_prog')] = e_prog
+          length (sanctifyExpr e_prog') @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
           let cc = def
               toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
-          let (holes, holey) = unzip $ sanctifyExpr e_prog
+          let [(_, _, e_prog')] = e_prog
+              (holes, holey) = unzip $ sanctifyExpr e_prog'
               filled = mapMaybe (fillHole undefVar) holey
           length filled @?= 7
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]
 
+mkModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> [[Char]] -> TestTree
+mkModuleTest timeout tag toFix repair_target expected =
+  localOption (mkTimeout timeout) $
+    testCase tag $ do
+      setSeedGenSeed tESTSEED
+      (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
+      fixes <- repair cc' def tp
+      let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
+          fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . map getFixBinds) fixProgs
+      fixDiffs @?= expected
+
 moduleTests =
   testGroup
     "Module tests"
     [ localOption (mkTimeout 30_000_000) $
-        testCase "Repair BrokenModule With Diff" $ do
-          let toFix = "tests/cases/BrokenModule.hs"
-              repair_target = Just "broken"
-              expected =
-                map
-                  unlines
-                  [ [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
-                      "--- a/tests/cases/BrokenModule.hs",
-                      "+++ b/tests/cases/BrokenModule.hs",
-                      "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
-                      "-broken = foldl (-) 0",
-                      "+broken = sum"
-                    ],
-                    [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
-                      "--- a/tests/cases/BrokenModule.hs",
-                      "+++ b/tests/cases/BrokenModule.hs",
-                      "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
-                      "-broken = foldl (-) 0",
-                      "+broken = foldl add 0"
-                    ],
-                    [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
-                      "--- a/tests/cases/BrokenModule.hs",
-                      "+++ b/tests/cases/BrokenModule.hs",
-                      "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
-                      "-broken = foldl (-) 0",
-                      "+broken = foldl (+) 0"
-                    ]
-                  ]
-
-          setSeedGenSeed tESTSEED
-          (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
-          fixes <- repair cc' def tp
-          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
-              fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
-          fixDiffs @?= expected,
-      localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
           let toFix = "tests/cases/BrokenModule.hs"
           (_, _, Just EProb {..}) <- moduleToProb def toFix Nothing
+          let [(e_target, _, _)] = e_prog
           showUnsafe e_target @?= "broken",
-      localOption (mkTimeout 90_000_000) $
-        testCase "Repair BrokenGCD" $ do
-          let toFix = "tests/cases/BrokenGCD.hs"
-              repair_target = Just "gcd'"
-              expected =
-                map
-                  unlines
-                  [ [ "diff --git a/tests/cases/BrokenGCD.hs b/tests/cases/BrokenGCD.hs",
-                      "--- a/tests/cases/BrokenGCD.hs",
-                      "+++ b/tests/cases/BrokenGCD.hs",
-                      "@@ -19,3 +19,3 @@ gcd' 0 b = gcd' 0 b",
-                      "-gcd' 0 b = gcd' 0 b",
-                      "+gcd' 0 b = b",
-                      " gcd' a b | b == 0 = a",
-                      " gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)"
-                    ]
-                  ]
-          setSeedGenSeed tESTSEED
-          (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
-          fixes <- repair cc' def tp
-          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
-              fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
-          fixDiffs @?= expected,
-      localOption (mkTimeout 30_000_000) $
-        testCase "Repair MagicConstant" $ do
-          let toFix = "tests/cases/MagicConstant.hs"
-              repair_target = Nothing
-              expected =
-                map
-                  unlines
-                  [ [ "diff --git a/tests/cases/MagicConstant.hs b/tests/cases/MagicConstant.hs",
-                      "--- a/tests/cases/MagicConstant.hs",
-                      "+++ b/tests/cases/MagicConstant.hs",
-                      "@@ -7,1 +7,1 @@ theAnswer = 17",
-                      "-theAnswer = 17",
-                      "+theAnswer = 42"
-                    ]
-                  ]
-
-          setSeedGenSeed tESTSEED
-          (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
-          fixes <- repair cc' def tp
-          let fixProgs = map (`replaceExpr` progAtTy e_prog e_ty) fixes
-              fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . getFixBinds) fixProgs
-          fixDiffs @?= expected
+      mkModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken") $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+              "--- a/tests/cases/BrokenModule.hs",
+              "+++ b/tests/cases/BrokenModule.hs",
+              "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
+              "-broken = foldl (-) 0",
+              "+broken = sum"
+            ],
+            [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+              "--- a/tests/cases/BrokenModule.hs",
+              "+++ b/tests/cases/BrokenModule.hs",
+              "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
+              "-broken = foldl (-) 0",
+              "+broken = foldl add 0"
+            ],
+            [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
+              "--- a/tests/cases/BrokenModule.hs",
+              "+++ b/tests/cases/BrokenModule.hs",
+              "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
+              "-broken = foldl (-) 0",
+              "+broken = foldl (+) 0"
+            ]
+          ],
+      mkModuleTest 90_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'") $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/BrokenGCD.hs b/tests/cases/BrokenGCD.hs",
+              "--- a/tests/cases/BrokenGCD.hs",
+              "+++ b/tests/cases/BrokenGCD.hs",
+              "@@ -19,3 +19,3 @@ gcd' 0 b = gcd' 0 b",
+              "-gcd' 0 b = gcd' 0 b",
+              "+gcd' 0 b = b",
+              " gcd' a b | b == 0 = a",
+              " gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)"
+            ]
+          ],
+      mkModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/MagicConstant.hs b/tests/cases/MagicConstant.hs",
+              "--- a/tests/cases/MagicConstant.hs",
+              "+++ b/tests/cases/MagicConstant.hs",
+              "@@ -7,1 +7,1 @@ theAnswer = 17",
+              "-theAnswer = 17",
+              "+theAnswer = 42"
+            ]
+          ]
     ]
 
 main = defaultMain tests

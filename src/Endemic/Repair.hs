@@ -132,7 +132,7 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
 translate :: HasCallStack => CompileConfig -> RProblem -> IO EProblem
 translate cc RProb {..} = runGhc (Just libdir) $ do
   _ <- initGhcCtxt cc
-  e_prog <- parseExprNoInit r_prog
+  e_prog' <- parseExprNoInit r_prog
   ~(L _ (ExprWithTySig _ _ e_ty)) <- parseExprNoInit ("undefined :: " ++ r_ty)
   let clt = "let {" ++ (intercalate "; " . concatMap lines $ r_ctxt) ++ "} in undefined"
   ~(L _ (HsLet _ e_ctxt _)) <- parseExprNoInit clt
@@ -140,11 +140,13 @@ translate cc RProb {..} = runGhc (Just libdir) $ do
   ~(L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ lbs _))) _)) <- parseExprNoInit plt
   let e_props = bagToList lbs
       e_target = mkVarUnqual $ fsLit r_target
+      e_prog = [(e_target, e_ty, e_prog')]
   return (EProb {..})
 
 detranslate :: HasCallStack => EProblem -> RProblem
 detranslate EProb {..} =
-  let r_prog = showUnsafe e_prog
+  let [(e_target, e_prog', e_ty)] = e_prog
+      r_prog = showUnsafe e_prog'
       r_ty = showUnsafe e_ty
       r_props = map showUnsafe e_props
       r_target = showUnsafe e_target
@@ -238,13 +240,17 @@ findEvaluatedHoles
       repConf = rc,
       progProblem = tp@EProb {..}
     } = collectStats $ do
-    let prog_at_ty = progAtTy e_prog e_ty
-        holey_exprs = sanctifyExpr prog_at_ty
+    -- We apply the fixes to all of the contexts, and all of the contexsts
+    -- contain the entire current program.
+    -- TODO: Is this safe?
+    let (_, e_ty, e_prog') : _ = e_prog
+        one_such_prog = progAtTy e_prog' e_ty
+        holey_exprs = sanctifyExpr one_such_prog
 
-    logOut DEBUG prog_at_ty
+    logOut DEBUG one_such_prog
     logOut DEBUG holey_exprs
 
-    trace_correl <- buildTraceCorrel cc prog_at_ty
+    trace_correl <- buildTraceCorrel cc one_such_prog
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
@@ -264,7 +270,7 @@ findEvaluatedHoles
           . Map.unionsWith (+)
           . map toInvokes
           . catMaybes
-          <$> traceTargets rc cc tp prog_at_ty ps_w_ce
+          <$> traceTargets rc cc tp one_such_prog ps_w_ce
 
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
@@ -317,8 +323,10 @@ repairAttempt
     fits <- collectStats $ getHoleFits cc efcs (map addContext nzh)
     processed_fits <- collectStats $ processFits cc fits
 
-    let fix_cands :: [(EFix, EExpr)]
-        fix_cands = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
+    let fix_cands' :: [(EFix, EExpr)]
+        fix_cands' = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
+        fix_cands :: [(EFix, EProgFix)]
+        fix_cands = map (second (replicate (length e_prog))) fix_cands'
 
     logStr DEBUG "Fix candidates:"
     mapM_ (logOut DEBUG) fix_cands
@@ -337,7 +345,7 @@ repairAttempt _ = error "Cannot repair external problems yet!"
 -- TODO: DOCUMENT (Further)
 checkFixes ::
   ProblemDescription ->
-  [EExpr] ->
+  [EProgFix] ->
   IO [TestSuiteResult]
 checkFixes
   ProbDesc

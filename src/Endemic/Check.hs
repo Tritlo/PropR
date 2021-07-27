@@ -17,10 +17,11 @@ import Bag (listToBag, unionManyBags, unitBag)
 import BasicTypes (IntegralLit (..), Origin (..), PromotionFlag (..), SourceText (..))
 import Data.Maybe (mapMaybe)
 import Endemic.Configuration (RepairConfig (..))
-import Endemic.Types (EExpr, EProblem (..), EProp)
+import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
 import Endemic.Util (progAtTy)
 import FastString (fsLit)
 import GHC
+import GhcPlugins (occName)
 import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
 import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
@@ -100,9 +101,9 @@ buildFixCheck ::
   RepairConfig ->
   Int ->
   EProblem ->
-  [EExpr] ->
+  [EProgFix] ->
   (LHsLocalBinds GhcPs, LHsBind GhcPs)
-buildFixCheck rc seed EProb {..} fixes =
+buildFixCheck rc seed EProb {..} prog_fixes =
   (ctxt, check_bind)
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
@@ -121,15 +122,22 @@ buildFixCheck rc seed EProb {..} fixes =
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing
     prop_names = mapMaybe prop_to_name e_props
-    testsToCheck = map (testCheckExpr rc (tf "qcSuccess", tf "id")) prop_names
+    testsToCheck = map (testCheckExpr e_prog rc (tf "qcSuccess", tf "id")) prop_names
 
-    expr_b ep = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy ep e_ty
+    expr_bs prog_fix =
+      zipWith
+        ( \(nm, e_ty, _) n_prog ->
+            baseFun (mkVarUnqual $ fsLit $ "expr__" ++ occNameString (occName nm)) $
+              progAtTy n_prog e_ty
+        )
+        e_prog
+        prog_fix
     check_progs =
-      map (\e -> noLoc $ HsLet NoExtField (eToBs e) par_app_w_ty) fixes
+      map (\e -> noLoc $ HsLet NoExtField (eToBs e) par_app_w_ty) prog_fixes
       where
         eToBs fix = noLoc $ HsValBinds NoExtField ebs
           where
-            ebs = ValBinds NoExtField (unitBag (expr_b fix)) []
+            ebs = ValBinds NoExtField (listToBag (expr_bs fix)) []
         elpc = noLoc $ ExplicitList NoExtField Nothing testsToCheck
         app :: LHsExpr GhcPs
         app = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "sequence") elpc
@@ -169,16 +177,21 @@ buildSuccessCheck rc seed EProb {..} =
         [ vbs,
           listToBag e_props,
           unitBag qcb,
-          unitBag expr_b,
+          listToBag expr_bs,
           unitBag pcb
         ]
-    expr_b = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy e_prog e_ty
+    expr_bs =
+      map
+        ( \(nm, e_ty, e_prog) ->
+            baseFun (mkVarUnqual $ fsLit $ "expr__" ++ occNameString (occName nm)) $ progAtTy e_prog e_ty
+        )
+        e_prog
     ctxt = L bl (HsValBinds be nvb)
     prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing
     prop_names = mapMaybe prop_to_name e_props
-    testsToCheck = map (testCheckExpr rc (tf "qcSuccess", tf "id")) prop_names
+    testsToCheck = map (testCheckExpr e_prog rc (tf "qcSuccess", tf "id")) prop_names
 
     pcb =
       baseFun
@@ -219,6 +232,8 @@ buildSuccessCheck _ _ _ = error "External not supported!"
 -- | Runs the check with QuickCheck. Takes in the name of the function to use for
 -- extracting the result
 testCheckExpr ::
+  -- | The program we're checking
+  EProg ->
   -- | The repair config
   RepairConfig ->
   -- | A compiled program that contains properties and everything to run them
@@ -227,7 +242,7 @@ testCheckExpr ::
   Located RdrName ->
   -- | The resulting expression
   LHsExpr GhcPs
-testCheckExpr RepConf {..} extractors test =
+testCheckExpr e_prog RepConf {..} extractors test =
   noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
   where
     isQc = ((==) "prop" . take 4 . occNameString . rdrNameOcc . unLoc) test
@@ -246,7 +261,16 @@ testCheckExpr RepConf {..} extractors test =
     app =
       noLoc $
         HsPar NoExtField $
-          noLoc $ HsApp NoExtField (noLoc $ HsVar NoExtField test) (tf "expr__")
+          noLoc $
+            HsApp
+              NoExtField
+              (noLoc $ HsVar NoExtField test)
+              (apps e_prog)
+      where
+        apps [] = error "Missing app!"
+        apps [(nm, _, _)] = tf ("expr__" ++ occNameString (occName nm))
+        apps ((nm, _, _) : r) =
+          noLoc $ HsApp NoExtField (apps r) (tf $ "expr__" ++ occNameString (occName nm))
 
     qcSubExpr :: LHsExpr GhcPs
     qcSubExpr =
@@ -294,9 +318,17 @@ buildCounterExampleCheck
         unionManyBags
           [ unitBag qcb,
             vbs,
-            listToBag [propWithin, expr_b]
+            unitBag propWithin,
+            listToBag expr_bs
           ]
-      expr_b = baseFun (mkVarUnqual $ fsLit "expr__") $ progAtTy e_prog e_ty
+
+      expr_bs =
+        map
+          ( \(nm, e_ty, e_prog) ->
+              baseFun (mkVarUnqual $ fsLit $ "expr__" ++ occNameString (occName nm)) $
+                progAtTy e_prog e_ty
+          )
+          e_prog
       ctxt = L bl (HsValBinds be nvb)
       propWithin = L loc fb {fun_matches = fm {mg_alts = L lm malts'}}
 
@@ -340,7 +372,7 @@ buildCounterExampleCheck
             progAtTy
               ( noLoc $
                   HsPar NoExtField $
-                    testCheckExpr rc (tf "failureToMaybe", tf "id") fid
+                    testCheckExpr e_prog rc (tf "failureToMaybe", tf "id") fid
               )
               sq_ty
 buildCounterExampleCheck _ _ _ _ = error "invalid counter-example format!"

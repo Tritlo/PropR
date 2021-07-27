@@ -69,7 +69,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
               Set.fromList . map fst
                 . filter (isFixed . snd)
                 . zip check_list
-                <$> checkFixes desc (map (`replaceExpr` prog_at_ty) check_list)
+                <$> checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list)
             if Set.null fixes
               then loop checked' (rest : lvls)
               else do
@@ -82,7 +82,6 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
   loop Set.empty all_fix_combs
   where
     EProb {..} = progProblem
-    prog_at_ty = progAtTy e_prog e_ty
     -- PicoSeconds are the granularity provided by the CPU-Time
     budgetInPicoSeconds = fromIntegral exhSearchBudget * 1_000_000_000_000
 

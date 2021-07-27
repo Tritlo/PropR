@@ -23,7 +23,8 @@ import Data.Maybe (fromJust, isJust)
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Endemic.Configuration
-import Endemic.Types (EExpr, EFix, EType, LogLevel (..))
+import Endemic.Traversals (replaceExpr)
+import Endemic.Types (EExpr, EFix, EProg, EProgFix, EType, LogLevel (..))
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
@@ -263,3 +264,13 @@ mergeFixes' :: [(SrcSpan, HsExpr GhcPs)] -> [(SrcSpan, HsExpr GhcPs)] -> [(SrcSp
 mergeFixes' [] xs = xs
 mergeFixes' xs [] = xs
 mergeFixes' (x : xs) ys = x : mergeFixes' xs (filter (not . isSubspanOf (fst x) . fst) ys)
+
+-- | We apply fixes by adding progAtTy and replacing with the fix.
+applyFixToEProg :: EProg -> EFix -> EProg
+applyFixToEProg e_prog fix = map (\(n, t, p) -> (n, t, replaceExpr fix $ progAtTy p t)) e_prog
+
+eProgToEProgFix :: EProg -> EProgFix
+eProgToEProgFix = map trd
+
+trd :: (a, b, c) -> c
+trd (_, _, c) = c
