@@ -445,7 +445,12 @@ pickProblem :: Configuration -> CompileConfig -> ParsedModule -> [EProblem] -> I
 pickProblem _ _ _ [prob@EProb {}] = return prob
 pickProblem _ _ _ [prob@ExProb {}] = error "External problems not supported yet!"
 pickProblem _ _ _ [] = error "No target found!"
-pickProblem _ _ _ _ = error "Multiple problems not supported"
+pickProblem _ _ _ probs =
+  error $ unlines ("Multiple problems found, which one to pick?" : targets)
+  where
+    targetOccName EProb {..} = occName e_target
+    targetOccName ExProb {..} = occName ex_target
+    targets = map (occNameString . targetOccName) probs
 
 describeProblem :: Configuration -> FilePath -> IO ProblemDescription
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
