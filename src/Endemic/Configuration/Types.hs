@@ -277,7 +277,13 @@ data RepairConfig = RepConf
     -- | Set the timeout in microseconds for each
     -- heck, after which we assume the check is
     -- in an infinte loop.
-    repTimeout :: Integer
+    repTimeout :: Integer,
+    -- | Whether or not we're allowed to precompute
+    -- the fixes at the beginning. Better in most
+    -- cases, but can slow down if we have big
+    -- programs and aren't considering all of it
+    -- (e.t. random search).
+    repPrecomputeFixes :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -289,13 +295,15 @@ instance Default RepairConfig where
     RepConf
       { repParChecks = True,
         repUseInterpreted = True,
-        repTimeout = 1_000_000
+        repTimeout = 1_000_000,
+        repPrecomputeFixes = True
       }
 
 instance Materializeable RepairConfig where
   data Unmaterialized RepairConfig = UmRepConf
     { umParChecks :: Maybe Bool,
       umUseInterpreted :: Maybe Bool,
+      umPrecomputeFixes :: Maybe Bool,
       umTimeout :: Maybe Integer
     }
     deriving (Show, Eq, Generic)
@@ -303,14 +311,15 @@ instance Materializeable RepairConfig where
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized RepairConfig)
 
-  conjure = UmRepConf Nothing Nothing Nothing
+  conjure = UmRepConf Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override RepConf {..} (Just UmRepConf {..}) =
     RepConf
       { repParChecks = fromMaybe repParChecks umParChecks,
         repUseInterpreted = fromMaybe repUseInterpreted umUseInterpreted,
-        repTimeout = fromMaybe repTimeout umTimeout
+        repTimeout = fromMaybe repTimeout umTimeout,
+        repPrecomputeFixes = fromMaybe repPrecomputeFixes umPrecomputeFixes
       }
 
 instance Default LogConfig where

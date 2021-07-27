@@ -444,13 +444,15 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
       initialFixes = Nothing
       desc' = ProbDesc {..}
 
-  let inContext = noLoc . HsLet NoExtField e_ctxt
-      addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
-  nzh <- findEvaluatedHoles desc'
-  fits <- collectStats $ getHoleFits compConf exprFitCands (map addContext nzh)
-  processed_fits <- collectStats $ processFits compConf fits
-  let fix_cands :: [(EFix, EExpr)]
-      fix_cands = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
-      initialFixes' = Just $ map fst fix_cands
-
-  return $ desc' {initialFixes = initialFixes'}
+  if repPrecomputeFixes repConf
+    then do
+      let inContext = noLoc . HsLet NoExtField e_ctxt
+          addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
+      nzh <- findEvaluatedHoles desc'
+      fits <- collectStats $ getHoleFits compConf exprFitCands (map addContext nzh)
+      processed_fits <- collectStats $ processFits compConf fits
+      let fix_cands :: [(EFix, EExpr)]
+          fix_cands = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
+          initialFixes' = Just $ map fst fix_cands
+      return $ desc' {initialFixes = initialFixes'}
+    else return desc'
