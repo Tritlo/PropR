@@ -151,6 +151,7 @@ detranslate EProb {..} =
       (L _ (HsValBinds _ (ValBinds _ bs sigs))) = e_ctxt
       r_ctxt = map showUnsafe sigs ++ map showUnsafe (bagToList bs)
    in RProb {..}
+detranslate _ = error "Cannot detranlsate external problem!"
 
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
@@ -206,6 +207,7 @@ failingProps rc cc ep@EProb {..} = do
               ps1, ps2 :: [EProp]
               (ps1, ps2) = splitAt (length e_props `div` 2) e_props
           concat <$> mapM fp [ps1, ps2]
+failingProps _ _ _ = error "Cannot find failing props of external problems yet!"
 
 -- | Primary method of this module.
 -- It takes a program & configuration,
@@ -223,6 +225,7 @@ repair cc rc prob@EProb {..} = do
             initialFixes = Nothing
           }
   map fst . filter (isFixed . snd) <$> repairAttempt desc
+repair _ _ _ = error "Cannot repair external problems yet!"
 
 -- | Finds the locations in the program that are evaluated by failing tests
 -- and returns those as programs with holes at that location.
@@ -270,6 +273,7 @@ findEvaluatedHoles
         non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
         non_zero_holes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
     return non_zero_holes
+findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | Takes a list of list of list of hole fits and processes each fit so that
 -- it becomes a proper HsExpr
@@ -323,6 +327,7 @@ repairAttempt
     collectStats $
       zipWith (\(fs, _) r -> (fs, r)) fix_cands
         <$> checkFixes desc (map snd fix_cands)
+repairAttempt _ = error "Cannot repair external problems yet!"
 
 -- | Runs a given (changed) Program against the Test-Suite described in ProblemDescription.
 -- The Result is the Test-Suite-Result, where
@@ -385,6 +390,7 @@ checkFixes
       -- Adding and loading the target causes the compilation to kick
       -- off and compiles the file.
       addTarget target
+      addLocalTargets [] (modBase cc)
       _ <- collectStats $ load LoadAllTargets
       let p '1' = Just True
           p '0' = Just False
@@ -434,10 +440,17 @@ checkFixes
                 collectStats $ mapM waitOnCheck procs
               else collectStats $ mapM (startCheck >=> waitOnCheck) inds
 
+-- | Sometimes there are multiple ways to fix the issue, so we have to pick one.
+pickProblem :: Configuration -> CompileConfig -> ParsedModule -> [EProblem] -> IO EProblem
+pickProblem _ _ _ [prob@EProb {}] = return prob
+pickProblem _ _ _ [prob@ExProb {}] = error "External problems not supported yet!"
+pickProblem _ _ _ [] = error "No target found!"
+pickProblem _ _ _ _ = error "Multiple problems not supported"
+
 describeProblem :: Configuration -> FilePath -> IO ProblemDescription
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
-  (compConf, modul, [progProblem@EProb {..}]) <- moduleToProb cc fp Nothing
-
+  (compConf, modul, problems) <- moduleToProb cc fp Nothing
+  progProblem@EProb {..} <- pickProblem conf compConf modul problems
   exprFitCands <-
     getExprFitCands compConf $
       noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
