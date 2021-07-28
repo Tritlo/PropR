@@ -17,6 +17,7 @@
 module Endemic.Search.Random.Search where
 
 import Control.Arrow (first, second)
+import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -26,6 +27,8 @@ import Endemic.Search.Random.Configuration (RandomConf (..))
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
+import GHC (runGhc)
+import GHC.Paths (libdir)
 import System.CPUTime (getCPUTime)
 import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 
@@ -69,34 +72,36 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
           -- We get a  list of list of fits. However, we assume that there are
           -- no other holes in the program
           -- TODO: Where are the "<interactive>" coming from?
-          [fits] <- collectStats $ getHoleFits compConf exprFitCands [chosen_hole] >>= processFits compConf
-          let fix_cands' :: [(EFix, EExpr)]
-              fix_cands' = map (first Map.fromList) $ replacements chosen_hole fits
-              fix_cands = map (second (replicate (length e_prog))) fix_cands'
-              (r_fix_ind, gen'') = nextInteger 0 (fromIntegral (length fix_cands - 1)) gen'
-              (chosen_fix, fixed_prog) = fix_cands !! fromIntegral r_fix_ind
-              -- We have to make sure that the chosen_fix takes precedence.
-              complete_fix = mergeFixes chosen_fix fix_so_far
-          -- TODO: Does this even work?
-          [check_res] <- collectStats $ checkFixes desc [fixed_prog]
 
-          let keep_going = randomRepair' start gen'' complete_fix
-              done = do
-                logStr INFO "Fix found in Random Search!"
-                logOut INFO complete_fix
-                logOut DEBUG fixed_prog
-                if randStopOnResults
-                  then return $ Set.singleton complete_fix
-                  else Set.insert complete_fix <$> randomRepair' start gen'' Map.empty
-              try_again = randomRepair' start gen'' fix_so_far
+          runGhc (Just libdir) $ do
+            ~[fits] <- collectStats $ getHoleFits compConf exprFitCands [chosen_hole]
+            let fix_cands' :: [(EFix, EExpr)]
+                fix_cands' = map (first Map.fromList) $ replacements chosen_hole fits
+                fix_cands = map (second (replicate (length e_prog))) fix_cands'
+                (r_fix_ind, gen'') = nextInteger 0 (fromIntegral (length fix_cands - 1)) gen'
+                (chosen_fix, fixed_prog) = fix_cands !! fromIntegral r_fix_ind
+                -- We have to make sure that the chosen_fix takes precedence.
+                complete_fix = mergeFixes chosen_fix fix_so_far
+            -- TODO: Does this even work?
+            ~[check_res] <- collectStats $ checkFixes desc [fixed_prog]
 
-          case check_res of
-            -- We might want to avoid programs that timeout or fail for some reason.
-            Right False ->
-              if randIgnoreFailing
-                then try_again
-                else keep_going
-            res -> if isFixed res then done else keep_going
+            let keep_going = randomRepair' start gen'' complete_fix
+                done = do
+                  logStr INFO "Fix found in Random Search!"
+                  logOut INFO complete_fix
+                  logOut DEBUG fixed_prog
+                  if randStopOnResults
+                    then return $ Set.singleton complete_fix
+                    else Set.insert complete_fix <$> randomRepair' start gen'' Map.empty
+                try_again = randomRepair' start gen'' fix_so_far
+
+            liftIO $ case check_res of
+              -- We might want to avoid programs that timeout or fail for some reason.
+              Right False ->
+                if randIgnoreFailing
+                  then try_again
+                  else keep_going
+              res -> if isFixed res then done else keep_going
 
     efcs = Just exprFitCands
     EProb {..} = progProblem

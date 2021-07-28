@@ -211,18 +211,6 @@ getHoleFitsFromError plugRef err = do
         holeOcc h1 == holeOcc h2
     sameHole _ _ = False
 
-monomorphiseType :: CompileConfig -> RType -> IO (Maybe RType)
-monomorphiseType cc ty =
-  runGhc (Just libdir) $ do
-    _ <- initGhcCtxt cc
-    flags <- getSessionDynFlags
-    let pp = showSDoc flags . ppr
-    nothingOnError (pp . mono <$> exprType TM_Default ("undefined :: " ++ ty))
-  where
-    mono ty' = substTyWith tvs (replicate (length tvs) unitTy) base_ty
-      where
-        (tvs, base_ty) = splitForAllTys ty'
-
 -- | addLocalTargets adds any modules that are imported that are in any of the
 -- paths specified.
 addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m ()
@@ -245,7 +233,7 @@ addLocalTargets imports local_paths = addLocalTargets' False imports local_paths
       -- We add the targets recursively, in case any of the local dependencies have
       -- local dependencies as well.
       any_changed <- fmap or $
-        forM mods_to_add $ \mod_name -> do
+        forM mods_to_add $ \mod_name ->
           fmap or $
             forM local_paths $ \mod_base -> do
               let mod_path' = mod_base </> mod_name <.> ".hs"
@@ -607,6 +595,9 @@ buildTraceCorrel cc prob exprs = do
       )
       e_n_bods
 
+runGhc' :: CompileConfig -> Ghc a -> IO a
+runGhc' cc = runGhc (Just libdir) . (initGhcCtxt cc >>)
+
 traceTarget ::
   RepairConfig ->
   CompileConfig ->
@@ -844,13 +835,6 @@ compileParsedCheck cc expr = runGhc (Just libdir) $ do
   _ <- initGhcCtxt (cc {hole_lvl = 0})
   dynCompileParsedExpr `reportOnError` expr
 
--- | Since initialization has some overhead, we have a special case for compiling
--- multiple checks at once.
-compileParsedChecks :: HasCallStack => CompileConfig -> [EExpr] -> IO [CompileRes]
-compileParsedChecks cc exprs = runGhc (Just libdir) $ do
-  _ <- initGhcCtxt (cc {hole_lvl = 0})
-  mapM (reportOnError ((Right <$>) . dynCompileParsedExpr)) exprs
-
 -- | Adapted from dynCompileExpr in InteractiveEval
 dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic
 dynCompileParsedExpr parsed_expr = do
@@ -896,9 +880,8 @@ exprToCheckModule rc CompConf {..} seed mname tp fixes =
     (ctxt, check_bind) = buildFixCheck rc seed tp fixes
 
 -- | Parse, rename and type check an expression
-justTcExpr :: CompileConfig -> EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
-justTcExpr cc parsed = do
-  _ <- initGhcCtxt cc
+justTcExpr :: EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
+justTcExpr parsed = do
   hsc_env <- getSession
   (_, res) <-
     liftIO $
@@ -916,12 +899,10 @@ getExprTys hsc_env exprs = do
 -- | Takes an expression and generates HoleFitCandidates from every subexpresson.
 -- Uses either the expression itself or the desugared module
 getExprFitCands ::
-  -- | The general compiler setup
-  CompileConfig ->
   -- | The expression or module
   Either EExpr TypecheckedModule ->
-  IO [ExprFitCand]
-getExprFitCands cc expr_or_mod = runGhc (Just libdir) $ do
+  Ghc [ExprFitCand]
+getExprFitCands expr_or_mod = do
   liftIO $ logStr DEBUG "Getting expression fit cands..."
   -- setSessionDynFlags reads the package database.
   liftIO $ logStr DEBUG "Reading the package database..."
@@ -930,7 +911,7 @@ getExprFitCands cc expr_or_mod = runGhc (Just libdir) $ do
   liftIO $ logStr DEBUG "Typechecking the expression..."
   case expr_or_mod of
     Left expr -> do
-      mb_tcd_context <- justTcExpr cc expr
+      mb_tcd_context <- justTcExpr expr
       let esAndNames =
             case mb_tcd_context of
               Just ((tcd_context, _), wc) ->

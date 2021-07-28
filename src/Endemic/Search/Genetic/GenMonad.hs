@@ -20,6 +20,7 @@ import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration
+import Endemic.Eval (runGhc')
 import Endemic.Repair (checkFixes, repairAttempt)
 import Endemic.Search.Genetic.Configuration
 import Endemic.Search.Genetic.Types
@@ -117,7 +118,7 @@ instance Chromosome EFix where
             n_progs = map (applyFixToEProg e_prog) to_compute
         res <-
           zipWith (\e f -> (e, basicFitness e f)) to_compute
-            <$> liftIO (checkFixes desc $ map eProgToEProgFix n_progs)
+            <$> liftIO (runGhc' compConf $ checkFixes desc $ map eProgToEProgFix n_progs)
         putCache (Map.fromList res `Map.union` fc)
         return $
           map (snd . snd) $
