@@ -243,14 +243,13 @@ findEvaluatedHoles
     -- We apply the fixes to all of the contexts, and all of the contexsts
     -- contain the entire current program.
     -- TODO: Is this safe?
-    let (_, e_ty, e_prog') : _ = e_prog
-        one_such_prog = progAtTy e_prog' e_ty
-        holey_exprs = sanctifyExpr one_such_prog
+    let id_prog = eProgToEProgFix (applyFixToEProg e_prog mempty)
+        holey_exprss = map sanctifyExpr id_prog
 
-    logOut DEBUG one_such_prog
-    logOut DEBUG holey_exprs
+    logOut DEBUG id_prog
+    logOut DEBUG holey_exprss
 
-    trace_correl <- buildTraceCorrel cc one_such_prog
+    trace_correl <- buildTraceCorrel cc tp id_prog
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
@@ -264,21 +263,25 @@ findEvaluatedHoles
         only_max (src, r) = (mkInteractive src, maximum $ map snd r)
         toInvokes res = Map.fromList $ map only_max $ flatten res
     -- We compute the locations that are touched by the failing counter-examples
-    invokes <-
+    all_invokes <-
       collectStats $
-        Map.toList
-          . Map.unionsWith (+)
-          . map toInvokes
+        map
+          ( Map.toList
+              . Map.unionsWith (+)
+              . map toInvokes
+          )
           . catMaybes
-          <$> traceTargets rc cc tp one_such_prog ps_w_ce
+          <$> traceTargets rc cc tp id_prog ps_w_ce
 
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
-    let non_zero = filter ((> 0) . snd) invokes
-        non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-        non_zero_holes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
-    return non_zero_holes
+    let fk holey_exprs trace_correl invokes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
+          where
+            non_zero = filter ((> 0) . snd) invokes
+            non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+        non_zero_holes = zipWith3 fk holey_exprss trace_correl all_invokes
+    return $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | Takes a list of list of list of hole fits and processes each fit so that

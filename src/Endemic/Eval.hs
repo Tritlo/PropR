@@ -520,58 +520,80 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     return (cc', modul, prob)
 
 -- Create a fake base loc for a trace.
-fakeBaseLoc :: CompileConfig -> EExpr -> IO SrcSpan
-fakeBaseLoc = fmap (getLoc <$>) . buildTraceCorrelExpr
+fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> IO SrcSpan
+fakeBaseLoc cc prob fix = getLoc . head <$> buildTraceCorrelExpr cc prob fix
 
 -- When we do the trace, we use a "fake_target" function. This build the
 -- corresponding expression,
-buildTraceCorrelExpr :: CompileConfig -> EExpr -> IO (LHsExpr GhcPs)
-buildTraceCorrelExpr cc expr = do
-  let correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
-      correl_ctxt = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag correl) [])
+buildTraceCorrelExpr :: CompileConfig -> EProblem -> EProgFix -> IO [LHsExpr GhcPs]
+buildTraceCorrelExpr cc EProb {..} exprs = do
+  let correl =
+        zipWith
+          ( \(nm, _, _) e ->
+              baseFun
+                ( mkVarUnqual $
+                    fsLit $ "fake_target_" ++ occNameString (occName nm)
+                )
+                e
+          )
+          e_prog
+          exprs
+      correl_ctxt = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag correl) [])
       correl_expr = (noLoc $ HsLet NoExtField correl_ctxt hole) :: LHsExpr GhcPs
   pcorrel <- runJustParseExpr cc $ showUnsafe correl_expr
   let (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _)) = pcorrel
-      [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] = bagToList bg
-      [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] = alts
-  return bod
+      f (L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}) = Just bod
+        where
+          [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] = alts
+      f _ = Nothing
+      bods = mapMaybe f $ bagToList bg
+  return bods
+buildTraceCorrelExpr _ _ _ = error "External fixes not supported!"
 
 -- We build a Map from the traced expression and to the  original so we can
 -- correlate the trace information with the expression we're checking.
-buildTraceCorrel :: CompileConfig -> EExpr -> IO (Map.Map SrcSpan SrcSpan)
-buildTraceCorrel cc expr =
-  Map.fromList
-    . filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e)
-    . flip (zipWith (\b e -> (getLoc b, getLoc e))) (flattenExpr expr)
-    . flattenExpr
-    <$> buildTraceCorrelExpr cc expr
+buildTraceCorrel :: CompileConfig -> EProblem -> EProgFix -> IO [Map.Map SrcSpan SrcSpan]
+buildTraceCorrel cc prob exprs = do
+  e_n_bods <- zip exprs <$> buildTraceCorrelExpr cc prob exprs
+  return $
+    map
+      ( \(expr, bod) ->
+          ( Map.fromList
+              . filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e)
+              . flip (zipWith (\b e -> (getLoc b, getLoc e))) (flattenExpr expr)
+              . flattenExpr
+          )
+            bod
+      )
+      e_n_bods
 
 traceTarget ::
   RepairConfig ->
   CompileConfig ->
   EProblem ->
-  EExpr ->
+  EProgFix ->
   EProp ->
   [RExpr] ->
-  IO (Maybe (Tree (SrcSpan, [(BoxLabel, Integer)])))
+  IO (Maybe TraceRes)
 traceTarget rc cc tp e fp ce = head <$> traceTargets rc cc tp e [(fp, ce)]
+
+type TraceRes = [Tree (SrcSpan, [(BoxLabel, Integer)])]
 
 -- Run HPC to get the trace information.
 traceTargets ::
   RepairConfig ->
   CompileConfig ->
   EProblem ->
-  EExpr ->
+  EProgFix ->
   [(EProp, [RExpr])] ->
-  IO [Maybe (Tree (SrcSpan, [(BoxLabel, Integer)]))]
-traceTargets rc@RepConf {..} cc tp expr@(L (RealSrcSpan realSpan) _) ps_w_ce = do
+  IO [Maybe TraceRes]
+traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
   let tempDir = "./fake_targets"
   createDirectoryIfMissing False tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   seed <- newSeed
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-      correl = baseFun (mkVarUnqual $ fsLit "fake_target") expr
       modTxt = exprToTraceModule rc cc tp seed mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
@@ -649,17 +671,29 @@ traceTargets rc@RepConf {..} cc tp expr@(L (RealSrcSpan realSpan) _) ps_w_ce = d
               -- the properties and the main function, and only look at
               -- the ticks for our expression
               let fake_only = filter isTargetMod mods
-              [n@Node {rootLabel = (root, _)}] <- filter isTarget . concatMap toDom <$> mapM rm fake_only
-              return $ Just (fmap (Data.Bifunctor.first (toFakeSpan the_f root)) n)
+                  nd n@Node {rootLabel = (root, _)} =
+                    fmap (Data.Bifunctor.first (toFakeSpan the_f root)) n
+              res <- filter isTarget . concatMap toDom <$> mapM rm fake_only
+              return $ Just $ map nd res
             _ -> return Nothing
     removeTarget tid
     let (checks, _) = unzip $ zip [0 ..] ps_w_ce
     mapM runTrace checks
   where
+    correl =
+      zipWith
+        ( \(nm, _, _) e ->
+            let ftn = "fake_target_" ++ occNameString (occName nm)
+             in (ftn, baseFun (mkVarUnqual $ fsLit $ ftn) e)
+        )
+        e_prog
+        exprs
+    fake_target_names = Set.fromList $ map fst correl
     toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
     toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
       createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
-    isTarget Node {rootLabel = (_, [(TopLevelBox ["fake_target"], _)])} = True
+    isTarget Node {rootLabel = (_, [(TopLevelBox [ftn], _)])} =
+      ftn `Set.member` fake_target_names
     isTarget _ = False
     -- We convert the HpcPos to the equivalent span we would get if we'd
     -- parsed and compiled the expression directly.
@@ -675,9 +709,10 @@ traceTargets rc@RepConf {..} cc tp expr@(L (RealSrcSpan realSpan) _) ps_w_ce = d
         start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
         -- GHC Srcs end one after the end
         end = mkSrcLoc fname (el - eloff) (ec - ecoff)
-traceTargets rc cc tp e@(L _ xp) ps_w_ce = do
-  tl <- fakeBaseLoc cc e
-  traceTargets rc cc tp (L tl xp) ps_w_ce
+traceTargets rc cc tp exprs@(e@(L _ xp) : _) ps_w_ce = do
+  tl <- fakeBaseLoc cc tp exprs
+  traceTargets rc cc tp (map (L tl . unLoc) exprs) ps_w_ce
+traceTargets _ _ _ [] _ = error "No fix!"
 
 exprToTraceModule ::
   RepairConfig ->
@@ -685,17 +720,17 @@ exprToTraceModule ::
   EProblem ->
   Int ->
   String ->
-  LHsBind GhcPs ->
+  [(String, LHsBind GhcPs)] ->
   [(EProp, [RExpr])] ->
   RExpr
-exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname expr ps_w_ce =
+exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
       ++ checkImports
       ++ concatMap (lines . showUnsafe) failing_props
       ++ lines (showUnsafe e_ctxt)
-      ++ [showUnsafe expr]
+      ++ map (showUnsafe . snd) fake_targets
       ++ [concat ["checks = [", checks, "]"]]
       ++ [ "",
            "main__ :: IO ()",
@@ -715,7 +750,9 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname expr ps_w_ce 
       | "prop" /= take 4 pname =
         "checkTastyTree " ++ show repTimeout ++ " ("
           ++ pname
-          ++ " fake_target "
+          ++ " "
+          ++ unwords (map fst fake_targets)
+          ++ " "
           ++ unwords args
           ++ ")"
     toCall pname args =
@@ -726,7 +763,9 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname expr ps_w_ce 
         ++ showUnsafe (qcArgsExpr seed Nothing)
         ++ ") ("
         ++ pname
-        ++ " fake_target "
+        ++ " "
+        ++ unwords (map fst fake_targets)
+        ++ " "
         ++ unwords args
         ++ "))"
     checks :: String
