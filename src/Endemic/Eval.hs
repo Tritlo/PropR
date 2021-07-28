@@ -862,42 +862,6 @@ dynCompileParsedExpr parsed_expr = do
   hval <- compileParsedExpr to_dyn_expr
   return (unsafeCoerce# hval :: Dynamic)
 
--- |
---  This method returns the types of gene-candidates.
---  To do so, it first needs to compile the code.
-genCandTys :: CompileConfig -> (RType -> RExpr -> RExpr) -> [RExpr] -> IO [RType]
-genCandTys cc bcat cands = runGhc (Just libdir) $ do
-  _ <- initGhcCtxt (cc {hole_lvl = 0})
-  flags <- getSessionDynFlags
-  catMaybes
-    <$> mapM
-      ( \c ->
-          nothingOnError $
-            flip bcat c . showSDoc flags . ppr <$> exprType TM_Default c
-      )
-      cands
-
-compile :: CompileConfig -> RType -> IO CompileRes
-compile cc str = runGhc (Just libdir) $ do
-  plugRef <- initGhcCtxt cc
-  -- Then we can actually run the program!
-  handleSourceError
-    (getHoleFitsFromError plugRef)
-    (Right <$> dynCompileExpr str)
-
-compileAtType :: CompileConfig -> RExpr -> RType -> IO CompileRes
-compileAtType cc str ty = compile cc ("((" ++ str ++ ") :: " ++ ty ++ ")")
-
-showHF :: HoleFit -> String
-showHF = showSDocUnsafe . pprPrefixOcc . hfId
-
-readHole :: HoleFit -> (String, [RExpr])
-readHole (RawHoleFit sdc) = (showSDocUnsafe sdc, [])
-readHole hf@HoleFit {..} =
-  ( showHF hf,
-    map (showSDocUnsafe . ppr) hfMatches
-  )
-
 exprToCheckModule ::
   RepairConfig ->
   CompileConfig ->
