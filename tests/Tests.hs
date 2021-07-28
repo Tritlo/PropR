@@ -20,6 +20,7 @@ import Endemic.Repair
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
+import GHC (tm_parsed_module)
 import GhcPlugins (GenLocated (L), getLoc, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
@@ -130,7 +131,7 @@ repairTests =
                   "EFC {gcd' a}",
                   "EFC {b - a}"
                 ]
-          expr_cands <- runJustParseExpr def wrong_prog >>= getExprFitCands def
+          expr_cands <- runJustParseExpr def wrong_prog >>= (getExprFitCands def . Left)
           map showUnsafe expr_cands @?= expected,
       localOption (mkTimeout 20_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
@@ -446,7 +447,7 @@ mkModuleTest timeout tag toFix repair_target expected =
             map
               ( concatMap ppDiff
                   . snd
-                  . applyFixes mod
+                  . applyFixes (tm_parsed_module mod)
                   . getFixBinds
                   . head
               )

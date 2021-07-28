@@ -25,7 +25,7 @@
 module Endemic.Traversals where
 
 import Control.Comonad.Store.Class (ComonadStore (peek, pos))
-import Control.Lens (Plated (..), contexts, transform, universe)
+import Control.Lens (Plated (..), contexts, contextsOf, transform, transformOf, universe, universeOf)
 import Data.Data (Data)
 import Data.Data.Lens (uniplate)
 import Data.List (intercalate)
@@ -33,19 +33,15 @@ import Data.Map (Map, member, (!))
 import GHC
 import GhcPlugins
 
--- We use lenses to avoid having to manually write the traversals.
-instance Data (HsExpr id) => Plated (LHsExpr id) where
-  plate = uniplate
-
 -- | Get this expression and all subexpressions
 flattenExpr :: Data (HsExpr id) => LHsExpr id -> [LHsExpr id]
-flattenExpr = universe
+flattenExpr = universeOf uniplate
 
 -- | Replace all expressions in a given expression with those
 -- found in the given map.
 replaceExpr :: Map SrcSpan (HsExpr GhcPs) -> LHsExpr GhcPs -> LHsExpr GhcPs
 replaceExpr repls =
-  transform $ \case
+  transformOf uniplate $ \case
     L loc _ | loc `member` repls -> L loc (repls ! loc)
     e -> e
 
@@ -54,7 +50,7 @@ replaceExpr repls =
 -- Could also be named `perforate`, `stigmatize` or
 -- `spindle`. See https://twitter.com/tritlo/status/1367202546415206400
 sanctifyExpr :: LHsExpr GhcPs -> [(SrcSpan, LHsExpr GhcPs)]
-sanctifyExpr = map repl . contexts
+sanctifyExpr = map repl . contextsOf uniplate
   where
     repl ctxt = (loc, peek (L loc hole) ctxt)
       where
@@ -75,7 +71,7 @@ sanctifyExpr = map repl . contexts
 
 -- | Fill the first hole in the given holed-expression.
 fillHole :: HsExpr GhcPs -> LHsExpr GhcPs -> Maybe (SrcSpan, LHsExpr GhcPs)
-fillHole fit = fillFirst . contexts
+fillHole fit = fillFirst . contextsOf uniplate
   where
     fillFirst (ctxt : ctxts) =
       case pos ctxt of
