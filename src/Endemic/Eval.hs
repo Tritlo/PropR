@@ -25,13 +25,17 @@ module Endemic.Eval where
 
 import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag, mapMaybeBag, unitBag)
 import Constraint
+import Control.Applicative (Const)
 import Control.Arrow ((***))
 import Control.Concurrent.Async (mapConcurrently)
+import Control.Lens (Getting, to, universeOf, universeOn, universeOnOf)
+import Control.Lens.Combinators (Fold)
 import Control.Monad (forM, forM_, unless, void, when, (>=>))
 import qualified CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
 import Data.Char (isAlphaNum)
+import Data.Data.Lens (template, tinplate, uniplate)
 import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
 import Data.IORef (IORef, newIORef, readIORef)
@@ -43,6 +47,8 @@ import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (Tree (Node, rootLabel))
 import Desugar (deSugarExpr)
+import DsExpr (dsLExpr, dsLExprNoLP)
+import DsMonad (initDsTc, initDsWithModGuts)
 import DynFlags
 import Endemic.Check
 import Endemic.Configuration
@@ -265,7 +271,7 @@ moduleToProb ::
   -- | The Path under which the module is located
   Maybe String ->
   -- | "mb_target" whether to target a specific type (?)
-  IO (CompileConfig, ParsedModule, Maybe EProblem)
+  IO (CompileConfig, TypecheckedModule, Maybe EProblem)
 moduleToProb cc@CompConf {..} mod_path mb_target = do
   let target = Target (TargetFile mod_path Nothing) True Nothing
   -- Feed the given Module into GHC
@@ -401,10 +407,10 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             prop_var_names = filter ((`Set.member` prop_var_occs) . occName) top_lvl_names
             prop_var_occs = Set.map occName prop_vars
             Just top_lvl_names = modInfoTopLevelScope (moduleInfo tc_modul)
+            prop_vars :: Set RdrName
             prop_vars =
               Set.fromList $
-                mapMaybe mbVar $
-                  flattenExpr (noLoc $ HsLet NoExtField (toCtxt props) (tf "undefined"))
+                mapMaybe mbVar (universeOnOf tinplate uniplate (toCtxt props) :: [LHsExpr GhcPs])
             mbVar (L _ (HsVar _ v)) = Just $ unLoc v
             mbVar _ = Nothing
 
@@ -549,7 +555,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     let prob = case int_prob of
           Nothing -> Just $ ExProb local_prop_var_names
           _ -> int_prob
-    return (cc', modul, prob)
+    return (cc', tc_modul, prob)
 
 -- Create a fake base loc for a trace.
 fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> IO SrcSpan
@@ -980,62 +986,87 @@ justTcExpr cc parsed = do
 
 -- | We get the type of the given expression by desugaring it and getting the type
 -- of the resulting Core expression
-getExprTy :: HscEnv -> LHsExpr GhcTc -> IO (Maybe Type)
-getExprTy hsc_env expr = fmap CoreUtils.exprType . snd <$> deSugarExpr hsc_env expr
+getExprTys :: HscEnv -> [LHsExpr GhcTc] -> Ghc [Maybe Type]
+getExprTys hsc_env exprs = do
+  liftIO $ logStr DEBUG "Desugaring..."
+  mb_types <- liftIO $ mapM (fmap snd . deSugarExpr hsc_env) exprs
+  return $ map (fmap CoreUtils.exprType) mb_types
 
 -- | Takes an expression and generates HoleFitCandidates from every subexpresson.
+-- Uses either the expression itself or the desugared module
 getExprFitCands ::
   -- | The general compiler setup
   CompileConfig ->
-  -- | The expression to be holed
-  EExpr ->
+  -- | The expression or module
+  Either EExpr TypecheckedModule ->
   IO [ExprFitCand]
-getExprFitCands cc expr = runGhc (Just libdir) $ do
+getExprFitCands cc expr_or_mod = runGhc (Just libdir) $ do
   liftIO $ logStr DEBUG "Getting expression fit cands..."
   -- setSessionDynFlags reads the package database.
   liftIO $ logStr DEBUG "Reading the package database..."
   _ <- setSessionDynFlags =<< getSessionDynFlags
   -- If it type checks, we can use the expression
   liftIO $ logStr DEBUG "Typechecking the expression..."
-  mb_tcd_context <- justTcExpr cc expr
-  let esAndNames =
-        case mb_tcd_context of
-          Just ((tcd_context, _), wc) ->
-            -- We get all the expressions in the program here,
-            -- so that we can  pass it along to our custom holeFitPlugin.
-            let flat = flattenExpr tcd_context
-                -- Vars are already in scope
-                nonTriv :: LHsExpr GhcTc -> Bool
-                nonTriv (L _ HsVar {}) = False
-                -- We don't want more holes
-                nonTriv (L _ HsUnboundVar {}) = False
-                -- We'll get whatever expression is within the parenthesis
-                -- or wrap anyway
-                nonTriv (L _ HsPar {}) = False
-                nonTriv (L _ HsWrap {}) = False
-                nonTriv _ = True
-                e_ids (L _ (HsVar _ v)) = Just $ unLoc v
-                e_ids _ = Nothing
-                -- We remove the ones already present and drop the first one
-                -- (since it will be the program itself)
-                flat' = filter nonTriv $ tail flat
-             in map (\e -> (e, bagToList $ wc_simple wc, mapMaybe e_ids $ flattenExpr e)) flat'
-          _ -> []
-  liftIO $ logStr DEBUG "Getting the session..."
-  hsc_env <- getSession
-  -- After we've found the expressions and any ids contained within them, we
-  -- need to find their types
-  liftIO $ logStr DEBUG "Getting expression types and finalizing..."
-  liftIO $
-    mapM
-      ( \(e, wc, rs) -> do
-          ty <- getExprTy hsc_env e
-          return $ case ty of
-            Nothing -> EFC e emptyBag rs ty
-            Just expr_ty -> EFC e (listToBag (relevantCts expr_ty wc)) rs ty
-      )
-      esAndNames
+  case expr_or_mod of
+    Left expr -> do
+      mb_tcd_context <- justTcExpr cc expr
+      let esAndNames =
+            case mb_tcd_context of
+              Just ((tcd_context, _), wc) ->
+                -- We get all the expressions in the program here,
+                -- so that we can  pass it along to our custom holeFitPlugin.
+                let flat = flattenExpr tcd_context
+                    -- We remove the ones already present and drop the first one
+                    -- (since it will be the program itself)
+                    flat' = filter nonTriv $ tail flat
+                 in toEsAnNames wc flat'
+              _ -> []
+      liftIO $ logStr DEBUG "Getting the session..."
+      hsc_env <- getSession
+      -- After we've found the expressions and any ids contained within them, we
+      -- need to find their types
+      liftIO $ logStr DEBUG "Getting expression types..."
+      mb_tys <- getExprTys hsc_env $ map (\(e, _, _) -> e) esAndNames
+      return $ zipWith finalize esAndNames mb_tys
+    Right typechecked -> do
+      let exprs :: [LHsExpr GhcTc]
+          exprs = universeOnOf tinplate uniplate $ typecheckedSource typechecked
+          -- TODO: is it OK to ignore the wcs here? Should be.
+          esAndNames = toEsAnNames emptyWC $ filter nonTriv exprs
+      desugared <- desugarModule typechecked
+
+      liftIO $ logStr DEBUG "Getting the session..."
+      hsc_env <- getSession
+      -- After we've found the expressions and any ids contained within them, we
+      -- need to find their types
+      liftIO $ logStr DEBUG "Getting expression types..."
+      mb_tys <-
+        liftIO $
+          mapM
+            ( fmap (fmap CoreUtils.exprType . snd)
+                . initDsWithModGuts hsc_env (coreModule desugared)
+                . dsLExpr
+                . (\(e, _, _) -> e)
+            )
+            esAndNames
+      return $ zipWith finalize esAndNames mb_tys
   where
+    toEsAnNames wc = map (\e -> (e, bagToList $ wc_simple wc, mapMaybe e_ids $ flattenExpr e))
+    e_ids (L _ (HsVar _ v)) = Just $ unLoc v
+    e_ids _ = Nothing
+    -- Vars are already in scope
+    nonTriv :: LHsExpr GhcTc -> Bool
+    nonTriv (L _ HsVar {}) = False
+    -- We don't want more holes
+    nonTriv (L _ HsUnboundVar {}) = False
+    -- We'll get whatever expression is within the parenthesis
+    -- or wrap anyway
+    nonTriv (L _ HsPar {}) = False
+    nonTriv (L _ HsWrap {}) = False
+    nonTriv _ = True
+    finalize :: (LHsExpr GhcTc, [Ct], [Id]) -> Maybe Type -> ExprFitCand
+    finalize (e, _, rs) ty@Nothing = EFC e emptyBag rs ty
+    finalize (e, wc, rs) ty@(Just expr_ty) = EFC e (listToBag (relevantCts expr_ty wc)) rs ty
     -- Taken from TcHoleErrors, which is sadly not exported. Takes a type and
     -- a list of constraints and filters out irrelvant constraints that do not
     -- mention any typve variable in the type.

@@ -24,7 +24,7 @@ import Endemic.Search.Genetic.Configuration
 import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Search.Random.Configuration
 import Endemic.Types
-import GHC (ParsedModule)
+import GHC (ParsedModule, TypecheckedModule (TypecheckedModule))
 
 -- | Logging configuration
 data LogConfig = LogConf
@@ -365,8 +365,8 @@ data ProblemDescription = ProbDesc
     exprFitCands :: [ExprFitCand],
     compConf :: CompileConfig,
     repConf :: RepairConfig,
-    -- | The parsed module, if available
-    probModule :: Maybe ParsedModule,
+    -- | The typechecked module, if available
+    probModule :: Maybe TypecheckedModule,
     -- | Fix candidates, if available
     initialFixes :: Maybe [EFix]
   }

@@ -128,8 +128,8 @@ ppDiff (L o1 d, L o2 d') =
         d'' = show $ length diffs
 
 fixesToDiffs :: ProblemDescription -> Set EFix -> [String]
-fixesToDiffs desc@ProbDesc {probModule = Just modul} fixes =
-  map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
+fixesToDiffs desc@ProbDesc {probModule = Just TypecheckedModule {..}} fixes =
+  map (concatMap ppDiff . snd . applyFixes tm_parsed_module . getFixBinds) fixProgs
   where
     ProbDesc {..} = desc
     EProb {..} = progProblem

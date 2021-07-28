@@ -218,7 +218,7 @@ failingProps _ _ _ = error "Cannot find failing props of external problems yet!"
 -- a (translated) repair problem and returns a list of potential fixes.
 repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
 repair cc rc prob@EProb {..} = do
-  ecfs <- getExprFitCands cc $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  ecfs <- getExprFitCands cc $ Left $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
   let desc =
         ProbDesc
           { progProblem = prob,
@@ -464,10 +464,8 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
   (compConf, modul, problem) <- moduleToProb cc fp Nothing
   let progProblem@EProb {..} = case problem of
         Just p@EProb {} -> p
-        _ -> error "External or multi-target not supported!"
-  exprFitCands <-
-    getExprFitCands compConf $
-      noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+        _ -> error "External targets not supported!"
+  exprFitCands <- getExprFitCands compConf $ Right modul
   let probModule = Just modul
       initialFixes = Nothing
       desc' = ProbDesc {..}
