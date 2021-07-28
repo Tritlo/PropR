@@ -18,7 +18,7 @@ import BasicTypes (IntegralLit (..), Origin (..), PromotionFlag (..), SourceText
 import Data.Maybe (mapMaybe)
 import Endemic.Configuration (RepairConfig (..))
 import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
-import Endemic.Util (progAtTy)
+import Endemic.Util (progAtTy, rdrNamePrint)
 import FastString (fsLit)
 import GHC
 import GhcPlugins (occName)
@@ -127,7 +127,7 @@ buildFixCheck rc seed EProb {..} prog_fixes =
     expr_bs prog_fix =
       zipWith
         ( \(nm, e_ty, _) n_prog ->
-            baseFun (mkVarUnqual $ fsLit $ "expr__" ++ occNameString (occName nm)) $
+            baseFun (mkVarUnqual $ fsLit $ "expr__" ++ rdrNamePrint nm) $
               progAtTy n_prog e_ty
         )
         e_prog
@@ -183,7 +183,7 @@ buildSuccessCheck rc seed EProb {..} =
     expr_bs =
       map
         ( \(nm, e_ty, e_prog) ->
-            baseFun (mkVarUnqual $ fsLit $ "expr__" ++ occNameString (occName nm)) $ progAtTy e_prog e_ty
+            baseFun (mkVarUnqual $ fsLit $ "expr__" ++ rdrNamePrint nm) $ progAtTy e_prog e_ty
         )
         e_prog
     ctxt = L bl (HsValBinds be nvb)
@@ -269,9 +269,9 @@ testCheckExpr e_prog RepConf {..} extractors test =
             HsApp
               NoExtField
               (noLoc $ HsVar NoExtField test)
-              (tf ("expr__" ++ occNameString (occName nm)))
+              (tf ("expr__" ++ rdrNamePrint nm))
         apps ((nm, _, _) : r) =
-          noLoc $ HsApp NoExtField (apps r) (tf $ "expr__" ++ occNameString (occName nm))
+          noLoc $ HsApp NoExtField (apps r) (tf $ "expr__" ++ rdrNamePrint nm)
 
     qcSubExpr :: LHsExpr GhcPs
     qcSubExpr =
@@ -326,7 +326,7 @@ buildCounterExampleCheck
       expr_bs =
         map
           ( \(nm, e_ty, e_prog) ->
-              baseFun (mkVarUnqual $ fsLit $ "expr__" ++ occNameString (occName nm)) $
+              baseFun (mkVarUnqual $ fsLit $ "expr__" ++ rdrNamePrint nm) $
                 progAtTy e_prog e_ty
           )
           e_prog

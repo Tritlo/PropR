@@ -435,7 +435,10 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                           fh {mc_fun = L l''' $ unLoc nfid}
                         o -> o
                 nalt alt = alt
-                nvpat t_name = noLoc $ VarPat NoExtField $ noLoc t_name
+                nvpat t_name =
+                  noLoc $
+                    ParPat NoExtField $
+                      noLoc $ VarPat NoExtField $ noLoc t_name
                 nvpats = map nvpat targets
             nmatches _ mg = mg
 
@@ -532,7 +535,7 @@ buildTraceCorrelExpr cc EProb {..} exprs = do
           ( \(nm, _, _) e ->
               baseFun
                 ( mkVarUnqual $
-                    fsLit $ "fake_target_" ++ occNameString (occName nm)
+                    fsLit $ "fake_target_" ++ rdrNamePrint nm
                 )
                 e
           )
@@ -683,8 +686,8 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
     correl =
       zipWith
         ( \(nm, _, _) e ->
-            let ftn = "fake_target_" ++ occNameString (occName nm)
-             in (ftn, baseFun (mkVarUnqual $ fsLit $ ftn) e)
+            let ftn = "fake_target_" ++ rdrNamePrint nm
+             in (ftn, baseFun (mkVarUnqual $ fsLit ftn) e)
         )
         e_prog
         exprs

@@ -15,7 +15,7 @@ import Control.Exception (assert)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bits
-import Data.Char (isSpace, toLower, toUpper)
+import Data.Char (digitToInt, isAlphaNum, isSpace, ord, toLower, toUpper)
 import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef)
 import Data.List (intercalate)
 import qualified Data.Map as Map
@@ -29,7 +29,7 @@ import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
-import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, showSDocUnsafe)
+import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, occName, occNameString, showSDocUnsafe)
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
@@ -265,12 +265,22 @@ mergeFixes' [] xs = xs
 mergeFixes' xs [] = xs
 mergeFixes' (x : xs) ys = x : mergeFixes' xs (filter (not . isSubspanOf (fst x) . fst) ys)
 
+-- | EProgs
 -- | We apply fixes by adding progAtTy and replacing with the fix.
 applyFixToEProg :: EProg -> EFix -> EProg
 applyFixToEProg e_prog fix = map (\(n, t, p) -> (n, t, replaceExpr fix $ progAtTy p t)) e_prog
 
 eProgToEProgFix :: EProg -> EProgFix
 eProgToEProgFix = map trd
+  where
+    trd :: (a, b, c) -> c
+    trd (_, _, c) = c
 
-trd :: (a, b, c) -> c
-trd (_, _, c) = c
+rdrNamePrint :: RdrName -> String
+rdrNamePrint nm =
+  if not (null alphanum)
+    then alphanum
+    else intercalate "_" $ map (show . ord) base
+  where
+    base = occNameString $ occName nm
+    alphanum = filter isAlphaNum base
