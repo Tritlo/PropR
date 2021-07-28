@@ -27,7 +27,7 @@ import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag
 import Constraint
 import Control.Arrow ((***))
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (forM_, unless, void, when, (>=>))
+import Control.Monad (forM, forM_, unless, void, when, (>=>))
 import qualified CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
@@ -209,9 +209,9 @@ monomorphiseType cc ty =
       where
         (tvs, base_ty) = splitForAllTys ty'
 
--- | addLocalTargets adds any modules that are mentioned that should be in a
--- directory close to the target.
-addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m ()
+-- | addLocalTargets adds any modules that are imported that are in any of the
+-- paths specified.
+addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m Bool
 addLocalTargets imports local_paths = do
   mg <- depanal [] False
   -- We (crudely) add any missing local modules:
@@ -221,16 +221,28 @@ addLocalTargets imports local_paths = do
       toModName (IIDecl id@ImportDecl {ideclName = L _ mname}) = Just mname
       toModName (IIModule mname) = Just mname
       toModName _ = Nothing
-  forM_ (imods : mg_mods) $ \lmods ->
-    forM_ lmods $ \mod ->
-      unless (mod `Set.member` already_a_target) $ do
-        let mod_name = moduleNameSlashes mod
-        forM_ local_paths $ \mod_base -> do
-          let mod_path' = mod_base </> mod_name <.> ".hs"
-          abs_path <- liftIO $ makeAbsolute mod_path'
-          exists <- liftIO $ doesFileExist abs_path
-          let t' = Target (TargetFile abs_path Nothing) True Nothing
-          when exists $ addTarget t'
+  -- We add the targets recursively, in case any of the local dependencies have
+  -- local dependencies as well.
+  any_changed <- fmap or $
+    forM (imods : mg_mods) $ \lmods ->
+      fmap or $
+        forM lmods $ \mod ->
+          if mod `Set.member` already_a_target
+            then return False
+            else do
+              let mod_name = moduleNameSlashes mod
+              res <- forM local_paths $ \mod_base -> do
+                let mod_path' = mod_base </> mod_name <.> ".hs"
+                abs_path <- liftIO $ makeAbsolute mod_path'
+                exists <- liftIO $ doesFileExist abs_path
+                let t' = Target (TargetFile abs_path Nothing) True Nothing
+                if exists
+                  then addTarget t' >> return True
+                  else return False
+              return (or res)
+  if any_changed
+    then addLocalTargets [] local_paths >> return True
+    else return False
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
