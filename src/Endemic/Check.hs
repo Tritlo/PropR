@@ -26,7 +26,7 @@ import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
 import Endemic.Util (progAtTy, propVars, rdrNamePrint)
 import FastString (fsLit)
 import GHC
-import GhcPlugins (occName)
+import GhcPlugins (occName, ppr, showSDocUnsafe)
 import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
 import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
@@ -269,7 +269,13 @@ testCheckExpr e_prog RepConf {..} extractors prop
       noLoc $
         HsPar NoExtField $ apps (reverse $ filter (\(n, _, _) -> n `Set.member` prop_vars) e_prog)
       where
-        apps [] = error "Missing app!"
+        -- If there's no var, then we have to do the following
+        apps [] =
+          noLoc $
+            HsApp
+              NoExtField
+              (noLoc $ HsVar NoExtField prop_name)
+              (tf "expr__")
         apps [(nm, _, _)] =
           noLoc $
             HsApp
