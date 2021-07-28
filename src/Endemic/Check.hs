@@ -13,9 +13,9 @@
 -- This module is a pure module.
 module Endemic.Check where
 
-import Bag (listToBag, unionManyBags, unitBag)
+import Bag (emptyBag, listToBag, unionManyBags, unitBag)
 import BasicTypes (IntegralLit (..), Origin (..), PromotionFlag (..), SourceText (..))
-import Data.Maybe (mapMaybe)
+import Data.Maybe (isJust, mapMaybe)
 import Endemic.Configuration (RepairConfig (..))
 import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
 import Endemic.Util (progAtTy, rdrNamePrint)
@@ -108,16 +108,13 @@ buildFixCheck rc seed EProb {..} prog_fixes =
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
     qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed $ Just 0)
-    nvb = ValBinds vbe nvbs vsigs
     nvbs =
       unionManyBags
-        [ vbs,
-          listToBag e_props,
-          unitBag qcb
-          -- unitBag expr_b,
-          -- unitBag pcb
+        [ listToBag e_props,
+          unitBag qcb,
+          if isJust e_module then emptyBag else vbs
         ]
-    ctxt = L bl (HsValBinds be nvb)
+    ctxt = L bl (HsValBinds be (ValBinds vbe nvbs $ if (isJust e_module) then [] else vsigs))
     prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing

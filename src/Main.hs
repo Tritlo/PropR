@@ -165,19 +165,6 @@ repairModule conf@Conf {..} target = do
   -- Set the global flags
   desc@ProbDesc {..} <- describeProblem conf target
   let tp@EProb {..} = progProblem
-      RProb {..} = detranslate tp
-  logStr INFO $ "TARGET:"
-  logStr INFO $ ("  `" ++ r_target ++ "` in " ++ target)
-  logStr VERBOSE $ "CONFIG:"
-  logStr VERBOSE $ show conf
-  logStr VERBOSE $ "SCOPE:"
-  mapM_ (logStr VERBOSE . ("  " ++)) (importStmts compileConfig)
-  logStr INFO $ "TARGET TYPE:"
-  logStr INFO $ "  " ++ r_ty
-  logStr INFO $ "MUST SATISFY:"
-  mapM_ (logStr INFO . ("  " ++)) r_props
-  logStr VERBOSE $ "IN CONTEXT:"
-  mapM_ (logStr VERBOSE . ("  " ++)) r_ctxt
   logStr VERBOSE $ "PROGRAM TO REPAIR: "
   logStr VERBOSE $ showUnsafe e_prog
 

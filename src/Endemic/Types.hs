@@ -99,7 +99,8 @@ data EProblem
   = EProb
       { e_props :: [EProp],
         e_ctxt :: EContext,
-        e_prog :: EProg
+        e_prog :: EProg,
+        e_module :: Maybe ModuleName
       }
   | ExProb {ex_targets :: [Name]}
 

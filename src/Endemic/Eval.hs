@@ -37,7 +37,7 @@ import Data.Function (on)
 import Data.IORef (IORef, newIORef, readIORef)
 import Data.List (groupBy, intercalate, partition, stripPrefix)
 import qualified Data.Map as Map
-import Data.Maybe (catMaybes, isNothing, mapMaybe)
+import Data.Maybe (catMaybes, isJust, isNothing, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
@@ -141,7 +141,10 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
   imports <- mapM (fmap IIDecl . parseImportDecl) importStmts
+  let toTarget mod_path = Target (TargetFile mod_path Nothing) True Nothing
+  mapM_ (addTarget . toTarget) additionalTargets
   addLocalTargets imports modBase
+  _ <- load LoadAllTargets
   getContext >>= setContext . (imports ++)
   return plugRef
 
@@ -227,8 +230,7 @@ addLocalTargets imports local_paths = do
           abs_path <- liftIO $ makeAbsolute mod_path'
           exists <- liftIO $ doesFileExist abs_path
           let t' = Target (TargetFile abs_path Nothing) True Nothing
-          when exists $
-            void (addTarget t' >> load (LoadUpTo mod))
+          when exists $ addTarget t'
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
@@ -280,8 +282,11 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     let (L _ HsModule {..}) = pm_parsed_source
         cc' =
           cc
-            { importStmts = importStmts ++ imps',
-              modBase = dropFileName mod_path : modBase
+            { -- We import the module itself to get all instances and data
+              -- declarations in scope.
+              importStmts = ("import " ++ moduleNameString mname) : (importStmts ++ imps'),
+              modBase = dropFileName mod_path : modBase,
+              additionalTargets = mod_path : additionalTargets
             }
           where
             imps' = map showUnsafe hsmodImports
@@ -400,7 +405,8 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                   EProb
                     { e_ctxt = ctxt,
                       e_props = wrapped_props,
-                      e_prog = zip3 targets tys exprs
+                      e_prog = zip3 targets tys exprs,
+                      e_module = Just mname
                     }
             _ -> Nothing
           where
@@ -734,8 +740,10 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
     ["module " ++ mname ++ " where"]
       ++ importStmts
       ++ checkImports
+      -- We include the context if we are doing an inline problem,
+      -- otherwise it's already provided by the imports.
+      ++ (if isJust e_module then [] else lines $ showUnsafe e_ctxt)
       ++ concatMap (lines . showUnsafe) failing_props
-      ++ lines (showUnsafe e_ctxt)
       ++ map (showUnsafe . snd) fake_targets
       ++ [concat ["checks = [", checks, "]"]]
       ++ [ "",

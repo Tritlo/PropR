@@ -189,6 +189,11 @@ properGenTests =
               "-(++++) = (-)",
               "+(++++) = (+)"
             ]
+          ],
+      mkGenConfTest 15_000_000 "Repair Data" "tests/cases/Data.hs" $
+        map
+          unlines
+          [ []
           ]
     ]
 
