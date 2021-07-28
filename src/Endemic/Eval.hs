@@ -498,6 +498,9 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               where
                 (t_names, sigs) = unzip tns
                 sigs' = map noLoc sigs
+                -- TODO: We should maybe take the transitive closure of
+                -- the binds here, *BUT* that would mean that the programs
+                -- (and therefore the locations) will be different. Hmm.
                 wp' :: RdrName -> LHsExpr GhcPs
                 wp' t_name = noLoc $ HsLet noExtField (noLoc lbs) (noLoc le)
                   where

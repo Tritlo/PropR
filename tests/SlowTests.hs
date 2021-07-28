@@ -178,6 +178,17 @@ properGenTests =
               "-result = dependency + 3",
               "+result = dependency + one"
             ]
+          ],
+      mkGenConfTest 15_000_000 "Repair Operators" "tests/cases/Operators.hs" $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/Operators.hs b/tests/cases/Operators.hs",
+              "--- a/tests/cases/Operators.hs",
+              "+++ b/tests/cases/Operators.hs",
+              "@@ -4,1 +4,1 @@ (++++) = (-)",
+              "-(++++) = (-)",
+              "+(++++) = (+)"
+            ]
           ]
     ]
 
