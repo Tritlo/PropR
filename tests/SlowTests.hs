@@ -6,6 +6,7 @@ module Main where
 
 import Data.Default
 import Data.IORef (readIORef, writeIORef)
+import Data.List (sort)
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -55,7 +56,7 @@ mkRepairTest how timeout tag file expected =
       setSeedGenSeed (tESTSEED + 5)
       desc <- describeProblem def file
       fixes <- how desc
-      fixesToDiffs desc fixes @?= expected
+      sort (fixesToDiffs desc fixes) @?= sort expected
 
 mkGenConfTest :: Integer -> TestName -> FilePath -> [String] -> TestTree
 mkGenConfTest = mkRepairTest (\desc -> runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing)
@@ -193,7 +194,14 @@ properGenTests =
       mkGenConfTest 15_000_000 "Repair Data" "tests/cases/Data.hs" $
         map
           unlines
-          [ []
+          [ [ "diff --git a/tests/cases/Data.hs b/tests/cases/Data.hs",
+              "--- a/tests/cases/Data.hs",
+              "+++ b/tests/cases/Data.hs",
+              "@@ -6,2 +6,2 @@ evalExpr (Add a b) = a + b",
+              " evalExpr (Add a b) = a + b",
+              "-evalExpr (Mul a b) = a * b",
+              "+evalExpr (Mul a b) = 8"
+            ]
           ]
     ]
 

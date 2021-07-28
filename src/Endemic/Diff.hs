@@ -18,6 +18,7 @@ module Endemic.Diff where
 
 import Bag (bagToList)
 import Control.Exception (assert)
+import Data.Function (on)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -29,7 +30,7 @@ import Endemic.Types
 import Endemic.Util (progAtTy, showUnsafe)
 import FastString (unpackFS)
 import GHC
-import GhcPlugins (Outputable)
+import GhcPlugins (Outputable, ppr, showSDocUnsafe)
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
 getFixBinds parsed =
@@ -48,8 +49,8 @@ getFixBinds parsed =
     check (L _ (ExprWithTySig _ (L _ (HsPar _ (L _ (HsLet _ (L _ (HsValBinds _ ValBinds {})) _)))) _)) = True
     check _ = False
 
-applyFixes :: ParsedModule -> [LHsBinds GhcPs] -> (ParsedModule, [RFix])
-applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nbs =
+applyFixes :: ParsedModule -> LHsBinds GhcPs -> (ParsedModule, [RFix])
+applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nb =
   (pm {pm_parsed_source = L lm (hm {hsmodDecls = decls'})}, swaps)
   where
     decls' = map swapDecl hsmodDecls
@@ -57,7 +58,11 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nbs =
     swap :: LHsDecl GhcPs -> Maybe RFix
     swap d@(L dl (ValD x FunBind {..})) =
       case nbMap Map.!? unLoc fun_id of
-        Just b -> Just (d, L dl (ValD x $ unLoc b))
+        Just b
+          | n <- L dl (ValD x $ unLoc b),
+            neq <- (/=) `on` (showSDocUnsafe . ppr),
+            n `neq` d ->
+            Just (d, n)
         _ -> Nothing
     swap _ = Nothing
     swapDecl d = maybe d snd (swap d)
@@ -65,7 +70,7 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nbs =
     bToFunId b@(L _ FunBind {..}) = Just (unLoc fun_id, b)
     bToFunId _ = Nothing
     nbMap :: Map RdrName (LHsBind GhcPs)
-    nbMap = Map.fromList $ mapMaybe bToFunId $ concatMap bagToList nbs
+    nbMap = Map.fromList $ mapMaybe bToFunId $ bagToList nb
 
 -- | Colorize a pretty printed fix
 colorizeDiff :: String -> String
@@ -92,7 +97,7 @@ ppFix expr fixes = curry ppDiff expr $ replaceExpr fixes expr
 ppDiff :: Outputable e => (Located e, Located e) -> String
 ppDiff (L o1 d, L o2 d') =
   unlines
-    ( (unwords ["diff", "--git", f_a, f_b]) :
+    ( unwords ["diff", "--git", f_a, f_b] :
       unwords ["---", f_a] :
       unwords ["+++", f_b] :
       range o1 o2 :
@@ -124,14 +129,12 @@ ppDiff (L o1 d, L o2 d') =
 
 fixesToDiffs :: ProblemDescription -> Set EFix -> [String]
 fixesToDiffs desc@ProbDesc {probModule = Just modul} fixes =
-  map (concatMap ppDiff . snd . applyFixes modul . map getFixBinds) fixProgs
+  map (concatMap ppDiff . snd . applyFixes modul . getFixBinds) fixProgs
   where
     ProbDesc {..} = desc
     EProb {..} = progProblem
-    fixProgs =
-      map
-        ( \(_, e_ty, e_prog) ->
-            map (`replaceExpr` progAtTy e_prog e_ty) $ Set.toList fixes
-        )
-        e_prog
+    -- We apply the same fixes to all the progs,
+    -- so the first one should be the entire thing.
+    (_, e_ty, e_prog') : _ = e_prog
+    fixProgs = map (`replaceExpr` progAtTy e_prog' e_ty) $ Set.toList fixes
 fixesToDiffs _ _ = error "Cannot print diff if module not available!"

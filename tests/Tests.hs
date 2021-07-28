@@ -8,7 +8,7 @@ import Control.Arrow
 import Data.Bits (finiteBitSize)
 import Data.Default
 import Data.Dynamic (fromDynamic)
-import Data.List (find)
+import Data.List (find, sort)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Tree
@@ -442,8 +442,16 @@ mkModuleTest timeout tag toFix repair_target expected =
       (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
       fixes <- repair cc' def tp
       let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
-          fixDiffs = map (concatMap ppDiff . snd . applyFixes mod . map getFixBinds) fixProgs
-      fixDiffs @?= expected
+          fixDiffs =
+            map
+              ( concatMap ppDiff
+                  . snd
+                  . applyFixes mod
+                  . getFixBinds
+                  . head
+              )
+              fixProgs
+      sort fixDiffs @?= sort expected
 
 moduleTests =
   testGroup
