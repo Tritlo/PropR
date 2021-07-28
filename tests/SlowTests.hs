@@ -43,12 +43,6 @@ tESTSEED = 703_039_772
 tESTGENCONF :: GeneticConfiguration
 tESTGENCONF = def {crossoverRate = 0.95, mutationRate = 0.05, dropRate = 0.05}
 
--- | For debugging tests
-setLogLevel :: LogLevel -> IO ()
-setLogLevel lvl = do
-  lc <- readIORef lOGCONFIG
-  writeIORef lOGCONFIG lc {logLevel = lvl}
-
 mkRepairTest :: (ProblemDescription -> IO (Set EFix)) -> Integer -> TestName -> FilePath -> [String] -> TestTree
 mkRepairTest how timeout tag file expected =
   localOption (mkTimeout timeout) $
@@ -173,6 +167,20 @@ properGenTests =
         map
           unlines
           [ [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
+              "--- a/tests/cases/UsesDependency.hs",
+              "+++ b/tests/cases/UsesDependency.hs",
+              "@@ -9,1 +9,1 @@ result = dependency + 3",
+              "-result = dependency + 3",
+              "+result = 42"
+            ],
+            [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
+              "--- a/tests/cases/UsesDependency.hs",
+              "+++ b/tests/cases/UsesDependency.hs",
+              "@@ -9,1 +9,1 @@ result = dependency + 3",
+              "-result = dependency + 3",
+              "+result = dependency + 1"
+            ],
+            [ "diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs",
               "--- a/tests/cases/UsesDependency.hs",
               "+++ b/tests/cases/UsesDependency.hs",
               "@@ -9,1 +9,1 @@ result = dependency + 3",

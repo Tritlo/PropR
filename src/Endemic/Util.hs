@@ -16,7 +16,7 @@ import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bits
 import Data.Char (digitToInt, isAlphaNum, isSpace, ord, toLower, toUpper)
-import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (intercalate)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust)
@@ -284,3 +284,17 @@ rdrNamePrint nm =
   where
     base = occNameString $ occName nm
     alphanum = filter isAlphaNum base
+
+-- | For debugging tests
+setLogLevel :: LogLevel -> IO ()
+setLogLevel lvl = do
+  lc <- readIORef lOGCONFIG
+  writeIORef lOGCONFIG lc {logLevel = lvl}
+
+withLogLevel :: LogLevel -> IO a -> IO a
+withLogLevel lvl act = do
+  prev_lvl <- logLevel <$> readIORef lOGCONFIG
+  setLogLevel lvl
+  res <- act
+  setLogLevel prev_lvl
+  return res
