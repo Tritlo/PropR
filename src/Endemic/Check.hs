@@ -258,17 +258,18 @@ testCheckExpr e_prog RepConf {..} extractors test =
               NoExtField
               (noLoc $ HsApp NoExtField (tf "checkTastyTree") (il repTimeout))
               app
+
     app =
       noLoc $
-        HsPar NoExtField $
+        HsPar NoExtField $ apps (reverse e_prog)
+      where
+        apps [] = error "Missing app!"
+        apps [(nm, _, _)] =
           noLoc $
             HsApp
               NoExtField
               (noLoc $ HsVar NoExtField test)
-              (apps e_prog)
-      where
-        apps [] = error "Missing app!"
-        apps [(nm, _, _)] = tf ("expr__" ++ occNameString (occName nm))
+              (tf ("expr__" ++ occNameString (occName nm)))
         apps ((nm, _, _) : r) =
           noLoc $ HsApp NoExtField (apps r) (tf $ "expr__" ++ occNameString (occName nm))
 
