@@ -19,6 +19,7 @@ module Endemic.Diff where
 import Bag (bagToList)
 import Control.Exception (assert)
 import Data.Function (on)
+import Data.List (groupBy, intercalate, sortBy, sortOn)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
@@ -95,24 +96,20 @@ ppFix expr fixes = curry ppDiff expr $ replaceExpr fixes expr
 
 -- | Pretty print a fix by adding git like '+' and '-' to each line.
 ppDiff :: Outputable e => (Located e, Located e) -> String
-ppDiff (L o1 d, L o2 d') =
+ppDiff p = ppDiffHeader p ++ ppDiff' p
+
+ppDiff' :: Outputable e => (Located e, Located e) -> String
+ppDiff' p@(L o1 d, L o2 d') =
   unlines
-    ( unwords ["diff", "--git", f_a, f_b] :
-      unwords ["---", f_a] :
-      unwords ["+++", f_b] :
-      range o1 o2 :
+    ( range o1 o2 :
       toOut diffs
     )
   where
-    f_a = "a/" ++ toLoc o1
-    f_b = "b/" ++ toLoc o2
     diffs = zip (lines $ showUnsafe d) (lines $ showUnsafe d')
     toOut :: [(String, String)] -> [String]
     toOut [] = []
     toOut ((l, l') : ls) | l == l' = (' ' : l) : toOut ls
     toOut ((l, l') : ls) = ('-' : l) : ('+' : l') : toOut ls
-    toLoc (RealSrcSpan rs) = unpackFS $ srcSpanFile rs
-    toLoc (UnhelpfulSpan s) = unpackFS s
     header = case lines $ showUnsafe d of
       f : _ -> ' ' : if length f > 33 then take 30 f ++ "..." else f
       _ -> ""
@@ -127,9 +124,32 @@ ppDiff (L o1 d, L o2 d') =
       where
         d'' = show $ length diffs
 
+ppDiffHeader :: Outputable e => (Located e, Located e) -> String
+ppDiffHeader (L o1 d, L o2 d') =
+  unlines
+    [ unwords ["diff", "--git", f_a, f_b],
+      unwords ["---", f_a],
+      unwords ["+++", f_b]
+    ]
+  where
+    f_a = "a/" ++ toLoc o1
+    f_b = "b/" ++ toLoc o2
+    toLoc (RealSrcSpan rs) = unpackFS $ srcSpanFile rs
+    toLoc (UnhelpfulSpan s) = unpackFS s
+
+ppDiffs :: Outputable e => [(Located e, Located e)] -> String
+ppDiffs diffs = intercalate "\n" $ map sameFDiffs byLoc
+  where
+    sameFDiffs fdiffs@(fd : _) = ppDiffHeader fd ++ concatMap ppDiff' fdiffs
+    sameFDiffs _ = []
+    byLoc = groupBy ((==) `on` dToLoc) $ sortOn dToLoc diffs
+    dToLoc (L o _, _) = toLoc o
+    toLoc (RealSrcSpan rs) = unpackFS $ srcSpanFile rs
+    toLoc (UnhelpfulSpan s) = unpackFS s
+
 fixesToDiffs :: ProblemDescription -> Set EFix -> [String]
 fixesToDiffs desc@ProbDesc {probModule = Just TypecheckedModule {..}} fixes =
-  map (concatMap ppDiff . snd . applyFixes tm_parsed_module . getFixBinds) fixProgs
+  map (ppDiffs . snd . applyFixes tm_parsed_module . getFixBinds) fixProgs
   where
     ProbDesc {..} = desc
     EProb {..} = progProblem

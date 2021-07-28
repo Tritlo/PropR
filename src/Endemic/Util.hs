@@ -12,19 +12,23 @@
 module Endemic.Util where
 
 import Control.Exception (assert)
+import Control.Lens (universeOnOf)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bits
 import Data.Char (digitToInt, isAlphaNum, isSpace, ord, toLower, toUpper)
+import Data.Data.Lens (tinplate, uniplate)
 import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (intercalate)
 import qualified Data.Map as Map
-import Data.Maybe (fromJust, isJust)
+import Data.Maybe (fromJust, isJust, mapMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Endemic.Configuration
 import Endemic.Traversals (replaceExpr)
-import Endemic.Types (EExpr, EFix, EProg, EProgFix, EType, LogLevel (..))
+import Endemic.Types (EExpr, EFix, EProg, EProgFix, EProp, EType, LogLevel (..))
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
@@ -298,3 +302,11 @@ withLogLevel lvl act = do
   res <- act
   setLogLevel prev_lvl
   return res
+
+propVars :: EProp -> Set RdrName
+propVars prop = Set.fromList $ mapMaybe mbVar exprs
+  where
+    mbVar (L _ (HsVar _ v)) = Just $ unLoc v
+    mbVar _ = Nothing
+    exprs :: [LHsExpr GhcPs]
+    exprs = universeOnOf tinplate uniplate prop

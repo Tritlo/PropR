@@ -15,10 +15,15 @@ module Endemic.Check where
 
 import Bag (emptyBag, listToBag, unionManyBags, unitBag)
 import BasicTypes (IntegralLit (..), Origin (..), PromotionFlag (..), SourceText (..))
-import Data.Maybe (isJust, mapMaybe)
+import Control.Lens (universeOnOf)
+import Control.Lens.Extras (uniplate)
+import Data.Data.Lens (tinplate)
+import Data.Maybe (fromJust, isJust, mapMaybe)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Endemic.Configuration (RepairConfig (..))
 import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
-import Endemic.Util (progAtTy, rdrNamePrint)
+import Endemic.Util (progAtTy, propVars, rdrNamePrint)
 import FastString (fsLit)
 import GHC
 import GhcPlugins (occName)
@@ -115,11 +120,8 @@ buildFixCheck rc seed EProb {..} prog_fixes =
           if isJust e_module then emptyBag else vbs
         ]
     ctxt = L bl (HsValBinds be (ValBinds vbe nvbs $ if (isJust e_module) then [] else vsigs))
-    prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
-    prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
-    prop_to_name _ = Nothing
-    prop_names = mapMaybe prop_to_name e_props
-    testsToCheck = map (testCheckExpr e_prog rc (tf "qcSuccess", tf "id")) prop_names
+
+    testsToCheck = mapMaybe (testCheckExpr e_prog rc (tf "qcSuccess", tf "id")) e_props
 
     expr_bs prog_fix =
       zipWith
@@ -184,11 +186,8 @@ buildSuccessCheck rc seed EProb {..} =
         )
         e_prog
     ctxt = L bl (HsValBinds be nvb)
-    prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
-    prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
-    prop_to_name _ = Nothing
-    prop_names = mapMaybe prop_to_name e_props
-    testsToCheck = map (testCheckExpr e_prog rc (tf "qcSuccess", tf "id")) prop_names
+
+    testsToCheck = mapMaybe (testCheckExpr e_prog rc (tf "qcSuccess", tf "id")) e_props
 
     pcb =
       baseFun
@@ -235,14 +234,24 @@ testCheckExpr ::
   RepairConfig ->
   -- | A compiled program that contains properties and everything to run them
   (LHsExpr GhcPs, LHsExpr GhcPs) ->
-  -- | A reader containing the property to check
-  Located RdrName ->
+  -- | The property to check
+  EProp ->
   -- | The resulting expression
-  LHsExpr GhcPs
-testCheckExpr e_prog RepConf {..} extractors test =
-  noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
+  Maybe (LHsExpr GhcPs)
+testCheckExpr e_prog RepConf {..} extractors prop
+  | Just _ <- prop_to_name prop =
+    Just $ noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
   where
-    isQc = ((==) "prop" . take 4 . occNameString . rdrNameOcc . unLoc) test
+    prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
+    prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
+    prop_to_name _ = Nothing
+
+    prop_name = fromJust $ prop_to_name prop
+
+    prop_vars :: Set RdrName
+    prop_vars = propVars prop
+
+    isQc = ((==) "prop" . take 4 . occNameString . rdrNameOcc . unLoc) prop_name
     extractor = if isQc then fst extractors else snd extractors
     subExpr :: LHsExpr GhcPs
     subExpr = if isQc then qcSubExpr else tastySubExpr
@@ -258,14 +267,14 @@ testCheckExpr e_prog RepConf {..} extractors test =
 
     app =
       noLoc $
-        HsPar NoExtField $ apps (reverse e_prog)
+        HsPar NoExtField $ apps (reverse $ filter (\(n, _, _) -> n `Set.member` prop_vars) e_prog)
       where
         apps [] = error "Missing app!"
         apps [(nm, _, _)] =
           noLoc $
             HsApp
               NoExtField
-              (noLoc $ HsVar NoExtField test)
+              (noLoc $ HsVar NoExtField prop_name)
               (tf ("expr__" ++ rdrNamePrint nm))
         apps ((nm, _, _) : r) =
           noLoc $ HsApp NoExtField (apps r) (tf $ "expr__" ++ rdrNamePrint nm)
@@ -284,6 +293,7 @@ testCheckExpr e_prog RepConf {..} extractors test =
                     (tf "qc__")
               )
               app
+testCheckExpr _ _ _ _ = Nothing
 
 -- | The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument
@@ -299,13 +309,12 @@ buildCounterExampleCheck ::
 buildCounterExampleCheck
   rc@RepConf {..}
   seed
-  ( L
-      loc
-      fb@FunBind
-        { fun_id = fid,
-          fun_matches = fm@MG {mg_alts = (L lm malts)}
-        }
-    )
+  prop@( L
+           loc
+           fb@FunBind
+             { fun_matches = fm@MG {mg_alts = (L lm malts)}
+             }
+         )
   EProb {..} = noLoc $ HsLet NoExtField ctxt check_prog
     where
       (L bl (HsValBinds be vb)) = e_ctxt
@@ -370,7 +379,7 @@ buildCounterExampleCheck
             progAtTy
               ( noLoc $
                   HsPar NoExtField $
-                    testCheckExpr e_prog rc (tf "failureToMaybe", tf "id") fid
+                    fromJust $ testCheckExpr e_prog rc (tf "failureToMaybe", tf "id") prop
               )
               sq_ty
 buildCounterExampleCheck _ _ _ _ = error "invalid counter-example format!"
