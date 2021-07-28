@@ -224,14 +224,15 @@ instance Materializeable CompileConfig where
       umPackages :: Maybe [String],
       umHoleLvl :: Maybe Int,
       umUnfoldTastyTests :: Maybe Bool,
-      umModBase :: Maybe [FilePath]
+      umModBase :: Maybe [FilePath],
+      umAdditionalTargets :: Maybe [FilePath]
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized CompileConfig)
 
-  conjure = UmCompConf Nothing Nothing Nothing Nothing Nothing
+  conjure = UmCompConf Nothing Nothing Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
@@ -240,7 +241,8 @@ instance Materializeable CompileConfig where
         packages = fromMaybe packages umPackages,
         hole_lvl = fromMaybe hole_lvl umHoleLvl,
         modBase = fromMaybe modBase umModBase,
-        unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests
+        unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests,
+        additionalTargets = fromMaybe additionalTargets umAdditionalTargets
       }
 
 -- | Configuration for the compilation itself
@@ -251,6 +253,8 @@ data CompileConfig = CompConf
     packages :: [String],
     -- | Base path to use for modules, if available
     modBase :: [FilePath],
+    -- | Any additional targets to include
+    additionalTargets :: [FilePath],
     -- | the "depth" of the holes, see general notes on this
     hole_lvl :: Int,
     unfoldTastyTests :: Bool
@@ -267,7 +271,8 @@ instance Default CompileConfig where
         packages = ["base"],
         importStmts = ["import Prelude"],
         unfoldTastyTests = True,
-        modBase = []
+        modBase = [],
+        additionalTargets = []
       }
 
 -- | Configuration for the checking of repairs

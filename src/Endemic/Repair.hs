@@ -141,11 +141,12 @@ translate cc RProb {..} = runGhc (Just libdir) $ do
   let e_props = bagToList lbs
       e_target = mkVarUnqual $ fsLit r_target
       e_prog = [(e_target, e_ty, e_prog')]
+      e_module = Nothing
   return (EProb {..})
 
 detranslate :: HasCallStack => EProblem -> RProblem
 detranslate EProb {..} =
-  let [(e_target, e_prog', e_ty)] = e_prog
+  let (e_target, e_prog', e_ty) : _ = e_prog
       r_prog = showUnsafe e_prog'
       r_ty = showUnsafe e_ty
       r_props = map showUnsafe e_props
@@ -474,5 +475,7 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
       let fix_cands :: [(EFix, EExpr)]
           fix_cands = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
           initialFixes' = Just $ map fst fix_cands
+      logStr DEBUG "Initial fixes:"
+      logOut DEBUG initialFixes'
       return $ desc' {initialFixes = initialFixes'}
     else return desc'
