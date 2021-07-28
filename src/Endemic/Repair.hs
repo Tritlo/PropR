@@ -172,7 +172,9 @@ propCounterExample rc cc ep prop = do
   let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
       bcc = buildCounterExampleCheck rc seed prop ep
   exec <- compileParsedCheck cc' bcc
-  fromDyn exec (return Nothing)
+  (map addPar <$>) <$> fromDyn exec (return Nothing)
+  where
+    addPar arg = ('(' : arg) ++ ")"
 
 -- | Returns the props that fail for the given program
 failingProps :: RepairConfig -> CompileConfig -> EProblem -> IO [EProp]

@@ -797,10 +797,10 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
           ++ pname
           ++ " "
           ++ unwords (map (\(n, _, _) -> n) fts_to_use)
-          ++ " "
+          ++ " {- args start here -} "
           ++ unwords args
           ++ ")"
-    toCall prop args
+    toCall {- args start here -} prop args
       | pname <- toName prop,
         pvars <- propVars prop,
         fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
@@ -814,7 +814,7 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
           ++ pname
           ++ " "
           ++ unwords (map (\(n, _, _) -> n) fts_to_use)
-          ++ " "
+          ++ " {- args start here -} "
           ++ unwords args
           ++ "))"
     checks :: String
