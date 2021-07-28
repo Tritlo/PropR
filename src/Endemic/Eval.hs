@@ -461,7 +461,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
             mkFid nocc (L l' (Qual m occ)) = L l' (Qual m (nocc occ))
             mkFid _ b = b
 
-            nmatches nfid mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
+            nmatches vars nfid mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
               where
                 nalt (L l'' m@Match {..}) = L l'' m {m_pats = nvpats ++ m_pats, m_ctxt = n_ctxt}
                   where
@@ -475,21 +475,22 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                   noLoc $
                     ParPat NoExtField $
                       noLoc $ VarPat NoExtField $ noLoc t_name
-                nvpats = map nvpat targets
-            nmatches _ mg = mg
+                nvpats = map nvpat $ filter (`Set.member` vars) targets
+            nmatches _ _ mg = mg
 
             wrapProp :: LHsBind GhcPs -> [LHsBind GhcPs]
-            wrapProp (L l fb@FunBind {..})
+            wrapProp prop@(L l fb@FunBind {..})
               | Just num_cases <- unfoldedTasty Map.!? rdr_occ =
                 map toBind [0 .. (num_cases -1)]
               where
+                prop_vars = propVars prop
                 rdr_occ = rdrNameOcc (unLoc fun_id)
                 nocc :: Int -> OccName -> OccName
                 nocc i o = mkOccName (occNameSpace o) $ occNameString o ++ "__test_" ++ show i
                 toBind i = L l fb {fun_id = nfid, fun_matches = run_i_only change_target}
                   where
                     nfid = mkFid (nocc i) fun_id
-                    change_target = nmatches nfid fun_matches
+                    change_target = nmatches prop_vars nfid fun_matches
                     run_i_only :: MatchGroup GhcPs (LHsExpr GhcPs) -> MatchGroup GhcPs (LHsExpr GhcPs)
                     run_i_only mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
                       where
@@ -504,9 +505,10 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                             nthapp = noLoc $ HsPar ext (noLoc $ HsApp ext (tf "testTreeNthTest") (il $ fromIntegral i))
                         nGRHSS xg = xg
                     run_i_only mg = mg
-            wrapProp (L l fb@FunBind {..}) =
-              [L l fb {fun_id = nfid, fun_matches = nmatches nfid fun_matches}]
+            wrapProp prop@(L l fb@FunBind {..}) =
+              [L l fb {fun_id = nfid, fun_matches = nmatches prop_vars nfid fun_matches}]
               where
+                prop_vars = propVars prop
                 nfid = mkFid nocc fun_id
                 nocc o = mkOccName (occNameSpace o) $ insertAt 4 '\'' $ occNameString o
             wrapProp e = [e]
@@ -722,11 +724,11 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
       zipWith
         ( \(nm, _, _) e ->
             let ftn = "fake_target_" ++ rdrNamePrint nm
-             in (ftn, baseFun (mkVarUnqual $ fsLit ftn) e)
+             in (ftn, nm, baseFun (mkVarUnqual $ fsLit ftn) e)
         )
         e_prog
         exprs
-    fake_target_names = Set.fromList $ map fst correl
+    fake_target_names = Set.fromList $ map (\(n, _, _) -> n) correl
     toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
     toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
       createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
@@ -758,7 +760,7 @@ exprToTraceModule ::
   EProblem ->
   Int ->
   String ->
-  [(String, LHsBind GhcPs)] ->
+  [(String, RdrName, LHsBind GhcPs)] ->
   [(EProp, [RExpr])] ->
   RExpr
 exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
@@ -770,7 +772,7 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
       -- otherwise it's already provided by the imports.
       ++ (if isJust e_module then [] else lines $ showUnsafe e_ctxt)
       ++ concatMap (lines . showUnsafe) failing_props
-      ++ map (showUnsafe . snd) fake_targets
+      ++ map (showUnsafe . (\(_, _, b) -> b)) fake_targets
       ++ [concat ["checks = [", checks, "]"]]
       ++ [ "",
            "main__ :: IO ()",
@@ -784,30 +786,39 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
     toName (L _ FunBind {fun_id = fid}) = showUnsafe fid
     toName (L _ VarBind {var_id = vid}) = showUnsafe vid
     toName _ = error "Unsupported bind!"
-    pnames = map toName failing_props
-    nas = zip pnames failing_argss
-    toCall pname args
-      | "prop" /= take 4 pname =
+    nas = zip failing_props failing_argss
+    toCall prop args
+      | pname <- toName prop,
+        "prop" /= take 4 pname,
+        pvars <- propVars prop =
         "checkTastyTree " ++ show repTimeout ++ " ("
           ++ pname
           ++ " "
-          ++ unwords (map fst fake_targets)
+          ++ unwords
+            ( map (\(n, _, _) -> n) $
+                filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets
+            )
           ++ " "
           ++ unwords args
           ++ ")"
-    toCall pname args =
-      "fmap qcSuccess ("
-        ++ "qcWRes "
-        ++ show repTimeout
-        ++ " ("
-        ++ showUnsafe (qcArgsExpr seed Nothing)
-        ++ ") ("
-        ++ pname
-        ++ " "
-        ++ unwords (map fst fake_targets)
-        ++ " "
-        ++ unwords args
-        ++ "))"
+    toCall prop args
+      | pname <- toName prop,
+        pvars <- propVars prop =
+        "fmap qcSuccess ("
+          ++ "qcWRes "
+          ++ show repTimeout
+          ++ " ("
+          ++ showUnsafe (qcArgsExpr seed Nothing)
+          ++ ") ("
+          ++ pname
+          ++ " "
+          ++ unwords
+            ( map (\(n, _, _) -> n) $
+                filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets
+            )
+          ++ " "
+          ++ unwords args
+          ++ "))"
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
 exprToTraceModule _ _ _ _ _ _ _ = error "External problems not supported yet!"

@@ -242,21 +242,22 @@ findEvaluatedHoles
       repConf = rc,
       progProblem = tp@EProb {..}
     } = collectStats $ do
+    logStr DEBUG "Finding evaluated holes..."
     -- We apply the fixes to all of the contexts, and all of the contexsts
     -- contain the entire current program.
     -- TODO: Is this safe?
     let id_prog = eProgToEProgFix (applyFixToEProg e_prog mempty)
         holey_exprss = map sanctifyExpr id_prog
 
-    logOut DEBUG id_prog
-    logOut DEBUG holey_exprss
-
+    logStr DEBUG "Building trace correlation..."
     trace_correl <- buildTraceCorrel cc tp id_prog
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
+    logStr DEBUG "Finding failing props..."
     failing_props <- collectStats $ failingProps rc cc tp
 
+    logStr DEBUG "Finding counter examples..."
     counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
 
     let hasCE (p, Just ce) = Just (p, ce)
@@ -265,6 +266,7 @@ findEvaluatedHoles
         only_max (src, r) = (mkInteractive src, maximum $ map snd r)
         toInvokes res = Map.fromList $ map only_max $ flatten res
     -- We compute the locations that are touched by the failing counter-examples
+    logStr DEBUG "Tracing program..."
     all_invokes <-
       collectStats $
         map
