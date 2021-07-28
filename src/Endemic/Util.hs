@@ -67,10 +67,10 @@ logStr olvl str = do
     let (loc : _) = map snd $ getCallStack callStack
         sfile = split '/' $ GHS.srcLocFile loc
         (i, l) = assert (not (null sfile) && not (any null sfile)) (init sfile, last sfile)
-        sfileRes = intercalate "/" (map (take 1) i ++ [l])
+        sfileRes = intercalate "/" $ i ++ [l]
         sline = show (GHS.srcLocStartLine loc)
     timestamp <- logFormattedTime
-    let locO = if logLoc then "<" ++ sfileRes ++ ":" ++ sline ++ "> " else ""
+    let locO = if logLoc then sfileRes ++ ":" ++ sline ++ " " else ""
         ts0 = if logTimestamp then timestamp ++ " " else ""
         finalMessage = ts0 ++ locO ++ show olvl ++ ": " ++ str
     when (isJust logFile) $ do
