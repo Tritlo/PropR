@@ -21,6 +21,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration.Types (ProblemDescription (..), (<~))
+import Endemic.Eval (runGhc')
 import Endemic.Repair (checkFixes, repairAttempt)
 import Endemic.Search.Exhaustive.Configuration (ExhaustiveConf (..), Unmaterialized (umExhaustiveSearchBudget))
 import Endemic.Traversals (replaceExpr)
@@ -69,7 +70,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
               Set.fromList . map fst
                 . filter (isFixed . snd)
                 . zip check_list
-                <$> checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list)
+                <$> runGhc' compConf (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list))
             if Set.null fixes
               then loop checked' (rest : lvls)
               else do

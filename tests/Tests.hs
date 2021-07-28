@@ -65,7 +65,7 @@ repairTests =
     [ -- A simple tests to see if we can repair (foldl (-) 0) to (foldl (+) 0)
       -- in a reasonable amount of time (here 10s)
       localOption (mkTimeout 30_000_000) $
-        testCase "Repair `foldl (-) 0`" $ do
+        testCase "Basic Repair `foldl (-) 0`" $ do
           let cc =
                 def
                   { hole_lvl = 2,
@@ -123,7 +123,7 @@ repairTests =
                   "EFC {gcd' a}",
                   "EFC {b - a}"
                 ]
-          expr_cands <- runJustParseExpr def wrong_prog >>= (getExprFitCands def . Left)
+          expr_cands <- runJustParseExpr def wrong_prog >>= (runGhc' def . getExprFitCands . Left)
           map showUnsafe expr_cands @?= expected,
       localOption (mkTimeout 20_000_000) $
         testCase "Repair `gcd'` with gcd" $ do

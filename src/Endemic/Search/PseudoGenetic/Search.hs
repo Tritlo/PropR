@@ -24,7 +24,7 @@ import Data.Ord (Down (Down))
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration
-import Endemic.Eval (getExprFitCands)
+import Endemic.Eval (getExprFitCands, runGhc')
 import Endemic.Repair (checkFixes, repairAttempt)
 import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Traversals (replaceExpr)
@@ -120,7 +120,7 @@ pseudoGeneticRepair
     } = do
     first_attempt <- case mb_initial_fixes of
       Just fixes ->
-        zip fixes <$> checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) fixes)
+        zip fixes <$> runGhc' cc (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) fixes))
       _ -> collectStats $ repairAttempt desc
     if not $ null $ successful first_attempt
       then return (Set.fromList $ map fst $ successful first_attempt)

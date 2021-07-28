@@ -72,7 +72,7 @@ setNoDefaulting = do
   setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
 
 -- | Runs the whole compiler chain to get the fits for a hole, i.e. possible
--- replacement-elements for the holes.
+-- replacement-elements for the holes
 getHoleFits ::
   CompileConfig ->
   -- |  A given Compiler Config
@@ -80,18 +80,17 @@ getHoleFits ::
   -- | A list of existing and reachable candidate-expression
   [LHsExpr GhcPs] ->
   -- | The existing Expressions including holes
-  IO [[[HoleFit]]]
-getHoleFits cc local_exprs exprs =
-  runGhc (Just libdir) $ do
-    plugRef <- initGhcCtxt' True cc local_exprs
-    -- Then we can actually run the program!
-    setNoDefaulting
-    let exprFits expr =
-          liftIO (modifyIORef' plugRef resetHoleFitList)
-            >> handleSourceError
-              (getHoleFitsFromError plugRef)
-              (Right <$> compileParsedExpr expr)
-    map (map fst) . lefts <$> mapM exprFits exprs
+  Ghc [[[HsExpr GhcPs]]]
+getHoleFits cc local_exprs exprs = do
+  plugRef <- initGhcCtxt' True cc local_exprs
+  -- Then we can actually run the program!
+  setNoDefaulting
+  let exprFits expr =
+        liftIO (modifyIORef' plugRef resetHoleFitList)
+          >> handleSourceError
+            (getHoleFitsFromError plugRef)
+            (Right <$> compileParsedExpr expr)
+  mapM exprFits exprs >>= processFits . map (map fst) . lefts
 
 -- | Returns for a given compiler config and an expression the possible holes to fill.
 getHoley ::
@@ -160,27 +159,37 @@ detranslate _ = error "Cannot detranlsate external problem!"
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
 propCounterExample :: RepairConfig -> CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
-propCounterExample _ _ _ prop | isTastyProp prop = return $ Just []
+propCounterExample rc cc ep prop =
+  runGhc' cc $ head <$> propCounterExamples (fakeDesc [] cc rc ep) [prop]
+
+-- | Get a list of strings which represent shrunk arguments to the property that
+-- makes it fail.
+propCounterExamples :: ProblemDescription -> [EProp] -> Ghc [Maybe [RExpr]]
+propCounterExamples ProbDesc {..} props = do
+  let cc' = (compConf {hole_lvl = 0, importStmts = checkImports ++ importStmts compConf})
+      mk_bcc prop seed = buildCounterExampleCheck repConf seed prop progProblem
+      checkProp prop | isTastyProp prop = return $ Just []
+      checkProp prop = do
+        seed <- liftIO newSeed
+        exec <- dynCompileParsedExpr `reportOnError` mk_bcc prop seed
+        (map addPar <$>) <$> liftIO (fromDyn exec (return Nothing))
+  liftIO $
+    runGhc (Just libdir) $ do
+      _ <- initGhcCtxt cc'
+      mapM checkProp props
   where
+    addPar arg = ('(' : arg) ++ ")"
     -- TODO: If we had the type here as well, we could do better.
     isTastyProp :: LHsBind GhcPs -> Bool
     isTastyProp (L _ FunBind {fun_id = fid}) =
       "prop" /= take 4 (occNameString $ rdrNameOcc $ unLoc fid)
     isTastyProp _ = True
-propCounterExample rc cc ep prop = do
-  seed <- newSeed
-  let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      bcc = buildCounterExampleCheck rc seed prop ep
-  exec <- compileParsedCheck cc' bcc
-  (map addPar <$>) <$> fromDyn exec (return Nothing)
-  where
-    addPar arg = ('(' : arg) ++ ")"
 
 -- | Returns the props that are failing given a problem description.
-failingProps' :: ProblemDescription -> IO [EProp]
-failingProps' desc@ProbDesc {progProblem = EProb {..}} =
+failingProps' :: ProblemDescription -> Ghc [EProp]
+failingProps' desc@ProbDesc {progProblem = EProb {..}, ..} =
   do
-    [res] <- checkFixes desc [eProgToEProgFix e_prog]
+    ~[res] <- checkFixes desc [eProgToEProgFix e_prog]
     return $ case res of
       Right True -> []
       Right False -> e_props
@@ -190,7 +199,7 @@ failingProps' _ = error "External fixes not supported!"
 -- | Returns the props that fail for the given program, without having a
 -- proper description. DO NOT USE IF YOU HAVE A DESCRIPTION
 failingProps :: RepairConfig -> CompileConfig -> EProblem -> IO [EProp]
-failingProps rc cc prob = failingProps' (fakeDesc [] cc rc prob)
+failingProps rc cc prob = runGhc' cc $ failingProps' (fakeDesc [] cc rc prob)
 
 fakeDesc :: [ExprFitCand] -> CompileConfig -> RepairConfig -> EProblem -> ProblemDescription
 fakeDesc efcs cc rc prob =
@@ -208,7 +217,7 @@ fakeDesc efcs cc rc prob =
 -- a (translated) repair problem and returns a list of potential fixes.
 repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
 repair cc rc prob@EProb {..} = do
-  ecfs <- getExprFitCands cc $ Left $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  ecfs <- runGhc' cc $ getExprFitCands $ Left $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
   let desc = fakeDesc ecfs cc rc prob
   map fst . filter (isFixed . snd) <$> repairAttempt desc
 repair _ _ _ = error "Cannot repair external problems yet!"
@@ -237,44 +246,45 @@ findEvaluatedHoles
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
     logStr DEBUG "Finding failing props..."
-    failing_props <- collectStats $ failingProps' desc
+    runGhc' cc $ do
+      failing_props <- collectStats $ failingProps' desc
 
-    logStr DEBUG "Finding counter examples..."
-    counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
+      liftIO $logStr DEBUG "Finding counter examples..."
+      counter_examples <- collectStats $ propCounterExamples desc failing_props
 
-    let hasCE (p, Just ce) = Just (p, ce)
-        hasCE _ = Nothing
-        ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
-        only_max (src, r) = (mkInteractive src, maximum $ map snd r)
-        toInvokes res = Map.fromList $ map only_max $ flatten res
-    -- We compute the locations that are touched by the failing counter-examples
-    logStr DEBUG "Tracing program..."
-    all_invokes <-
-      collectStats $
-        map
-          ( Map.toList
-              . Map.unionsWith (+)
-              . map toInvokes
-          )
-          . catMaybes
-          <$> traceTargets rc cc tp id_prog ps_w_ce
+      let hasCE (p, Just ce) = Just (p, ce)
+          hasCE _ = Nothing
+          ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
+          only_max (src, r) = (mkInteractive src, maximum $ map snd r)
+          toInvokes res = Map.fromList $ map only_max $ flatten res
+      -- We compute the locations that are touched by the failing counter-examples
+      liftIO $ logStr DEBUG "Tracing program..."
+      all_invokes <-
+        collectStats $
+          map
+            ( Map.toList
+                . Map.unionsWith (+)
+                . map toInvokes
+            )
+            . catMaybes
+            <$> liftIO (traceTargets rc cc tp id_prog ps_w_ce)
 
-    -- We then remove suggested holes that are unlikely to help (naively for now
-    -- in the sense that we remove only holes which did not get evaluated at all,
-    -- so they are definitely not going to matter).
-    let fk holey_exprs trace_correl invokes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
-          where
-            non_zero = filter ((> 0) . snd) invokes
-            non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-        non_zero_holes = zipWith3 fk holey_exprss trace_correl all_invokes
-        nubOrd = Set.toList . Set.fromList
-    return $ nubOrd $ concat non_zero_holes
+      -- We then remove suggested holes that are unlikely to help (naively for now
+      -- in the sense that we remove only holes which did not get evaluated at all,
+      -- so they are definitely not going to matter).
+      let fk holey_exprs trace_correl invokes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
+            where
+              non_zero = filter ((> 0) . snd) invokes
+              non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+          non_zero_holes = zipWith3 fk holey_exprss trace_correl all_invokes
+          nubOrd = Set.toList . Set.fromList
+      return $ nubOrd $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | Takes a list of list of list of hole fits and processes each fit so that
 -- it becomes a proper HsExpr
-processFits :: CompileConfig -> [[[HoleFit]]] -> IO [[[HsExpr GhcPs]]]
-processFits cc fits = do
+processFits :: [[[HoleFit]]] -> Ghc [[[HsExpr GhcPs]]]
+processFits fits = do
   -- We process the fits ourselves, since we might have some expression fits
   let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
       processFit HoleFit {..} =
@@ -287,8 +297,7 @@ processFits cc fits = do
             | otherwise = Unqual (nameOccName n)
       processFit (RawHoleFit sd) =
         unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
-  runGhc (Just libdir) $
-    initGhcCtxt cc >> mapM (mapM (mapM processFit)) fits
+  mapM (mapM (mapM processFit)) fits
 
 -- | This method tries to repair a given Problem.
 -- It first creates the program with holes in it and runs it against the properties.
@@ -310,25 +319,24 @@ repairAttempt
         addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
 
     nzh <- findEvaluatedHoles desc
-    fits <- collectStats $ getHoleFits cc efcs (map addContext nzh)
-    processed_fits <- collectStats $ processFits cc fits
+    runGhc (Just libdir) $ do
+      fits <- collectStats $ getHoleFits cc efcs (map addContext nzh)
 
-    let fix_cands' :: [(EFix, EExpr)]
-        fix_cands' =
-          -- We do a from and to from a list to avoid duplicates.
-          Map.toList $
-            Map.fromList $
-              map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
-        fix_cands :: [(EFix, EProgFix)]
-        fix_cands = map (second (replicate (length e_prog))) fix_cands'
+      let fix_cands' :: [(EFix, EExpr)]
+          fix_cands' =
+            -- We do a from and to from a list to avoid duplicates.
+            Map.toList $
+              Map.fromList $
+                map (first Map.fromList) (zip nzh fits >>= uncurry replacements)
+          fix_cands :: [(EFix, EProgFix)]
+          fix_cands = map (second (replicate (length e_prog))) fix_cands'
 
-    logStr DEBUG "Fix candidates:"
-    mapM_ (logOut DEBUG) fix_cands
-    logStr DEBUG "Those were all of them!"
-    let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-    collectStats $
-      zipWith (\(fs, _) r -> (fs, r)) fix_cands
-        <$> checkFixes desc (map snd fix_cands)
+      liftIO $ logStr DEBUG "Fix candidates:"
+      liftIO $ mapM_ (logOut DEBUG) fix_cands
+      liftIO $ logStr DEBUG "Those were all of them!"
+      collectStats $
+        zipWith (\(fs, _) r -> (fs, r)) fix_cands
+          <$> checkFixes desc (map snd fix_cands)
 repairAttempt _ = error "Cannot repair external problems yet!"
 
 -- | Runs a given (changed) Program against the Test-Suite described in ProblemDescription.
@@ -340,7 +348,7 @@ repairAttempt _ = error "Cannot repair external problems yet!"
 checkFixes ::
   ProblemDescription ->
   [EProgFix] ->
-  IO [TestSuiteResult]
+  Ghc [TestSuiteResult]
 checkFixes
   ProbDesc
     { compConf = cc,
@@ -351,9 +359,9 @@ checkFixes
   fixes = do
     let RepConf {..} = rc
         tempDir = "./fake_targets"
-    createDirectoryIfMissing False tempDir
-    (the_f, handle) <- openTempFile tempDir "FakeTargetCheck.hs"
-    seed <- newSeed
+    liftIO $ createDirectoryIfMissing False tempDir
+    (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
+    seed <- liftIO $ newSeed
     -- We generate the name of the module from the temporary file
     let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
         modTxt = exprToCheckModule rc cc seed mname tp fixes
@@ -362,85 +370,81 @@ checkFixes
         timeoutVal = fromIntegral repTimeout
     -- mixFilePath = tempDir
 
-    logStr DEBUG modTxt
+    liftIO $ logStr DEBUG modTxt
     -- Note: we do not need to dump the text of the module into the file, it
     -- only needs to exist. Otherwise we would have to write something like
     -- `hPutStr handle modTxt`
-    hClose handle
+    liftIO $ hClose handle
     liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
-    runGhc (Just libdir) $ do
-      _ <- initGhcCtxt cc
-      -- We set the module as the main module, which makes GHC generate
-      -- the executable.
-      dynFlags <- getSessionDynFlags
-      _ <-
-        setSessionDynFlags $
-          flip (foldl gopt_unset) setFlags $ -- Remove the HPC
-            dynFlags
-              { mainModIs = mkMainModule $ fsLit mname,
-                mainFunIs = Just "main__",
-                hpcDir = "./fake_targets",
-                ghcMode = if repUseInterpreted then CompManager else OneShot,
-                ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
-                hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
-                --optLevel = 2
-              }
-      now <- liftIO getCurrentTime
-      let tid = TargetFile the_f Nothing
-          target = Target tid True $ Just (strBuff, now)
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+          dynFlags
+            { mainModIs = mkMainModule $ fsLit mname,
+              mainFunIs = Just "main__",
+              hpcDir = "./fake_targets",
+              ghcMode = if repUseInterpreted then CompManager else OneShot,
+              ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
+              hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
+              --optLevel = 2
+            }
+    now <- liftIO getCurrentTime
+    let tid = TargetFile the_f Nothing
+        target = Target tid True $ Just (strBuff, now)
 
-      -- Adding and loading the target causes the compilation to kick
-      -- off and compiles the file.
-      addTarget target
-      addLocalTargets [] (modBase cc)
-      _ <- collectStats $ load LoadAllTargets
-      let p '1' = Just True
-          p '0' = Just False
-          p _ = Nothing
-          startCheck :: Int -> IO (Handle, ProcessHandle)
-          startCheck which = do
-            let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
-            (_, Just hout, _, ph) <-
-              createProcess
-                (proc exeName [show which])
-                  { env = Just [("HPCTIXFILE", tixFilePath)],
-                    -- We ignore the output
-                    std_out = CreatePipe
-                  }
-            return (hout, ph)
-          waitOnCheck :: (Handle, ProcessHandle) -> IO TestSuiteResult
-          waitOnCheck (hout, ph) = do
-            ec <- timeout timeoutVal $ waitForProcess ph
-            case ec of
-              Nothing -> terminateProcess ph >> return (Right False)
-              Just _ -> do
-                res <- hGetLine hout
-                let parsed = mapMaybe p res
-                return $
-                  if length parsed == length res
-                    then if and parsed then Right True else Left parsed
-                    else Right False
+    -- Adding and loading the target causes the compilation to kick
+    -- off and compiles the file.
+    addTarget target
+    addLocalTargets [] (modBase cc)
+    _ <- collectStats $ load LoadAllTargets
+    let p '1' = Just True
+        p '0' = Just False
+        p _ = Nothing
+        startCheck :: Int -> IO (Handle, ProcessHandle)
+        startCheck which = do
+          let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+          (_, Just hout, _, ph) <-
+            createProcess
+              (proc exeName [show which])
+                { env = Just [("HPCTIXFILE", tixFilePath)],
+                  -- We ignore the output
+                  std_out = CreatePipe
+                }
+          return (hout, ph)
+        waitOnCheck :: (Handle, ProcessHandle) -> IO TestSuiteResult
+        waitOnCheck (hout, ph) = do
+          ec <- timeout timeoutVal $ waitForProcess ph
+          case ec of
+            Nothing -> terminateProcess ph >> return (Right False)
+            Just _ -> do
+              res <- hGetLine hout
+              let parsed = mapMaybe p res
+              return $
+                if length parsed == length res
+                  then if and parsed then Right True else Left parsed
+                  else Right False
 
-      let inds = take (length fixes) [0 ..]
-      if repUseInterpreted
-        then do
-          let m_name = mkModuleName mname
-              checkArr arr = if and arr then Right True else Left arr
-          setContext [IIDecl $ simpleImportDecl m_name]
-          checks_expr <- compileExpr "checks__"
-          let checks :: [IO [Bool]]
-              checks = unsafeCoerce# checks_expr
-              evf = if repParChecks then mapConcurrently else mapM
-          liftIO $ collectStats $ evf (checkArr <$>) checks
-        else
-          liftIO $
-            if repParChecks
-              then do
-                -- By starting all the processes and then waiting on them, we get more
-                -- mode parallelism.
-                procs <- collectStats $ mapM startCheck inds
-                collectStats $ mapM waitOnCheck procs
-              else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+    let inds = take (length fixes) [0 ..]
+    if repUseInterpreted
+      then do
+        let m_name = mkModuleName mname
+            checkArr arr = if and arr then Right True else Left arr
+        setContext [IIDecl $ simpleImportDecl m_name]
+        checks_expr <- compileExpr "checks__"
+        let checks :: [IO [Bool]]
+            checks = unsafeCoerce# checks_expr
+            evf = if repParChecks then mapConcurrently else mapM
+        liftIO $ collectStats $ evf (checkArr <$>) checks
+      else
+        liftIO $
+          if repParChecks
+            then do
+              -- By starting all the processes and then waiting on them, we get more
+              -- mode parallelism.
+              procs <- collectStats $ mapM startCheck inds
+              collectStats $ mapM waitOnCheck procs
+            else collectStats $ mapM (startCheck >=> waitOnCheck) inds
 
 describeProblem :: Configuration -> FilePath -> IO ProblemDescription
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
@@ -449,7 +453,7 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
   let progProblem@EProb {..} = case problem of
         Just p@EProb {} -> p
         _ -> error "External targets not supported!"
-  exprFitCands <- getExprFitCands compConf $ Right modul
+  exprFitCands <- runGhc' cc $ getExprFitCands $ Right modul
   let probModule = Just modul
       initialFixes = Nothing
       desc' = ProbDesc {..}
@@ -460,10 +464,12 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
       let inContext = noLoc . HsLet NoExtField e_ctxt
           addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
       nzh <- findEvaluatedHoles desc'
-      fits <- collectStats $ getHoleFits compConf exprFitCands (map addContext nzh)
-      processed_fits <- collectStats $ processFits compConf fits
+      fits <-
+        collectStats $
+          runGhc (Just libdir) $
+            getHoleFits compConf exprFitCands (map addContext nzh)
       let fix_cands :: [(EFix, EExpr)]
-          fix_cands = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
+          fix_cands = map (first Map.fromList) (zip nzh fits >>= uncurry replacements)
           initialFixes' = Just $ map fst fix_cands
       logStr DEBUG "Initial fixes:"
       logOut DEBUG initialFixes'
