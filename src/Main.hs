@@ -169,7 +169,12 @@ repairModule conf@Conf {..} target = do
   logStr VERBOSE $ showUnsafe e_prog
 
   logStr INFO "REPAIRING..."
-  fixesToDiffs desc <$> runRepair searchAlgorithm desc
+  fixes <- runRepair searchAlgorithm desc
+  logStr DEBUG "DONE! Fixes:"
+  mapM_ (logOut DEBUG) fixes
+  logStr DEBUG "After applying:"
+  mapM_ (logOut DEBUG . applyFixToEProg e_prog) fixes
+  return $ fixesToDiffs desc fixes
 
 main :: IO ()
 main = do

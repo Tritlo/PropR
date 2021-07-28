@@ -27,8 +27,9 @@ import Control.Monad (when, (>=>))
 import Data.Char (isAlphaNum)
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
+import Data.Function (on)
 import Data.IORef (modifyIORef', writeIORef)
-import Data.List (intercalate, sortOn)
+import Data.List (intercalate, nub, nubBy, sort, sortOn)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromJust, mapMaybe)
 import qualified Data.Set as Set
@@ -282,7 +283,7 @@ findEvaluatedHoles
             non_zero = filter ((> 0) . snd) invokes
             non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
         non_zero_holes = zipWith3 fk holey_exprss trace_correl all_invokes
-    return $ concat non_zero_holes
+    return $ nub $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | Takes a list of list of list of hole fits and processes each fit so that
@@ -328,7 +329,11 @@ repairAttempt
     processed_fits <- collectStats $ processFits cc fits
 
     let fix_cands' :: [(EFix, EExpr)]
-        fix_cands' = map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
+        fix_cands' =
+          -- We do a from and to from a list to avoid duplicates.
+          Map.toList $
+            Map.fromList $
+              map (first Map.fromList) (zip nzh processed_fits >>= uncurry replacements)
         fix_cands :: [(EFix, EProgFix)]
         fix_cands = map (second (replicate (length e_prog))) fix_cands'
 
