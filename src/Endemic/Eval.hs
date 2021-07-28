@@ -220,40 +220,41 @@ monomorphiseType cc ty =
 -- | addLocalTargets adds any modules that are imported that are in any of the
 -- paths specified.
 addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m ()
-addLocalTargets imports local_paths = do
-  liftIO $ logStr DEBUG "Adding local targets..."
-  liftIO $ logStr DEBUG "Analyzing dependencies..."
-  mg <- depanal [] False
-  -- We (crudely) add any missing local modules:
-  let mg_mods = map (map unLoc . ms_home_imps) (mgModSummaries mg)
-      already_a_target = Set.fromList $ map ms_mod_name $ mgModSummaries mg
-      imods = mapMaybe toModName imports
-      toModName (IIDecl id@ImportDecl {ideclName = L _ mname}) = Just mname
-      toModName (IIModule mname) = Just mname
-      toModName _ = Nothing
-      mods_to_add =
-        map moduleNameSlashes $
-          Set.toList $ Set.fromList (concat (imods : mg_mods)) `Set.difference` already_a_target
-  -- We add the targets recursively, in case any of the local dependencies have
-  -- local dependencies as well.
-  any_changed <- fmap or $
-    forM mods_to_add $ \mod_name -> do
-      fmap or $
-        forM local_paths $ \mod_base -> do
-          let mod_path' = mod_base </> mod_name <.> ".hs"
-          abs_path <- liftIO $ makeAbsolute mod_path'
-          exists <- liftIO $ doesFileExist abs_path
-          let t' = Target (TargetFile abs_path Nothing) True Nothing
-          if exists
-            then do
-              liftIO $ logStr DEBUG $ "Adding " ++ abs_path
-              addTarget t'
-              return True
-            else return False
-  when any_changed $ do
-    -- We recur to add any depenencies that any of the local modules might have.
-    addLocalTargets [] local_paths
-  liftIO $ logStr DEBUG "Local targets added."
+addLocalTargets imports local_paths = addLocalTargets' False imports local_paths
+  where
+    addLocalTargets' recurring imports local_paths = do
+      unless recurring $ liftIO $ logStr DEBUG "Adding local targets..."
+      liftIO $ logStr DEBUG "Analyzing dependencies..."
+      mg <- depanal [] False
+      -- We (crudely) add any missing local modules:
+      let mg_mods = map (map unLoc . ms_home_imps) (mgModSummaries mg)
+          already_a_target = Set.fromList $ map ms_mod_name $ mgModSummaries mg
+          imods = mapMaybe toModName imports
+          toModName (IIDecl id@ImportDecl {ideclName = L _ mname}) = Just mname
+          toModName (IIModule mname) = Just mname
+          toModName _ = Nothing
+          mods_to_add =
+            map moduleNameSlashes $
+              Set.toList $ Set.fromList (concat (imods : mg_mods)) `Set.difference` already_a_target
+      -- We add the targets recursively, in case any of the local dependencies have
+      -- local dependencies as well.
+      any_changed <- fmap or $
+        forM mods_to_add $ \mod_name -> do
+          fmap or $
+            forM local_paths $ \mod_base -> do
+              let mod_path' = mod_base </> mod_name <.> ".hs"
+              abs_path <- liftIO $ makeAbsolute mod_path'
+              exists <- liftIO $ doesFileExist abs_path
+              let t' = Target (TargetFile abs_path Nothing) True Nothing
+              if exists
+                then do
+                  liftIO $ logStr DEBUG $ "Adding " ++ abs_path
+                  addTarget t'
+                  return True
+                else return False
+      -- We recur to add any depenencies that any of the local modules might have.
+      when any_changed $ addLocalTargets' True [] local_paths
+      unless recurring $ liftIO $ logStr DEBUG "Local targets added."
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
