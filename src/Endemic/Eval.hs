@@ -35,7 +35,7 @@ import Data.Char (isAlphaNum)
 import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
 import Data.IORef (IORef, newIORef, readIORef)
-import Data.List (groupBy, intercalate, partition, stripPrefix)
+import Data.List (groupBy, intercalate, nub, partition, stripPrefix)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isJust, isNothing, mapMaybe)
 import Data.Set (Set)
@@ -119,6 +119,7 @@ initGhcCtxt' ::
   [ExprFitCand] ->
   Ghc (IORef HoleFitState)
 initGhcCtxt' use_cache CompConf {..} local_exprs = do
+  liftIO $ logStr DEBUG "Initializing GHC..."
   -- First we have to add "base" to scope
   flags <- config hole_lvl <$> getSessionDynFlags
   --`dopt_set` Opt_D_dump_json
@@ -137,15 +138,22 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
               paPlugin = synthPlug use_cache local_exprs plugRef
             }
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
+  liftIO $ logStr DEBUG "Setting DynFlags..."
   toLink <- setSessionDynFlags flags'
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
+  liftIO $ logStr DEBUG "Parsing imports..."
   imports <- mapM (fmap IIDecl . parseImportDecl) importStmts
   let toTarget mod_path = Target (TargetFile mod_path Nothing) True Nothing
+      targets = map toTarget additionalTargets
+  liftIO $ logStr DEBUG "Adding additional targets..."
   mapM_ (addTarget . toTarget) additionalTargets
   addLocalTargets imports modBase
+  liftIO $ logStr DEBUG "Loading targets.."
   _ <- load LoadAllTargets
+  liftIO $ logStr DEBUG "Adding imports to context..."
   getContext >>= setContext . (imports ++)
+  liftIO $ logStr DEBUG "Initialization complete."
   return plugRef
 
 justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
@@ -211,8 +219,10 @@ monomorphiseType cc ty =
 
 -- | addLocalTargets adds any modules that are imported that are in any of the
 -- paths specified.
-addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m Bool
+addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m ()
 addLocalTargets imports local_paths = do
+  liftIO $ logStr DEBUG "Adding local targets..."
+  liftIO $ logStr DEBUG "Analyzing dependencies..."
   mg <- depanal [] False
   -- We (crudely) add any missing local modules:
   let mg_mods = map (map unLoc . ms_home_imps) (mgModSummaries mg)
@@ -221,28 +231,29 @@ addLocalTargets imports local_paths = do
       toModName (IIDecl id@ImportDecl {ideclName = L _ mname}) = Just mname
       toModName (IIModule mname) = Just mname
       toModName _ = Nothing
+      mods_to_add =
+        map moduleNameSlashes $
+          Set.toList $ Set.fromList (concat (imods : mg_mods)) `Set.difference` already_a_target
   -- We add the targets recursively, in case any of the local dependencies have
   -- local dependencies as well.
   any_changed <- fmap or $
-    forM (imods : mg_mods) $ \lmods ->
+    forM mods_to_add $ \mod_name -> do
       fmap or $
-        forM lmods $ \mod ->
-          if mod `Set.member` already_a_target
-            then return False
-            else do
-              let mod_name = moduleNameSlashes mod
-              res <- forM local_paths $ \mod_base -> do
-                let mod_path' = mod_base </> mod_name <.> ".hs"
-                abs_path <- liftIO $ makeAbsolute mod_path'
-                exists <- liftIO $ doesFileExist abs_path
-                let t' = Target (TargetFile abs_path Nothing) True Nothing
-                if exists
-                  then addTarget t' >> return True
-                  else return False
-              return (or res)
-  if any_changed
-    then addLocalTargets [] local_paths >> return True
-    else return False
+        forM local_paths $ \mod_base -> do
+          let mod_path' = mod_base </> mod_name <.> ".hs"
+          abs_path <- liftIO $ makeAbsolute mod_path'
+          exists <- liftIO $ doesFileExist abs_path
+          let t' = Target (TargetFile abs_path Nothing) True Nothing
+          if exists
+            then do
+              liftIO $ logStr DEBUG $ "Adding " ++ abs_path
+              addTarget t'
+              return True
+            else return False
+  when any_changed $ do
+    -- We recur to add any depenencies that any of the local modules might have.
+    addLocalTargets [] local_paths
+  liftIO $ logStr DEBUG "Local targets added."
 
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
@@ -259,6 +270,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
   -- Feed the given Module into GHC
   runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc {importStmts = importStmts ++ checkImports}
+
     liftIO $ logStr DEBUG "Loading module targets..."
 
     mnames_before <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
@@ -273,13 +285,11 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     addLocalTargets [] (thisModBase : modBase)
     mnames_after_local <- depanal [] False
     _ <- load LoadAllTargets
-    liftIO $ logStr DEBUG "Done loading module targets!"
-    liftIO $ logStr DEBUG "Parsing module..."
     -- Retrieve the parsed module
     liftIO $ logStr DEBUG "Parsing module..."
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
+    liftIO $ logStr DEBUG "Type checking module..."
     tc_modul@TypecheckedModule {..} <- typecheckModule modul
-    liftIO $ logStr DEBUG "Done parsing module!"
 
     dynFlags <- getSessionDynFlags
     _ <-
@@ -357,6 +367,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     unfoldedTasty <-
       if unfoldTastyTests
         then do
+          liftIO $ logStr DEBUG "Unfolding tests..."
           let thisMod = IIDecl $ simpleImportDecl mname
           getContext >>= setContext . (thisMod :)
           imports <- mapM (fmap IIDecl . parseImportDecl) (importStmts ++ checkImports)
@@ -534,13 +545,9 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
           Nothing -> getTarget fix_targets
 
-    liftIO $ logStr DEBUG "Module to prob finished with:"
-    liftIO $ logOut DEBUG $ local_prop_var_names
-    liftIO $ logOut DEBUG $ map isExternalName $ local_prop_var_names
     let prob = case int_prob of
           Nothing -> Just $ ExProb local_prop_var_names
           _ -> int_prob
-    liftIO $ logOut DEBUG $ fix_targets
     return (cc', modul, prob)
 
 -- Create a fake base loc for a trace.
@@ -983,9 +990,12 @@ getExprFitCands ::
   EExpr ->
   IO [ExprFitCand]
 getExprFitCands cc expr = runGhc (Just libdir) $ do
+  liftIO $ logStr DEBUG "Getting expression fit cands..."
   -- setSessionDynFlags reads the package database.
+  liftIO $ logStr DEBUG "Reading the package database..."
   _ <- setSessionDynFlags =<< getSessionDynFlags
   -- If it type checks, we can use the expression
+  liftIO $ logStr DEBUG "Typechecking the expression..."
   mb_tcd_context <- justTcExpr cc expr
   let esAndNames =
         case mb_tcd_context of
@@ -1010,9 +1020,11 @@ getExprFitCands cc expr = runGhc (Just libdir) $ do
                 flat' = filter nonTriv $ tail flat
              in map (\e -> (e, bagToList $ wc_simple wc, mapMaybe e_ids $ flattenExpr e)) flat'
           _ -> []
+  liftIO $ logStr DEBUG "Getting the session..."
   hsc_env <- getSession
   -- After we've found the expressions and any ids contained within them, we
   -- need to find their types
+  liftIO $ logStr DEBUG "Getting expression types and finalizing..."
   liftIO $
     mapM
       ( \(e, wc, rs) -> do

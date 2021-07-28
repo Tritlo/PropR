@@ -459,10 +459,12 @@ checkFixes
 
 describeProblem :: Configuration -> FilePath -> IO ProblemDescription
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
+  logStr DEBUG "Describing problem..."
   (compConf, modul, problem) <- moduleToProb cc fp Nothing
   let progProblem@EProb {..} = case problem of
         Just p@EProb {} -> p
         _ -> error "External or multi-target not supported!"
+  logStr DEBUG "Getting expression fit cands..."
   exprFitCands <-
     getExprFitCands compConf $
       noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
@@ -472,6 +474,7 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
 
   if repPrecomputeFixes repConf
     then do
+      logStr DEBUG "Pre-computing fixes..."
       let inContext = noLoc . HsLet NoExtField e_ctxt
           addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
       nzh <- findEvaluatedHoles desc'
