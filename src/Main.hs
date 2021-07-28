@@ -18,7 +18,7 @@ import qualified Data.Set as Set
 import Data.Time.LocalTime (utc)
 import Data.Version (showVersion)
 import Endemic
-import Endemic.Check (buildSuccessCheck, checkImports)
+import Endemic.Check (checkImports)
 import Endemic.Diff
 import Endemic.Eval
 import Endemic.Packages (repairPackage)
@@ -164,7 +164,7 @@ repairModule :: Configuration -> FilePath -> IO [String]
 repairModule conf@Conf {..} target = do
   -- Set the global flags
   desc@ProbDesc {..} <- describeProblem conf target
-  let tp@EProb {..} = progProblem
+  let p@EProb {..} = progProblem
   logStr VERBOSE $ "PROGRAM TO REPAIR: "
   logStr VERBOSE $ showUnsafe e_prog
 
