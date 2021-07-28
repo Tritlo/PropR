@@ -124,19 +124,6 @@ contextLet :: [String] -> String -> String
 contextLet context l =
   "let {" ++ intercalate "; " (concatMap lines context) ++ "} in " ++ l
 
--- Turns a list of booleans into an int
-boolsToBit :: [Bool] -> Int
-boolsToBit bs
-  | length bs > size =
-    error $ "Only works for lists of length <= " ++ show size
-  where
-    size = finiteBitSize (0 :: Int)
-boolsToBit bs = (foldl (.|.) zeroBits . map (bit . fst) . filter snd . zip [0 ..]) bs
-
--- Turns an int into a list of booleans
-bitToBools :: Int -> [Bool]
-bitToBools b = map (testBit b) [0 .. finiteBitSize (0 :: Int) -1]
-
 -- | We want to be able to make SrcSpans into the ones made by `justParseExpr`,
 -- which means we replace the actual filenames with "<interactive>".
 mkInteractive :: SrcSpan -> SrcSpan

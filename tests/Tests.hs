@@ -45,13 +45,6 @@ tests =
 tESTSEED :: Int
 tESTSEED = 490_100_041
 
--- We can only do the inverse for ints up to 64, so we only support a maximum
--- of 64 props!
-prop_BoolToBitsInverse :: [Bool] -> Property
-prop_BoolToBitsInverse bs =
-  length bs <= finiteBitSize (0 :: Int)
-    ==> take (length bs) (bitToBools (boolsToBit bs)) == bs
-
 prop_insertAt :: Eq a => Int -> a -> [a] -> Property
 prop_insertAt n a as = abs n < length as ==> insertAt n' a as !! n' == a
   where
@@ -63,7 +56,6 @@ utilTests =
     "Utils"
     [ ("dropPrefix", property prop_dropsPrefix),
       ("startsWith", property prop_startsWith),
-      ("boolToBitsInverse", property prop_BoolToBitsInverse),
       ("insertAt", property (prop_insertAt @Integer))
     ]
 

@@ -7,6 +7,7 @@ module Endemic.Search.Genetic.Search where
 
 import Control.Monad (foldM)
 import qualified Control.Monad.Trans.Reader as R
+import Data.Function (on)
 import Data.List (partition, sortBy, sortOn)
 import Data.Maybe
 import Data.Set (Set)
@@ -324,13 +325,8 @@ geneticSearchPlusPostprocessing = do
     else return results
 
 sortPopByFitness :: Chromosome g => [g] -> GenMonad [g]
-sortPopByFitness gs = do
-  fitnesses <- fitnessMany gs
-  let fitnessedGs = zip fitnesses gs
-      -- TODO: Check if this is ascending!
-      sorted = sortBy (\(f1, _) (f2, _) -> compare f1 f2) fitnessedGs
-      extracted = map snd sorted
-  return extracted
+sortPopByFitness gs =
+  map fst . sortOn snd . zip gs <$> fitnessMany gs
 
 selectWinners ::
   Chromosome g =>
@@ -365,8 +361,6 @@ performMutation gs = do
       (rest_inds, rest) = map fst <$> unzip rest_w_inds
       (tm_inds, to_mutate) = map fst <$> unzip to_mutate_w_inds
   res <- mutateMany to_mutate
-  -- This changes the order, but that should be OK?
-  -- return (res ++ rest)
   return $ map snd $ sortOn fst $ zip tm_inds res ++ zip rest_inds rest
 
 -- | Helper to perform crossover on a list of paired Chromosomes.
@@ -383,8 +377,6 @@ performCrossover pairs = do
       (rest_inds, rest) = map fst <$> unzip rest_w_inds
       (tc_inds, to_crossover) = map fst <$> unzip to_crossover_w_inds
   res <- crossoverMany to_crossover
-  -- This changes the order, but that should be OK?
-  -- return (res ++ rest)
   return $ map snd $ sortOn fst $ zip tc_inds res ++ zip rest_inds rest
 
 -- TODO: Add Reasoning when to use Tournaments, and suggested params

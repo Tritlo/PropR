@@ -685,7 +685,7 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
               -- other than terminate
               loop :: Maybe ExitCode -> Integer -> IO ()
               loop _ 0 = terminateProcess ph
-              loop exit_code n = when (isNothing exit_code) $ do
+              loop Nothing n = do
                 -- If it's taking too long, it's probably stuck in a loop.
                 -- By sending the right signal though, it will dump the tix
                 -- file before dying.
@@ -696,9 +696,9 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
                       signalProcess keyboardSignal pid
                       ec2 <- timeout timeoutVal $ waitForProcess ph
                       loop ec2 (n -1)
-                  _ ->
-                    -- It finished in the brief time between calls, so we're good.
-                    return ()
+                  -- It finished in the brief time between calls, so we're good.
+                  _ -> return ()
+              loop (Just _) _ = return ()
           -- We give it 3 tries
           loop ec 3
 
@@ -876,58 +876,6 @@ genCandTys cc bcat cands = runGhc (Just libdir) $ do
             flip bcat c . showSDoc flags . ppr <$> exprType TM_Default c
       )
       cands
-
--- | Right True means that all the properties hold, while Right False mean that
--- There is some error or infinite loop.
--- Left bs indicates that the properties as ordered by bs are the ones that hold
-runCheck :: RepairConfig -> Either [ValsAndRefs] Dynamic -> IO TestSuiteResult
-runCheck _ (Left _) = return (Right False)
-runCheck RepConf {..} (Right dval) =
-  -- Note! By removing the call to "isSuccess" in the buildCheckExprAtTy we
-  -- can get more information, but then there can be a mismatch of *which*
-  -- `Result` type it is... even when it's the same QuickCheck but compiled
-  -- with different flags. Ugh. So we do it this way, since *hopefully*
-  -- Bool will be the same (unless *base* was compiled differently, *UGGH*).
-  case fromDynamic @(IO [Bool]) dval of
-    Nothing -> do
-      logStr WARN "wrong type!!"
-      return (Right False)
-    Just fd_res -> do
-      -- We need to forkProcess here, since we might be evaulating
-      -- non-yielding infinte expressions (like `last (repeat head)`), and
-      -- since they never yield, we can't do forkIO and then stop that thread.
-      -- If we could ensure *every library* was compiled with -fno-omit-yields
-      -- we could use lightweight threads, but that is a very big restriction,
-      -- especially if we want to later embed this into a plugin.
-      pid <- forkProcess (proc' fd_res)
-      res <- timeout (fromIntegral repTimeout) (getProcessStatus True False pid)
-      case res of
-        Just (Just (Exited ExitSuccess)) -> return $ Right True
-        Nothing -> do
-          signalProcess killProcess pid
-          return $ Right False
-        -- If we have more than 8 props, we cannot tell
-        -- which ones failed from the exit code.
-        Just (Just (Exited (ExitFailure x))) | x < 0 -> return $ Right False
-        Just (Just (Exited (ExitFailure x))) ->
-          return (Left $ take 8 $ bitToBools $ complement x)
-        -- Anything else and we have no way to tell what went wrong.
-        _ -> return $ Right False
-  where
-    proc' action = do
-      res <- action
-      exitImmediately $
-        if and res
-          then ExitSuccess
-          else -- We complement here, since ExitFailure 0 (i.e.
-          -- all tests failed) is turned into ExitSuccess.
-          -- We are limited to a maximum of 8 here, since the POSIX exit
-          -- code is only 8 bits.
-
-            ExitFailure $
-              if length res <= 8
-                then complement $ boolsToBit res
-                else -1
 
 compile :: CompileConfig -> RType -> IO CompileRes
 compile cc str = runGhc (Just libdir) $ do

@@ -176,44 +176,32 @@ propCounterExample rc cc ep prop = do
   where
     addPar arg = ('(' : arg) ++ ")"
 
--- | Returns the props that fail for the given program
+-- | Returns the props that are failing given a problem description.
+failingProps' :: ProblemDescription -> IO [EProp]
+failingProps' desc@ProbDesc {progProblem = EProb {..}} =
+  do
+    [res] <- checkFixes desc [eProgToEProgFix e_prog]
+    return $ case res of
+      Right True -> []
+      Right False -> e_props
+      Left results -> map fst $ filter (not . snd) $ zip e_props results
+failingProps' _ = error "External fixes not supported!"
+
+-- | Returns the props that fail for the given program, without having a
+-- proper description. DO NOT USE IF YOU HAVE A DESCRIPTION
 failingProps :: RepairConfig -> CompileConfig -> EProblem -> IO [EProp]
-failingProps _ _ EProb {e_props = []} = return []
--- Our method for checking which props fail is restricted to maximum 8 at a time,
--- so if we have more than that, we check the first 8 and then the rest, and
--- so on.
-failingProps rc cc rp@EProb {e_props = ps} | length ps > 8 = do
-  let (ps1, ps2) = splitAt 8 ps
-  p1 <- failingProps rc cc rp {e_props = ps1}
-  p2 <- failingProps rc cc rp {e_props = ps2}
-  return (p1 ++ p2)
-failingProps rc cc ep@EProb {..} = do
-  seed <- newSeed
-  let cc' = (cc {hole_lvl = 0, importStmts = checkImports ++ importStmts cc})
-      check = buildSuccessCheck rc seed ep
-  [compiled_check] <- compileParsedChecks cc' [check]
-  ran <- runCheck rc compiled_check
-  case ran of
-    -- Some of the props are failing:
-    Left p -> return $ map fst $ filter (not . snd) $ zip e_props p
-    -- None of the props are failing:
-    Right True -> return []
-    -- One of the props is causing an error/infinite loop, so we need
-    -- to check each individually
-    Right False ->
-      case e_props of
-        -- If there's only one failing prop left, that's the one causing
-        -- the loop
-        [prop] -> return [prop]
-        -- Otherwise, we split the props into two sets, and check each
-        -- split individually.
-        _ -> do
-          let fp :: [EProp] -> IO [EProp]
-              fp ps = failingProps rc cc ep {e_props = ps}
-              ps1, ps2 :: [EProp]
-              (ps1, ps2) = splitAt (length e_props `div` 2) e_props
-          concat <$> mapM fp [ps1, ps2]
-failingProps _ _ _ = error "Cannot find failing props of external problems yet!"
+failingProps rc cc prob = failingProps' (fakeDesc [] cc rc prob)
+
+fakeDesc :: [ExprFitCand] -> CompileConfig -> RepairConfig -> EProblem -> ProblemDescription
+fakeDesc efcs cc rc prob =
+  ProbDesc
+    { progProblem = prob,
+      exprFitCands = efcs,
+      compConf = cc,
+      repConf = rc,
+      probModule = Nothing,
+      initialFixes = Nothing
+    }
 
 -- | Primary method of this module.
 -- It takes a program & configuration,
@@ -221,15 +209,7 @@ failingProps _ _ _ = error "Cannot find failing props of external problems yet!"
 repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
 repair cc rc prob@EProb {..} = do
   ecfs <- getExprFitCands cc $ Left $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-  let desc =
-        ProbDesc
-          { progProblem = prob,
-            exprFitCands = ecfs,
-            compConf = cc,
-            repConf = rc,
-            probModule = Nothing,
-            initialFixes = Nothing
-          }
+  let desc = fakeDesc ecfs cc rc prob
   map fst . filter (isFixed . snd) <$> repairAttempt desc
 repair _ _ _ = error "Cannot repair external problems yet!"
 
@@ -257,7 +237,7 @@ findEvaluatedHoles
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
     logStr DEBUG "Finding failing props..."
-    failing_props <- collectStats $ failingProps rc cc tp
+    failing_props <- collectStats $ failingProps' desc
 
     logStr DEBUG "Finding counter examples..."
     counter_examples <- collectStats $ mapM (propCounterExample rc cc tp) failing_props
