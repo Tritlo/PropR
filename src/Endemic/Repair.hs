@@ -283,7 +283,8 @@ findEvaluatedHoles
             non_zero = filter ((> 0) . snd) invokes
             non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
         non_zero_holes = zipWith3 fk holey_exprss trace_correl all_invokes
-    return $ nub $ concat non_zero_holes
+        nubOrd = Set.toList . Set.fromList
+    return $ nubOrd $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | Takes a list of list of list of hole fits and processes each fit so that
@@ -464,7 +465,6 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
   let progProblem@EProb {..} = case problem of
         Just p@EProb {} -> p
         _ -> error "External or multi-target not supported!"
-  logStr DEBUG "Getting expression fit cands..."
   exprFitCands <-
     getExprFitCands compConf $
       noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
