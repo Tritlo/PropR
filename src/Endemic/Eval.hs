@@ -790,20 +790,21 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
     toCall prop args
       | pname <- toName prop,
         "prop" /= take 4 pname,
-        pvars <- propVars prop =
+        pvars <- propVars prop,
+        fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
+        fts_to_use <- if null fts then fake_targets else fts =
         "checkTastyTree " ++ show repTimeout ++ " ("
           ++ pname
           ++ " "
-          ++ unwords
-            ( map (\(n, _, _) -> n) $
-                filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets
-            )
+          ++ unwords (map (\(n, _, _) -> n) fts_to_use)
           ++ " "
           ++ unwords args
           ++ ")"
     toCall prop args
       | pname <- toName prop,
-        pvars <- propVars prop =
+        pvars <- propVars prop,
+        fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
+        fts_to_use <- if null fts then fake_targets else fts =
         "fmap qcSuccess ("
           ++ "qcWRes "
           ++ show repTimeout
@@ -812,10 +813,7 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
           ++ ") ("
           ++ pname
           ++ " "
-          ++ unwords
-            ( map (\(n, _, _) -> n) $
-                filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets
-            )
+          ++ unwords (map (\(n, _, _) -> n) fts_to_use)
           ++ " "
           ++ unwords args
           ++ "))"
