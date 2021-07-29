@@ -5,7 +5,7 @@
 
 module Endemic.Search.Genetic.Search where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, forM)
 import qualified Control.Monad.Trans.Reader as R
 import Data.Function (on)
 import Data.List (partition, sortBy, sortOn)
@@ -266,7 +266,10 @@ geneticSearch = collectStats $ do
       let -- Merge Parents & Offspring into an intermediate-population of size 2*N
           mergedPop = pop ++ mutated_children
       -- select best fitting N elements, we assume 0 (smaller) fitness is better
-      mergedPop' <- sortPopByFitness mergedPop
+      gen'' <- getGen
+      let (shuffledMergedPop, gen''') = shuffle mergedPop gen''
+      putGen gen'''
+      mergedPop' <- sortPopByFitness shuffledMergedPop
       let nextPop = take (populationSize conf) mergedPop'
       return nextPop
 
@@ -292,9 +295,12 @@ geneticSearch = collectStats $ do
       GenMonad [[g]]
     migrate islandPops = do
       conf <- R.ask
-      gen <- getGen
       let iConf = fromJust $ islandConfiguration conf
-      sortedIslands <- mapM sortPopByFitness islandPops
+      sortedIslands <- forM islandPops $ \island -> do
+        (shuffledIslandPop, gen') <- shuffle island <$> getGen
+        putGen gen'
+        sortPopByFitness shuffledIslandPop
+      gen <- getGen
       let -- Select the best M species per island
           migrators = [take (migrationSize iConf) pop | pop <- sortedIslands]
           -- Drop the worst M species per Island
