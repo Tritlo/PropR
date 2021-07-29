@@ -11,7 +11,7 @@
                 "mod_base": [],
                 "additional_targets": [],
                 "temp_dir_base": "./fake_targets",
-                "randomize_hpc_dir": true,
+                "randomize_output_dir": true,
                 "par_checks": true,
                 "use_interpreted": true,
                 "timeout": 1000000
