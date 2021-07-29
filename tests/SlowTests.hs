@@ -156,7 +156,18 @@ properGenTests :: TestTree
 properGenTests =
   testGroup
     "Genetic search tests"
-    [ mkGenConfTest 60_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs" $
+    [ mkGenConfTest 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs" $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/TwoFixes.hs b/tests/cases/TwoFixes.hs",
+              "--- a/tests/cases/TwoFixes.hs",
+              "+++ b/tests/cases/TwoFixes.hs",
+              "@@ -12,1 +12,1 @@ brokenPair = (1, 2)",
+              "-brokenPair = (1, 2)",
+              "+brokenPair = (3, 4)"
+            ]
+          ],
+      mkGenConfTest 60_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs" $
         map
           unlines
           [ [ "diff --git a/tests/cases/ThreeFixes.hs b/tests/cases/ThreeFixes.hs",
@@ -215,7 +226,7 @@ properGenTests =
               "+evalExpr (Mul a b) = 8"
             ]
           ],
-      mkGenConfTest 15_000_000 "Repair Multi" "tests/cases/Multi.hs" $
+      mkGenConfTest 60_000_000 "Repair Multi" "tests/cases/Multi.hs" $
         map
           unlines
           [ [ "diff --git a/tests/cases/Multi.hs b/tests/cases/Multi.hs",
