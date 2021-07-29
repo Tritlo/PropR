@@ -73,7 +73,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
           -- no other holes in the program
           -- TODO: Where are the "<interactive>" coming from?
 
-          runGhcWithCleanup $ do
+          runGhcWithCleanup compConf $ do
             ~[fits] <- collectStats $ getHoleFits compConf exprFitCands [first (: []) chosen_hole]
             let fix_cands' :: [(EFix, EExpr)]
                 fix_cands' = map (first Map.fromList) $ replacements (snd chosen_hole) fits

@@ -6,8 +6,12 @@
                 "packages": [
                         "base"
                 ],
+                "mod_base": [],
+                "additional_targets": [],
                 "hole_lvl": 0,
-                "unfold_tasty_tests": true
+                "unfold_tasty_tests": true,
+                "temp_dir_base": "./fake_targets",
+                "randomize_hpc_dir": true
         },
         "repair_config": {
                 "par_checks": true,

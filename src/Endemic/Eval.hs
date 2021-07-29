@@ -597,15 +597,14 @@ buildTraceCorrel cc prob exprs = do
 -- created as a side-effect.
 -- TODO: Does this slow things down massively? We lose out on the pre-generated
 -- mix files for sure.
-runGhcWithCleanup :: Ghc a -> IO a
-runGhcWithCleanup act = do
+runGhcWithCleanup :: CompileConfig -> Ghc a -> IO a
+runGhcWithCleanup CompConf {..} act | randomizeHpcDir = do
   tempHpcDir <- do
     td_seed <- newSeed
 
-    let base = "." </> "fake_targets"
-        dir = base </> "hpc-" ++ show (abs td_seed)
+    let dir = tempDirBase </> "hpc-" ++ show (abs td_seed)
     -- The hpc directory will create itself when needed.
-    createDirectoryIfMissing False base
+    createDirectoryIfMissing True tempDirBase
     return dir
   res <- runGhc (Just libdir) $ do
     dflags <- getSessionDynFlags
@@ -614,9 +613,10 @@ runGhcWithCleanup act = do
   check <- doesDirectoryExist tempHpcDir
   when check $ removeDirectoryRecursive tempHpcDir
   return res
+runGhcWithCleanup _ act = runGhc (Just libdir) act
 
 runGhc' :: CompileConfig -> Ghc a -> IO a
-runGhc' cc = runGhcWithCleanup . (initGhcCtxt cc >>)
+runGhc' cc = runGhcWithCleanup cc . (initGhcCtxt cc >>)
 
 traceTarget ::
   RepairConfig ->
@@ -641,9 +641,9 @@ traceTargets ::
   EProgFix ->
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
-traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
+traceTargets rc@RepConf {..} cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
   td_seed <- newSeed
-  let tempDir = "./fake_targets/target-" ++ show (abs td_seed)
+  let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
   createDirectoryIfMissing True tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   seed <- newSeed
@@ -679,7 +679,7 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     addTarget target
-    addLocalTargets [] (modBase cc)
+    addLocalTargets [] modBase
     _ <- load LoadAllTargets
     -- We should for here in case it doesn't terminate, and modify
     -- the run function so that it use the trace reflect functionality
