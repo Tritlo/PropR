@@ -65,7 +65,7 @@ import GhcPlugins hiding (exprType)
 import PrelNames (mkMainModule, toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
-import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive)
 import System.Exit (ExitCode (..))
 import System.FilePath
 import System.IO (Handle, hClose, hGetLine, openTempFile)
@@ -146,12 +146,8 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
   liftIO $ logStr DEBUG "Setting DynFlags..."
   -- We might get "congestion" if multiple GHC threads are all making .mix files
-  tempHpcDir <- liftIO $ do td_seed <- newSeed
-                            let dir = "./fake_targets/hpc-" ++ show (abs td_seed)
-                            createDirectoryIfMissing True dir
-                            return dir
 
-  toLink <- setSessionDynFlags flags' {hpcDir = tempHpcDir}
+  toLink <- setSessionDynFlags flags'
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
   liftIO $ logStr DEBUG "Parsing imports..."
@@ -178,9 +174,6 @@ parseExprNoInit str =
   handleSourceError
     (\err -> printException err >> error ("parse failed in: `" ++ str ++ "`"))
     (parseExpr str)
-
-runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
-runJustParseExpr cc str = runGhc (Just libdir) $ justParseExpr cc str
 
 type ValsAndRefs = ([HoleFit], [HoleFit])
 
@@ -269,9 +262,7 @@ moduleToProb ::
 moduleToProb cc@CompConf {..} mod_path mb_target = do
   let target = Target (TargetFile mod_path Nothing) True Nothing
   -- Feed the given Module into GHC
-  runGhc (Just libdir) $ do
-    _ <- initGhcCtxt cc {importStmts = importStmts ++ checkImports}
-
+  runGhc' cc {importStmts = importStmts ++ checkImports} $ do
     liftIO $ logStr DEBUG "Loading module targets..."
 
     mnames_before <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
@@ -577,8 +568,7 @@ buildTraceCorrelExpr cc EProb {..} exprs = do
       correl_exprs :: [LHsExpr GhcPs]
       correl_exprs = map (\ctxt -> noLoc $ HsLet NoExtField ctxt (noLoc hole)) correl_ctxts
 
-  pcorrels <- runGhc (Just libdir) $ do
-    _ <- initGhcCtxt cc
+  pcorrels <- runGhc' cc $ do
     mapM (parseExprNoInit . showUnsafe) correl_exprs
   let getBod (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _))
         | [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] <- bagToList bg,
@@ -603,8 +593,30 @@ buildTraceCorrel cc prob exprs = do
       )
       expr_n_trac_exprs
 
+-- | Runs a GHC action and cleans up any hpc-directories that might have been
+-- created as a side-effect.
+-- TODO: Does this slow things down massively? We lose out on the pre-generated
+-- mix files for sure.
+runGhcWithCleanup :: Ghc a -> IO a
+runGhcWithCleanup act = do
+  tempHpcDir <- do
+    td_seed <- newSeed
+
+    let base = "." </> "fake_targets"
+        dir = base </> "hpc-" ++ show (abs td_seed)
+    -- The hpc directory will create itself when needed.
+    createDirectoryIfMissing False base
+    return dir
+  res <- runGhc (Just libdir) $ do
+    dflags <- getSessionDynFlags
+    setSessionDynFlags dflags {hpcDir = tempHpcDir}
+    act
+  check <- doesDirectoryExist tempHpcDir
+  when check $ removeDirectoryRecursive tempHpcDir
+  return res
+
 runGhc' :: CompileConfig -> Ghc a -> IO a
-runGhc' cc = runGhc (Just libdir) . (initGhcCtxt cc >>)
+runGhc' cc = runGhcWithCleanup . (initGhcCtxt cc >>)
 
 traceTarget ::
   RepairConfig ->
@@ -649,8 +661,7 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
   -- `hPutStr handle modTxt`
   hClose handle
   _ <- liftIO $ mapM (logStr DEBUG) $ lines modTxt
-  runGhc (Just libdir) $ do
-    _ <- initGhcCtxt cc
+  runGhc' cc $ do
     -- We set the module as the main module, which makes GHC generate
     -- the executable.
     dynFlags <- getSessionDynFlags
@@ -843,12 +854,6 @@ nothingOnError act = handleSourceError (const $ return Nothing) (Just <$> act)
 -- | Tries an action, reports about it in case of error
 reportOnError :: (GhcMonad m, Outputable t) => (t -> m a) -> t -> m a
 reportOnError act a = handleSourceError (reportError a) (act a)
-
--- When we want to compile only one parsed check
-compileParsedCheck :: HasCallStack => CompileConfig -> EExpr -> IO Dynamic
-compileParsedCheck cc expr = runGhc (Just libdir) $ do
-  _ <- initGhcCtxt (cc {hole_lvl = 0})
-  dynCompileParsedExpr `reportOnError` expr
 
 -- | Adapted from dynCompileExpr in InteractiveEval
 dynCompileParsedExpr :: GhcMonad m => LHsExpr GhcPs -> m Dynamic

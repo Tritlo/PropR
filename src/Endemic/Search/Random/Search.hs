@@ -22,13 +22,13 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration
+import Endemic.Eval (runGhcWithCleanup)
 import Endemic.Repair (checkFixes, findEvaluatedHoles, getHoleFits, processFits, repairAttempt, replacements)
 import Endemic.Search.Random.Configuration (RandomConf (..))
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
 import GHC (runGhc)
-import GHC.Paths (libdir)
 import System.CPUTime (getCPUTime)
 import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 
@@ -73,7 +73,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
           -- no other holes in the program
           -- TODO: Where are the "<interactive>" coming from?
 
-          runGhc (Just libdir) $ do
+          runGhcWithCleanup $ do
             ~[fits] <- collectStats $ getHoleFits compConf exprFitCands [first (: []) chosen_hole]
             let fix_cands' :: [(EFix, EExpr)]
                 fix_cands' = map (first Map.fromList) $ replacements (snd chosen_hole) fits

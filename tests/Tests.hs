@@ -7,7 +7,7 @@ module Main where
 import Control.Arrow
 import Data.Bits (finiteBitSize)
 import Data.Default
-import Data.Dynamic (fromDynamic)
+import Data.Dynamic (Dynamic, fromDynamic)
 import Data.List (find, sort)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isJust, mapMaybe)
@@ -20,7 +20,7 @@ import Endemic.Repair
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
-import GHC (tm_parsed_module)
+import GHC (GhcPs, LHsExpr, tm_parsed_module)
 import GhcPlugins (GenLocated (L), getLoc, ppr, showSDocUnsafe, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
@@ -40,6 +40,15 @@ tests =
       moduleTests,
       sanctifyTests
     ]
+
+-- Helpers
+compileParsedCheck :: HasCallStack => CompileConfig -> EExpr -> IO Dynamic
+compileParsedCheck cc expr =
+  runGhc' (cc {hole_lvl = 0}) $
+    dynCompileParsedExpr `reportOnError` expr
+
+runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
+runJustParseExpr cc str = runGhcWithCleanup $ justParseExpr cc str
 
 -- | Chosen fairly by Random.org
 tESTSEED :: Int
