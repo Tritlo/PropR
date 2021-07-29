@@ -19,6 +19,7 @@ import qualified Data.ByteString.Char8 as BS
 import Data.Default
 import Data.IORef (IORef, atomicModifyIORef', newIORef, writeIORef)
 import qualified Data.Map as Map
+import Data.Maybe (fromMaybe)
 import Data.Tuple (swap)
 import Endemic.Configuration.Materializeable
 import Endemic.Configuration.Types
@@ -110,20 +111,19 @@ instance Default CLIOptions where
 
 addCliArguments :: CLIOptions -> Configuration -> IO Configuration
 addCliArguments CLIOptions {..} conf = do
-  let umLogConf =
-        UmLogConf
-          { umLogLoc = optLogLoc,
-            umLogLevel = optLogLevel,
-            umLogTimestamp = optLogTimestamp,
-            umLogFile = optLogFile
-          }
-
-  conf'@Conf {..} <-
+  conf'@Conf {logConfig = logConfig@LogConf {..}, ..} <-
     case optOverride of
       Nothing -> return conf
       Just c -> override conf . Just <$> readConf c
+  let logConf' =
+        LogConf
+          { logLoc = fromMaybe logLoc optLogLoc,
+            logLevel = fromMaybe logLevel optLogLevel,
+            logTimestamp = fromMaybe logTimestamp optLogTimestamp,
+            logFile = mbOverride logFile optLogFile
+          }
   return $
     conf'
-      { logConfig = override logConfig (Just umLogConf),
+      { logConfig = logConf',
         randomSeed = mbOverride randomSeed optRandomSeed
       }

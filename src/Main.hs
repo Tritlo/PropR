@@ -5,7 +5,7 @@
 
 module Main where
 
-import Control.Monad (unless, when)
+import Control.Monad (join, unless, when)
 import Data.Aeson (encode)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import Data.Default (def)
@@ -77,7 +77,6 @@ optParser = info (pickOpt <**> helper) modinfo
           auto
           ( long "log-level"
               <> metavar "LOGLEVEL"
-              <> value WARN
               <> showDefault
               <> help "The logging level to use"
           )
