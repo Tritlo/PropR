@@ -10,7 +10,7 @@ import Data.Default
 import Data.Dynamic (fromDynamic)
 import Data.List (find, sort)
 import qualified Data.Map as Map
-import Data.Maybe (isJust, mapMaybe)
+import Data.Maybe (catMaybes, isJust, mapMaybe)
 import Data.Tree
 import Data.Tuple (swap)
 import Endemic.Configuration
@@ -341,8 +341,7 @@ traceTests =
           tp@EProb {..} <- translate cc rp
           [failed_prop] <- failingProps def cc tp
           Just counter_example <- propCounterExample def cc tp failed_prop
-          let [(_, _, e_prog')] = e_prog
-              eprog_fix = eProgToEProgFix $ applyFixToEProg e_prog mempty
+          let eprog_fix = eProgToEProgFix e_prog
           Just [Node {subForest = [tree@Node {rootLabel = (tl, tname)}]}] <-
             traceTarget def cc tp eprog_fix failed_prop counter_example
           expr <- runJustParseExpr cc wrong_prog

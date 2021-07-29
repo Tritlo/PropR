@@ -262,10 +262,10 @@ applyFixToEProg :: EProg -> EFix -> EProg
 applyFixToEProg e_prog fix = map (\(n, t, p) -> (n, t, replaceExpr fix $ progAtTy p t)) e_prog
 
 eProgToEProgFix :: EProg -> EProgFix
-eProgToEProgFix = map trd
-  where
-    trd :: (a, b, c) -> c
-    trd (_, _, c) = c
+eProgToEProgFix = map (\(_, _, c) -> c)
+
+eProgToEProgFixAtTy :: EProg -> EProgFix
+eProgToEProgFixAtTy = map (\(_, t, p) -> p `progAtTy` t)
 
 rdrNamePrint :: RdrName -> String
 rdrNamePrint nm =

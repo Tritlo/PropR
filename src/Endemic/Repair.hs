@@ -189,7 +189,7 @@ propCounterExamples ProbDesc {..} props = do
 failingProps' :: ProblemDescription -> Ghc [EProp]
 failingProps' desc@ProbDesc {progProblem = EProb {..}, ..} =
   do
-    ~[res] <- checkFixes desc [eProgToEProgFix e_prog]
+    ~[res] <- checkFixes desc [eProgToEProgFixAtTy e_prog]
     return $ case res of
       Right True -> []
       Right False -> e_props
@@ -237,7 +237,7 @@ findEvaluatedHoles
     -- We apply the fixes to all of the contexts, and all of the contexsts
     -- contain the entire current program.
     -- TODO: Is this safe?
-    let id_prog = eProgToEProgFix (applyFixToEProg e_prog mempty)
+    let id_prog = eProgToEProgFixAtTy e_prog
         holey_exprss = map sanctifyExpr id_prog
 
     logStr DEBUG "Building trace correlation..."
@@ -249,14 +249,12 @@ findEvaluatedHoles
     runGhc' cc $ do
       failing_props <- collectStats $ failingProps' desc
 
-      liftIO $logStr DEBUG "Finding counter examples..."
+      liftIO $ logStr DEBUG "Finding counter examples..."
       counter_examples <- collectStats $ propCounterExamples desc failing_props
 
       let hasCE (p, Just ce) = Just (p, ce)
           hasCE _ = Nothing
           ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
-          only_max (src, r) = (mkInteractive src, maximum $ map snd r)
-          toInvokes res = Map.fromList $ map only_max $ flatten res
       -- We compute the locations that are touched by the failing counter-examples
       liftIO $ logStr DEBUG "Tracing program..."
       all_invokes <-
