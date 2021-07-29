@@ -145,7 +145,13 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
             }
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
   liftIO $ logStr DEBUG "Setting DynFlags..."
-  toLink <- setSessionDynFlags flags'
+  -- We might get "congestion" if multiple GHC threads are all making .mix files
+  tempHpcDir <- liftIO $ do td_seed <- newSeed
+                            let dir = "./fake_targets/hpc-" ++ show (abs td_seed)
+                            createDirectoryIfMissing True dir
+                            return dir
+
+  toLink <- setSessionDynFlags flags' {hpcDir = tempHpcDir}
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
   liftIO $ logStr DEBUG "Parsing imports..."
