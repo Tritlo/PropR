@@ -65,7 +65,9 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                 not_checked = Set.fromList $ filter (not . (`Set.member` checked)) to_check
                 checked' = not_checked `Set.union` checked
                 check_list = Set.toList not_checked
-            mapM_ (logOut VERBOSE) check_list
+            --     logStr VERBOSE "CHECKING:"
+            mapM_ (logOut VERBOSE) to_check
+            --     mapM_ (logOut VERBOSE) check_list
             fixes <-
               Set.fromList . map fst
                 . filter (isFixed . snd)

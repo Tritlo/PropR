@@ -574,8 +574,6 @@ buildTraceCorrelExpr cc EProb {..} exprs = do
   pcorrels <- runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc
     mapM (parseExprNoInit . showUnsafe) correl_exprs
-  logStr DEBUG "PCORREL:"
-  logOut DEBUG pcorrels
   let getBod (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _))
         | [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] <- bagToList bg,
           [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] <- alts =
@@ -611,10 +609,6 @@ traceTarget ::
   [RExpr] ->
   IO (Maybe TraceRes)
 traceTarget rc cc tp e fp ce = head <$> traceTargets rc cc tp e [(fp, ce)]
-
-type Trace = Tree (SrcSpan, [(BoxLabel, Integer)])
-
-type TraceRes = [Trace]
 
 toInvokes :: Trace -> Map.Map SrcSpan Integer
 toInvokes res = Map.fromList $ map only_max $ flatten res
@@ -715,8 +709,8 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
               let fake_only = filter isTargetMod mods
                   nd n@Node {rootLabel = (root, _)} =
                     fmap (Data.Bifunctor.first (toFakeSpan the_f root)) n
-              res <- filter isTarget . concatMap toDom <$> mapM rm fake_only
-              return $ Just $ map nd res
+              res <- map nd . filter isTarget . concatMap toDom <$> mapM rm fake_only
+              return $ Just res
             _ -> return Nothing
     removeTarget tid
     let (checks, _) = unzip $ zip [0 ..] ps_w_ce
