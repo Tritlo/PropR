@@ -21,7 +21,7 @@ import Data.Data.Lens (tinplate)
 import Data.Maybe (fromJust, isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Endemic.Configuration (RepairConfig (..))
+import Endemic.Configuration (CompileConfig (..))
 import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
 import Endemic.Util (progAtTy, propVars, rdrNamePrint)
 import FastString (fsLit)
@@ -103,12 +103,12 @@ hole = HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 -- Note: Every fix is checked with the same seed, to make sure that
 -- it's the fix that's making it work and not the seed.
 buildFixCheck ::
-  RepairConfig ->
+  CompileConfig ->
   Int ->
   EProblem ->
   [EProgFix] ->
   (LHsLocalBinds GhcPs, LHsBind GhcPs)
-buildFixCheck rc seed EProb {..} prog_fixes =
+buildFixCheck cc seed EProb {..} prog_fixes =
   (ctxt, check_bind)
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
@@ -121,7 +121,7 @@ buildFixCheck rc seed EProb {..} prog_fixes =
         ]
     ctxt = L bl (HsValBinds be (ValBinds vbe nvbs $ if (isJust e_module) then [] else vsigs))
 
-    testsToCheck = mapMaybe (testCheckExpr e_prog rc (tf "qcSuccess", tf "id")) e_props
+    testsToCheck = mapMaybe (testCheckExpr e_prog cc (tf "qcSuccess", tf "id")) e_props
 
     expr_bs prog_fix =
       zipWith
@@ -166,14 +166,14 @@ testCheckExpr ::
   -- | The program we're checking
   EProg ->
   -- | The repair config
-  RepairConfig ->
+  CompileConfig ->
   -- | A compiled program that contains properties and everything to run them
   (LHsExpr GhcPs, LHsExpr GhcPs) ->
   -- | The property to check
   EProp ->
   -- | The resulting expression
   Maybe (LHsExpr GhcPs)
-testCheckExpr e_prog RepConf {..} extractors prop
+testCheckExpr e_prog CompConf {..} extractors prop
   | Just _ <- prop_to_name prop =
     Just $ noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
   where
@@ -197,7 +197,7 @@ testCheckExpr e_prog RepConf {..} extractors prop
           noLoc $
             HsApp
               NoExtField
-              (noLoc $ HsApp NoExtField (tf "checkTastyTree") (il repTimeout))
+              (noLoc $ HsApp NoExtField (tf "checkTastyTree") (il timeout))
               app
 
     app =
@@ -230,7 +230,7 @@ testCheckExpr e_prog RepConf {..} extractors prop
               ( noLoc $
                   HsApp
                     NoExtField
-                    (noLoc $ HsApp NoExtField (tf "qcWRes") (il repTimeout))
+                    (noLoc $ HsApp NoExtField (tf "qcWRes") (il timeout))
                     (tf "qc__")
               )
               app
@@ -242,13 +242,13 @@ testCheckExpr _ _ _ _ = Nothing
 -- Note that we have to have it take in a list of properties to match the shape
 -- of bCEAT
 buildCounterExampleCheck ::
-  RepairConfig ->
+  CompileConfig ->
   Int ->
   EProp ->
   EProblem ->
   LHsExpr GhcPs
 buildCounterExampleCheck
-  rc@RepConf {..}
+  cc@CompConf {..}
   seed
   prop@( L
            loc
@@ -291,7 +291,7 @@ buildCounterExampleCheck
                 noLoc $
                   HsApp
                     NoExtField
-                    (noLoc $ HsApp NoExtField (tf "qcWithin") (il repTimeout))
+                    (noLoc $ HsApp NoExtField (tf "qcWithin") (il timeout))
                     (noLoc $ HsPar NoExtField b)
           aW g = g
       addWithin malt = malt
@@ -320,7 +320,7 @@ buildCounterExampleCheck
             progAtTy
               ( noLoc $
                   HsPar NoExtField $
-                    fromJust $ testCheckExpr e_prog rc (tf "failureToMaybe", tf "id") prop
+                    fromJust $ testCheckExpr e_prog cc (tf "failureToMaybe", tf "id") prop
               )
               sq_ty
 buildCounterExampleCheck _ _ _ _ = error "invalid counter-example format!"

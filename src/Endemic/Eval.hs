@@ -72,7 +72,7 @@ import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
 import System.Posix.Signals
 import System.Process
-import System.Timeout (timeout)
+import qualified System.Timeout (timeout)
 import TcExpr (tcInferSigma)
 import TcHoleErrors (HoleFit (..), TypedHole (..))
 import TcSimplify (captureTopConstraints)
@@ -598,7 +598,7 @@ buildTraceCorrel cc prob exprs = do
 -- TODO: Does this slow things down massively? We lose out on the pre-generated
 -- mix files for sure.
 runGhcWithCleanup :: CompileConfig -> Ghc a -> IO a
-runGhcWithCleanup CompConf {..} act | randomizeHpcDir = do
+runGhcWithCleanup CompConf {..} act | parChecks && randomizeHpcDir = do
   tempHpcDir <- do
     td_seed <- newSeed
 
@@ -619,14 +619,13 @@ runGhc' :: CompileConfig -> Ghc a -> IO a
 runGhc' cc = runGhcWithCleanup cc . (initGhcCtxt cc >>)
 
 traceTarget ::
-  RepairConfig ->
   CompileConfig ->
   EProblem ->
   EProgFix ->
   EProp ->
   [RExpr] ->
   IO (Maybe TraceRes)
-traceTarget rc cc tp e fp ce = head <$> traceTargets rc cc tp e [(fp, ce)]
+traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
 
 toInvokes :: Trace -> Map.Map SrcSpan Integer
 toInvokes res = Map.fromList $ map only_max $ flatten res
@@ -635,13 +634,12 @@ toInvokes res = Map.fromList $ map only_max $ flatten res
 
 -- Run HPC to get the trace information.
 traceTargets ::
-  RepairConfig ->
   CompileConfig ->
   EProblem ->
   EProgFix ->
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
-traceTargets rc@RepConf {..} cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
+traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
   td_seed <- newSeed
   let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
   createDirectoryIfMissing True tempDir
@@ -649,11 +647,11 @@ traceTargets rc@RepConf {..} cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSp
   seed <- newSeed
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-      modTxt = exprToTraceModule rc cc tp seed mname correl ps_w_ce
+      modTxt = exprToTraceModule cc tp seed mname correl ps_w_ce
       strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
       mixFilePath = tempDir
-      timeoutVal = fromIntegral repTimeout
+      timeoutVal = fromIntegral timeout
 
   logStr DEBUG modTxt
   -- Note: we do not need to dump the text of the module into the file, it
@@ -693,7 +691,7 @@ traceTargets rc@RepConf {..} cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSp
                   -- We ignore the output
                   std_out = CreatePipe
                 }
-          ec <- timeout timeoutVal $ waitForProcess ph
+          ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
 
           let -- If it doesn't respond to signals, we can't do anything
               -- other than terminate
@@ -708,7 +706,7 @@ traceTargets rc@RepConf {..} cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSp
                   Just pid ->
                     do
                       signalProcess keyboardSignal pid
-                      ec2 <- timeout timeoutVal $ waitForProcess ph
+                      ec2 <- System.Timeout.timeout timeoutVal $ waitForProcess ph
                       loop ec2 (n -1)
                   -- It finished in the brief time between calls, so we're good.
                   _ -> return ()
@@ -766,13 +764,12 @@ traceTargets rc@RepConf {..} cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSp
         start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
         -- GHC Srcs end one after the end
         end = mkSrcLoc fname (el - eloff) (ec - ecoff)
-traceTargets rc cc tp exprs@(e@(L _ xp) : _) ps_w_ce = do
+traceTargets cc tp exprs@(e@(L _ xp) : _) ps_w_ce = do
   tl <- fakeBaseLoc cc tp exprs
-  traceTargets rc cc tp (map (L tl . unLoc) exprs) ps_w_ce
-traceTargets _ _ _ [] _ = error "No fix!"
+  traceTargets cc tp (map (L tl . unLoc) exprs) ps_w_ce
+traceTargets _ _ [] _ = error "No fix!"
 
 exprToTraceModule ::
-  RepairConfig ->
   CompileConfig ->
   EProblem ->
   Int ->
@@ -780,7 +777,7 @@ exprToTraceModule ::
   [(String, RdrName, LHsBind GhcPs)] ->
   [(EProp, [RExpr])] ->
   RExpr
-exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
+exprToTraceModule CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
@@ -810,7 +807,7 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
         pvars <- propVars prop,
         fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
         fts_to_use <- if null fts then fake_targets else fts =
-        "checkTastyTree " ++ show repTimeout ++ " ("
+        "checkTastyTree " ++ show timeout ++ " ("
           ++ pname
           ++ " "
           ++ unwords (map (\(n, _, _) -> n) fts_to_use)
@@ -824,7 +821,7 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
         fts_to_use <- if null fts then fake_targets else fts =
         "fmap qcSuccess ("
           ++ "qcWRes "
-          ++ show repTimeout
+          ++ show timeout
           ++ " ("
           ++ showUnsafe (qcArgsExpr seed Nothing)
           ++ ") ("
@@ -836,7 +833,7 @@ exprToTraceModule RepConf {..} CompConf {..} EProb {..} seed mname fake_targets 
           ++ "))"
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
-exprToTraceModule _ _ _ _ _ _ _ = error "External problems not supported yet!"
+exprToTraceModule _ _ _ _ _ _ = error "External problems not supported yet!"
 
 -- | Prints the error and stops execution
 reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b
@@ -867,14 +864,13 @@ dynCompileParsedExpr parsed_expr = do
   return (unsafeCoerce# hval :: Dynamic)
 
 exprToCheckModule ::
-  RepairConfig ->
   CompileConfig ->
   Int ->
   String ->
   EProblem ->
   [EProgFix] ->
   RExpr
-exprToCheckModule rc CompConf {..} seed mname tp fixes =
+exprToCheckModule cc@CompConf {..} seed mname tp fixes =
   unlines $
     ["module " ++ mname ++ " where"]
       ++ importStmts
@@ -897,7 +893,7 @@ exprToCheckModule rc CompConf {..} seed mname tp fixes =
            "            mapM_ (runC__ True . read) whiches"
          ]
   where
-    (ctxt, check_bind) = buildFixCheck rc seed tp fixes
+    (ctxt, check_bind) = buildFixCheck cc seed tp fixes
 
 -- | Parse, rename and type check an expression
 justTcExpr :: EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
