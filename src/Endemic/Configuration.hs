@@ -16,7 +16,6 @@ module Endemic.Configuration
     OutputConfig (..),
     CompileConfig (..),
     LogConfig (..),
-    RepairConfig (..),
     SearchAlgorithm (..),
     -- Global flags
     setGlobalFlags,

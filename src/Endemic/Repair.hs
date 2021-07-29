@@ -60,7 +60,7 @@ import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
 import System.Posix.Signals
 import System.Process
-import System.Timeout (timeout)
+import qualified System.Timeout (timeout)
 import TcHoleErrors (HoleFit (..))
 import TcSimplify (captureTopConstraints)
 
@@ -179,16 +179,16 @@ detranslate _ = error "Cannot detranlsate external problem!"
 
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
-propCounterExample :: RepairConfig -> CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
-propCounterExample rc cc ep prop =
-  runGhc' cc $ head <$> propCounterExamples (fakeDesc [] cc rc ep) [prop]
+propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
+propCounterExample cc ep prop =
+  runGhc' cc $ head <$> propCounterExamples (fakeDesc [] cc ep) [prop]
 
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
 propCounterExamples :: ProblemDescription -> [EProp] -> Ghc [Maybe [RExpr]]
 propCounterExamples ProbDesc {..} props = do
   let cc' = (compConf {hole_lvl = 0, importStmts = checkImports ++ importStmts compConf})
-      mk_bcc prop seed = buildCounterExampleCheck repConf seed prop progProblem
+      mk_bcc prop seed = buildCounterExampleCheck compConf seed prop progProblem
       checkProp prop | isTastyProp prop = return $ Just []
       checkProp prop = do
         seed <- liftIO newSeed
@@ -217,16 +217,15 @@ failingProps' _ = error "External fixes not supported!"
 
 -- | Returns the props that fail for the given program, without having a
 -- proper description. DO NOT USE IF YOU HAVE A DESCRIPTION
-failingProps :: RepairConfig -> CompileConfig -> EProblem -> IO [EProp]
-failingProps rc cc prob = runGhc' cc $ failingProps' (fakeDesc [] cc rc prob)
+failingProps :: CompileConfig -> EProblem -> IO [EProp]
+failingProps cc prob = runGhc' cc $ failingProps' (fakeDesc [] cc prob)
 
-fakeDesc :: [ExprFitCand] -> CompileConfig -> RepairConfig -> EProblem -> ProblemDescription
-fakeDesc efcs cc rc prob =
+fakeDesc :: [ExprFitCand] -> CompileConfig -> EProblem -> ProblemDescription
+fakeDesc efcs cc prob =
   ProbDesc
     { progProblem = prob,
       exprFitCands = efcs,
       compConf = cc,
-      repConf = rc,
       probModule = Nothing,
       initialFixes = Nothing
     }
@@ -234,12 +233,12 @@ fakeDesc efcs cc rc prob =
 -- | Primary method of this module.
 -- It takes a program & configuration,
 -- a (translated) repair problem and returns a list of potential fixes.
-repair :: CompileConfig -> RepairConfig -> EProblem -> IO [EFix]
-repair cc rc prob@EProb {..} = do
+repair :: CompileConfig -> EProblem -> IO [EFix]
+repair cc prob@EProb {..} = do
   ecfs <- runGhc' cc $ getExprFitCands $ Left $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-  let desc = fakeDesc ecfs cc rc prob
+  let desc = fakeDesc ecfs cc prob
   map fst . filter (isFixed . snd) <$> repairAttempt desc
-repair _ _ _ = error "Cannot repair external problems yet!"
+repair _ _ = error "Cannot repair external problems yet!"
 
 -- | Finds the locations in the program that are evaluated by failing tests
 -- and returns those as programs with holes at that location.
@@ -249,7 +248,6 @@ findEvaluatedHoles ::
 findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc,
-      repConf = rc,
       progProblem = tp@EProb {..}
     } = collectStats $ do
     logStr DEBUG "Finding evaluated holes..."
@@ -312,7 +310,7 @@ findEvaluatedHoles
             . map (zip (zip [0 :: Int ..] id_prog) <$>)
             . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
             . zip (zip [0 :: Integer ..] ps_w_ce)
-            <$> traceTargets rc cc tp id_prog ps_w_ce
+            <$> traceTargets cc tp id_prog ps_w_ce
 
       -- We then remove suggested holes that are unlikely to help (naively for now
       -- in the sense that we remove only holes which did not get evaluated at all,
@@ -339,7 +337,6 @@ repairAttempt ::
 repairAttempt
   desc@ProbDesc
     { compConf = cc,
-      repConf = rc,
       progProblem = tp@EProb {..},
       exprFitCands = efcs
     } = collectStats $ do
@@ -386,23 +383,21 @@ checkFixes ::
 checkFixes
   ProbDesc
     { compConf = cc@CompConf {..},
-      repConf = rc,
       progProblem = tp,
       ..
     }
   fixes = do
     td_seed <- liftIO newSeed
-    let RepConf {..} = rc
-        tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
+    let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
     liftIO $ createDirectoryIfMissing True tempDir
     (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
     seed <- liftIO $ newSeed
     -- We generate the name of the module from the temporary file
     let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-        modTxt = exprToCheckModule rc cc seed mname tp fixes
+        modTxt = exprToCheckModule cc seed mname tp fixes
         strBuff = stringToStringBuffer modTxt
         exeName = dropExtension the_f
-        timeoutVal = fromIntegral repTimeout
+        timeoutVal = fromIntegral timeout
 
     liftIO $ logStr DEBUG modTxt
     -- Note: we do not need to dump the text of the module into the file, it
@@ -418,9 +413,9 @@ checkFixes
             { mainModIs = mkMainModule $ fsLit mname,
               mainFunIs = Just "main__",
               hpcDir = tempDir,
-              ghcMode = if repUseInterpreted then CompManager else OneShot,
-              ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
-              hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
+              ghcMode = if useInterpreted then CompManager else OneShot,
+              ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
+              hscTarget = if useInterpreted then HscInterpreted else HscAsm
               --optLevel = 2
             }
     now <- liftIO getCurrentTime
@@ -448,7 +443,7 @@ checkFixes
           return (hout, ph)
         waitOnCheck :: (Handle, ProcessHandle) -> IO TestSuiteResult
         waitOnCheck (hout, ph) = do
-          ec <- timeout timeoutVal $ waitForProcess ph
+          ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
           case ec of
             Nothing -> terminateProcess ph >> return (Right False)
             Just _ -> do
@@ -462,7 +457,7 @@ checkFixes
 
     let inds = take (length fixes) [0 ..]
     res <-
-      if repUseInterpreted
+      if useInterpreted
         then do
           let m_name = mkModuleName mname
               checkArr arr = if and arr then Right True else Left arr
@@ -470,11 +465,11 @@ checkFixes
           checks_expr <- compileExpr "checks__"
           let checks :: [IO [Bool]]
               checks = unsafeCoerce# checks_expr
-              evf = if repParChecks then mapConcurrently else mapM
+              evf = if parChecks then mapConcurrently else mapM
           liftIO $ collectStats $ evf (checkArr <$>) checks
         else
           liftIO $
-            if repParChecks
+            if parChecks
               then do
                 -- By starting all the processes and then waiting on them, we get more
                 -- mode parallelism.
@@ -485,7 +480,7 @@ checkFixes
     return res
 
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
-describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
+describeProblem conf@Conf {compileConfig = cc} fp = do
   logStr DEBUG "Describing problem..."
   (compConf, modul, problem) <- moduleToProb cc fp Nothing
   case problem of
@@ -498,7 +493,7 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
             initialFixes = Nothing
             desc' = ProbDesc {..}
 
-        if repPrecomputeFixes repConf
+        if precomputeFixes cc
           then do
             logStr DEBUG "Pre-computing fixes..."
             let inContext = noLoc . HsLet NoExtField e_ctxt

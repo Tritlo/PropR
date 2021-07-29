@@ -56,7 +56,6 @@ deriving instance FromJSON TimeLocale
 -- | A configuration contains all the settings
 data Configuration = Conf
   { compileConfig :: CompileConfig,
-    repairConfig :: RepairConfig,
     outputConfig :: OutputConfig,
     searchAlgorithm :: SearchAlgorithm,
     logConfig :: LogConfig,
@@ -71,7 +70,6 @@ instance Default Configuration where
   def =
     Conf
       { compileConfig = def,
-        repairConfig = def,
         outputConfig = def,
         searchAlgorithm = def,
         logConfig = def,
@@ -82,10 +80,8 @@ instance Default Configuration where
 -- "materialized" by filling in the gaps
 instance Materializeable Configuration where
   data Unmaterialized Configuration = UmConf
-    { -- | Configuration for the compilation of programs
+    { -- | Configuration for the compilation and repair of programs
       umCompileConfig :: Maybe (Unmaterialized CompileConfig),
-      -- | Configuration for the repair of programs
-      umRepairConfig :: Maybe (Unmaterialized RepairConfig),
       umOutputConfig :: Maybe (Unmaterialized OutputConfig),
       umLogConfig :: Maybe (Unmaterialized LogConfig),
       -- | Configuration for the genetic repair algorithm.
@@ -104,7 +100,7 @@ instance Materializeable Configuration where
              ]
             (Unmaterialized Configuration)
 
-  conjure = UmConf n n n n n n
+  conjure = UmConf n n n n n
     where
       n = Nothing
 
@@ -112,7 +108,6 @@ instance Materializeable Configuration where
   override Conf {..} (Just UmConf {..}) =
     Conf
       { compileConfig = override compileConfig umCompileConfig,
-        repairConfig = override repairConfig umRepairConfig,
         outputConfig = override outputConfig umOutputConfig,
         logConfig = override logConfig umLogConfig,
         searchAlgorithm = override searchAlgorithm umSearchAlgorithm,
@@ -228,14 +223,31 @@ instance Materializeable CompileConfig where
       umModBase :: Maybe [FilePath],
       umAdditionalTargets :: Maybe [FilePath],
       umTempDirBase :: Maybe FilePath,
-      umRandomizeHpcDir :: Maybe Bool
+      umRandomizeHpcDir :: Maybe Bool,
+      umParChecks :: Maybe Bool,
+      umUseInterpreted :: Maybe Bool,
+      umPrecomputeFixes :: Maybe Bool,
+      umTimeout :: Maybe Integer
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized CompileConfig)
 
-  conjure = UmCompConf Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
+  conjure =
+    UmCompConf
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
+      Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
@@ -247,7 +259,11 @@ instance Materializeable CompileConfig where
         unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests,
         additionalTargets = fromMaybe additionalTargets umAdditionalTargets,
         tempDirBase = fromMaybe tempDirBase umTempDirBase,
-        randomizeHpcDir = fromMaybe randomizeHpcDir umRandomizeHpcDir
+        randomizeHpcDir = fromMaybe randomizeHpcDir umRandomizeHpcDir,
+        parChecks = fromMaybe parChecks umParChecks,
+        useInterpreted = fromMaybe useInterpreted umUseInterpreted,
+        timeout = fromMaybe timeout umTimeout,
+        precomputeFixes = fromMaybe precomputeFixes umPrecomputeFixes
       }
 
 -- | Configuration for the compilation itself
@@ -267,9 +283,26 @@ data CompileConfig = CompConf
     -- | Where to put files generated during the run. We do a lot
     -- of file system accesses, so this should be a fast directory.
     tempDirBase :: FilePath,
-    -- | Whether to randomize the Hpc directory. Can help with
-    -- congestion on highly parallell systems.
-    randomizeHpcDir :: Bool
+    -- | Whether or not to use parallelisation
+    parChecks :: Bool,
+    -- | Whether to randomize the HPC directory when parChecks is enabled. Can
+    -- help with congestion on highly parallell systems.
+    randomizeHpcDir :: Bool,
+    -- | Whether or not to use bytecode or to
+    -- just interpret the resulting code.
+    -- Usuallly safe to set to true, except
+    -- when Core-to-Core plugins are involved.
+    useInterpreted :: Bool,
+    -- | Set the timeout in microseconds for each
+    -- heck, after which we assume the check is
+    -- in an infinte loop.
+    timeout :: Integer,
+    -- | Whether or not we're allowed to precompute
+    -- the fixes at the beginning. Better in most
+    -- cases, but can slow down if we have big
+    -- programs and aren't considering all of it
+    -- (e.t. random search).
+    precomputeFixes :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -286,64 +319,11 @@ instance Default CompileConfig where
         modBase = [],
         additionalTargets = [],
         tempDirBase = "." </> "fake_targets",
-        randomizeHpcDir = True
-      }
-
--- | Configuration for the checking of repairs
-data RepairConfig = RepConf
-  { -- | Whether or not to use Parallelisation
-    repParChecks :: Bool,
-    -- | Whether or not to use bytecode or to
-    -- just interpret the resulting code.
-    -- Usuallly safe to set to true, except
-    -- when Core-to-Core plugins are involved.
-    repUseInterpreted :: Bool,
-    -- | Set the timeout in microseconds for each
-    -- heck, after which we assume the check is
-    -- in an infinte loop.
-    repTimeout :: Integer,
-    -- | Whether or not we're allowed to precompute
-    -- the fixes at the beginning. Better in most
-    -- cases, but can slow down if we have big
-    -- programs and aren't considering all of it
-    -- (e.t. random search).
-    repPrecomputeFixes :: Bool
-  }
-  deriving (Show, Eq, Generic)
-  deriving
-    (FromJSON, ToJSON)
-    via CustomJSON '[FieldLabelModifier '[StripPrefix "rep", CamelToSnake], RejectUnknownFields] RepairConfig
-
-instance Default RepairConfig where
-  def =
-    RepConf
-      { repParChecks = True,
-        repUseInterpreted = True,
-        repTimeout = 1_000_000,
-        repPrecomputeFixes = True
-      }
-
-instance Materializeable RepairConfig where
-  data Unmaterialized RepairConfig = UmRepConf
-    { umParChecks :: Maybe Bool,
-      umUseInterpreted :: Maybe Bool,
-      umPrecomputeFixes :: Maybe Bool,
-      umTimeout :: Maybe Integer
-    }
-    deriving (Show, Eq, Generic)
-    deriving
-      (FromJSON, ToJSON)
-      via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized RepairConfig)
-
-  conjure = UmRepConf Nothing Nothing Nothing Nothing
-
-  override c Nothing = c
-  override RepConf {..} (Just UmRepConf {..}) =
-    RepConf
-      { repParChecks = fromMaybe repParChecks umParChecks,
-        repUseInterpreted = fromMaybe repUseInterpreted umUseInterpreted,
-        repTimeout = fromMaybe repTimeout umTimeout,
-        repPrecomputeFixes = fromMaybe repPrecomputeFixes umPrecomputeFixes
+        randomizeHpcDir = True,
+        parChecks = True,
+        useInterpreted = True,
+        timeout = 1_000_000,
+        precomputeFixes = True
       }
 
 instance Default LogConfig where
@@ -378,7 +358,6 @@ data ProblemDescription = ProbDesc
   { progProblem :: EProblem,
     exprFitCands :: [ExprFitCand],
     compConf :: CompileConfig,
-    repConf :: RepairConfig,
     -- | The typechecked module, if available
     probModule :: Maybe TypecheckedModule,
     -- | Fix candidates, if available

@@ -100,7 +100,7 @@ repairTests =
                   }
           setSeedGenSeed tESTSEED
           tp@EProb {..} <- translate cc rp
-          fixes <- repair cc def tp
+          fixes <- repair cc tp
           let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
           expected `elem` concatMap (map (trim . showUnsafe)) fixProgs @? "Expected repair not found in fixes",
       localOption (mkTimeout 20_000_000) $
@@ -158,7 +158,7 @@ repairTests =
                     r_props = props
                   }
           setSeedGenSeed tESTSEED
-          fixes <- map (trim . showUnsafe) <$> (translate def rp >>= repair def def)
+          fixes <- map (trim . showUnsafe) <$> (translate def rp >>= repair def)
           not (null fixes) @? "No fix found"
     ]
 
@@ -191,7 +191,7 @@ failingPropsTests =
                   }
           setSeedGenSeed tESTSEED
           tp <- translate def rp
-          failed_props <- failingProps def def tp
+          failed_props <- failingProps def tp
           -- Only the first prop should be failing (due to an infinite loop)
           map showUnsafe failed_props @?= [head props],
       localOption (mkTimeout 10_000_000) $
@@ -221,12 +221,12 @@ failingPropsTests =
                   }
           setSeedGenSeed tESTSEED
           tp <- translate cc rp
-          failed_props <- failingProps def cc tp
+          failed_props <- failingProps cc tp
           map showUnsafe failed_props @?= props,
       localOption (mkTimeout 10_000_000) $
         testCase "Two failing TastyProps" $ do
           Just desc@ProbDesc {..} <- describeProblem def "tests/cases/TastyTwoFix.hs"
-          failed_props <- failingProps repConf compConf progProblem
+          failed_props <- failingProps compConf progProblem
           length failed_props @?= 2
     ]
 
@@ -256,8 +256,8 @@ counterExampleTests =
                   }
           setSeedGenSeed tESTSEED
           tp <- translate cc rp
-          [failed_prop] <- failingProps def cc tp
-          Just [counter_example] <- propCounterExample def cc tp failed_prop
+          [failed_prop] <- failingProps cc tp
+          Just [counter_example] <- propCounterExample cc tp failed_prop
           let expr = "(foldl (-) 0) " ++ counter_example ++ " == sum " ++ counter_example
           res <- runJustParseExpr cc expr >>= compileParsedCheck cc
           case fromDynamic @Bool res of
@@ -285,8 +285,8 @@ counterExampleTests =
                   }
           setSeedGenSeed tESTSEED
           tp <- translate cc rp
-          [failed_prop] <- failingProps def cc tp
-          Just counter_example_args <- propCounterExample def cc tp failed_prop
+          [failed_prop] <- failingProps cc tp
+          Just counter_example_args <- propCounterExample cc tp failed_prop
           let arg_str = unwords counter_example_args
               expr = "(-) " ++ arg_str ++ " == (+) " ++ arg_str
           res <- runJustParseExpr cc expr >>= compileParsedCheck cc
@@ -320,10 +320,10 @@ counterExampleTests =
                   }
           setSeedGenSeed tESTSEED
           tp <- translate cc rp
-          [failed_prop] <- failingProps def cc tp
+          [failed_prop] <- failingProps cc tp
           -- Only the first prop should be failing (due to an infinite loop)
           showUnsafe failed_prop @?= head props
-          Just counter_example_args <- propCounterExample def cc tp failed_prop
+          Just counter_example_args <- propCounterExample cc tp failed_prop
           null counter_example_args @? "The counter example should not have any arguments!"
     ]
 
@@ -348,11 +348,11 @@ traceTests =
                   }
           setSeedGenSeed tESTSEED
           tp@EProb {..} <- translate cc rp
-          [failed_prop] <- failingProps def cc tp
-          Just counter_example <- propCounterExample def cc tp failed_prop
+          [failed_prop] <- failingProps cc tp
+          Just counter_example <- propCounterExample cc tp failed_prop
           let eprog_fix = eProgToEProgFix e_prog
           Just [Node {subForest = [tree@Node {rootLabel = (tl, tname)}]}] <-
-            traceTarget def cc tp eprog_fix failed_prop counter_example
+            traceTarget cc tp eprog_fix failed_prop counter_example
           expr <- runJustParseExpr cc wrong_prog
           getLoc expr @?= mkInteractive tl
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
@@ -383,14 +383,14 @@ traceTests =
                   }
           setSeedGenSeed tESTSEED
           tp@EProb {..} <- translate cc rp
-          [failed_prop] <- failingProps def cc tp
-          Just counter_example_args <- propCounterExample def cc tp failed_prop
+          [failed_prop] <- failingProps cc tp
+          Just counter_example_args <- propCounterExample cc tp failed_prop
           -- We generate the trace
           let [(_, e_ty, e_prog')] = e_prog
               prog_at_ty = progAtTy e_prog' e_ty
               eprog_fix = eProgToEProgFix $ applyFixToEProg e_prog mempty
           [tcorrel] <- buildTraceCorrel cc tp eprog_fix
-          Just [res] <- traceTarget def cc tp eprog_fix failed_prop counter_example_args
+          Just [res] <- traceTarget cc tp eprog_fix failed_prop counter_example_args
           let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
               chain l = tcorrel Map.!? l >>= (eMap Map.!?)
               trc = map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $ flatten res
@@ -445,7 +445,7 @@ mkModuleTest timeout tag toFix repair_target expected =
         Nothing -> [] @?= expected
         Just ExProb {..} -> error "not supported yet!"
         Just tp@EProb {..} -> do
-          fixes <- repair cc' def tp
+          fixes <- repair cc' tp
           let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
               diffs =
                 map

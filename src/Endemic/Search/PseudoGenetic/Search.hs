@@ -113,7 +113,6 @@ pseudoGeneticRepair
   gc@PseudoGenConf {..}
   desc@ProbDesc
     { compConf = cc,
-      repConf = rc,
       progProblem = prob@EProb {..},
       exprFitCands = efcs,
       initialFixes = mb_initial_fixes

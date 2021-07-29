@@ -14,11 +14,11 @@
                 "mod_base": [],
                 "additional_targets": [],
                 "temp_dir_base": "./fake_targets",
-                "randomize_hpc_dir": true
-        },
-        "repair_config": {
+                "randomize_hpc_dir": true,
                 "par_checks": true,
-                "use_interpreted": true
+                "use_interpreted": true,
+                "timeout": 1000000,
+                "precompute_fixes": true
         },
         "output_config": {
                 "locale": null,
