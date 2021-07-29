@@ -30,7 +30,7 @@ import Control.Arrow ((***))
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Lens (Getting, to, universeOf, universeOn, universeOnOf)
 import Control.Lens.Combinators (Fold)
-import Control.Monad (forM, forM_, unless, void, when, (>=>))
+import Control.Monad (forM, forM_, unless, void, when, zipWithM_, (>=>))
 import qualified CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
@@ -45,7 +45,7 @@ import Data.Maybe (catMaybes, isJust, isNothing, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
-import Data.Tree (Tree (Node, rootLabel))
+import Data.Tree (Tree (Node, rootLabel), flatten)
 import Desugar (deSugarExpr)
 import DsExpr (dsLExpr, dsLExprNoLP)
 import DsMonad (initDsTc, initDsWithModGuts)
@@ -566,34 +566,38 @@ buildTraceCorrelExpr cc EProb {..} exprs = do
           )
           e_prog
           exprs
-      correl_ctxt = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag correl) [])
-      correl_expr = (noLoc $ HsLet NoExtField correl_ctxt hole) :: LHsExpr GhcPs
-  pcorrel <- runJustParseExpr cc $ showUnsafe correl_expr
-  let (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _)) = pcorrel
-      f (L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}) = Just bod
-        where
-          [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] = alts
-      f _ = Nothing
-      bods = mapMaybe f $ bagToList bg
-  return bods
+      correl_ctxts :: [LHsLocalBinds GhcPs]
+      correl_ctxts = map (\c -> noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag c) [])) correl
+      correl_exprs :: [LHsExpr GhcPs]
+      correl_exprs = map (\ctxt -> noLoc $ HsLet NoExtField ctxt hole) correl_ctxts
+
+  pcorrels <- runGhc (Just libdir) $ do
+    _ <- initGhcCtxt cc
+    mapM (parseExprNoInit . showUnsafe) correl_exprs
+  logStr DEBUG "PCORREL:"
+  logOut DEBUG pcorrels
+  let getBod (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _))
+        | [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] <- bagToList bg,
+          [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] <- alts =
+          Just bod
+      getBod _ = Nothing
+  return $ mapMaybe getBod pcorrels
 buildTraceCorrelExpr _ _ _ = error "External fixes not supported!"
 
 -- We build a Map from the traced expression and to the  original so we can
 -- correlate the trace information with the expression we're checking.
 buildTraceCorrel :: CompileConfig -> EProblem -> EProgFix -> IO [Map.Map SrcSpan SrcSpan]
 buildTraceCorrel cc prob exprs = do
-  e_n_bods <- zip exprs <$> buildTraceCorrelExpr cc prob exprs
+  expr_n_trac_exprs <- zip exprs <$> buildTraceCorrelExpr cc prob exprs
   return $
     map
-      ( \(expr, bod) ->
-          ( Map.fromList
-              . filter (\(b, e) -> isGoodSrcSpan b && isGoodSrcSpan e)
-              . flip (zipWith (\b e -> (getLoc b, getLoc e))) (flattenExpr expr)
-              . flattenExpr
-          )
-            bod
+      ( \(expr, trace_correl_expr) ->
+          let expr_exprs = flattenExpr expr
+              trace_exprs = flattenExpr trace_correl_expr
+              locPairs = zipWith (\t e -> (getLoc t, getLoc e)) trace_exprs expr_exprs
+           in Map.fromList $ filter (\(e, b) -> isGoodSrcSpan e && isGoodSrcSpan b) locPairs
       )
-      e_n_bods
+      expr_n_trac_exprs
 
 runGhc' :: CompileConfig -> Ghc a -> IO a
 runGhc' cc = runGhc (Just libdir) . (initGhcCtxt cc >>)
@@ -608,7 +612,14 @@ traceTarget ::
   IO (Maybe TraceRes)
 traceTarget rc cc tp e fp ce = head <$> traceTargets rc cc tp e [(fp, ce)]
 
-type TraceRes = [Tree (SrcSpan, [(BoxLabel, Integer)])]
+type Trace = Tree (SrcSpan, [(BoxLabel, Integer)])
+
+type TraceRes = [Trace]
+
+toInvokes :: Trace -> Map.Map SrcSpan Integer
+toInvokes res = Map.fromList $ map only_max $ flatten res
+  where
+    only_max (src, r) = (mkInteractive src, maximum $ map snd r)
 
 -- Run HPC to get the trace information.
 traceTargets ::
