@@ -42,7 +42,7 @@ tESTSEED :: Int
 tESTSEED = 703_039_772
 
 tESTGENCONF :: GeneticConfiguration
-tESTGENCONF = def {crossoverRate = 0.95, mutationRate = 0.05, dropRate = 0.05}
+tESTGENCONF = def {crossoverRate = 0.4, mutationRate = 0.1, dropRate = 0.25, iterations = 1_000}
 
 mkRepairTest :: (ProblemDescription -> IO (Set EFix)) -> Integer -> TestName -> FilePath -> [String] -> TestTree
 mkRepairTest how timeout tag file expected =
@@ -176,6 +176,17 @@ properGenTests =
               "@@ -20,1 +20,1 @@ brokenPair = (1, 2, 3)",
               "-brokenPair = (1, 2, 3)",
               "+brokenPair = (3, 4, 5)"
+            ]
+          ],
+      mkGenConfTest 60_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs" $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/FourFixes.hs b/tests/cases/FourFixes.hs",
+              "--- a/tests/cases/FourFixes.hs",
+              "+++ b/tests/cases/FourFixes.hs",
+              "@@ -24,1 +24,1 @@ brokenPair = (1, 2, 3, 4)",
+              "-brokenPair = (1, 2, 3, 4)",
+              "+brokenPair = (3, 4, 5, 6)"
             ]
           ],
       mkGenConfTest 15_000_000 "Repair UsesDependency" "tests/cases/UsesDependency.hs" $
