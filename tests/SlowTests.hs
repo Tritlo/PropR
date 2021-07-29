@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeApplications #-}
@@ -48,9 +49,12 @@ mkRepairTest how timeout tag file expected =
   localOption (mkTimeout timeout) $
     testCase tag $ do
       setSeedGenSeed (tESTSEED + 5)
-      desc <- describeProblem def file
-      fixes <- how desc
-      sort (fixesToDiffs desc fixes) @?= sort expected
+      describeProblem def file
+        >>= \case
+          Just desc -> do
+            fixes <- how desc
+            sort (fixesToDiffs desc fixes) @?= sort expected
+          Nothing -> [] @?= expected
 
 mkGenConfTest :: Integer -> TestName -> FilePath -> [String] -> TestTree
 mkGenConfTest = mkRepairTest (\desc -> runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing)
@@ -224,7 +228,9 @@ properGenTests =
               "-x = 25",
               "+x = 30"
             ]
-          ]
+          ],
+      mkGenConfTest 15_000_000 "All props pass" "tests/cases/AllPropsPass.hs" [],
+      mkGenConfTest 15_000_000 "No props" "tests/cases/NoProps.hs" []
     ]
 
 genTests :: TestTree

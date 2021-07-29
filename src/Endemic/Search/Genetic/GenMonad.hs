@@ -137,7 +137,8 @@ instance Chromosome EFix where
       replicateM n $ do
         gen <- getGen
         case pickElementUniform possibleFixes gen of
-          Nothing -> error "WASN'T BROKEN??"
+          -- No fixes are possible, so we go away empty handed.
+          Nothing -> return Map.empty
           -- Fix res here is:
           -- + Right True if all the properties are correct (perfect fitnesss!)
           -- + Right False if the program doesn't terminate (worst fitness)..

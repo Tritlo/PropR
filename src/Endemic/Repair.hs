@@ -444,32 +444,34 @@ checkFixes
               collectStats $ mapM waitOnCheck procs
             else collectStats $ mapM (startCheck >=> waitOnCheck) inds
 
-describeProblem :: Configuration -> FilePath -> IO ProblemDescription
+describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
   logStr DEBUG "Describing problem..."
   (compConf, modul, problem) <- moduleToProb cc fp Nothing
-  let progProblem@EProb {..} = case problem of
-        Just p@EProb {} -> p
-        _ -> error "External targets not supported!"
-  exprFitCands <- runGhc' cc $ getExprFitCands $ Right modul
-  let probModule = Just modul
-      initialFixes = Nothing
-      desc' = ProbDesc {..}
+  case problem of
+    Just ExProb {} -> error "External targets not supported!"
+    Nothing -> return Nothing
+    Just progProblem@EProb {..} ->
+      Just <$> do
+        exprFitCands <- runGhc' cc $ getExprFitCands $ Right modul
+        let probModule = Just modul
+            initialFixes = Nothing
+            desc' = ProbDesc {..}
 
-  if repPrecomputeFixes repConf
-    then do
-      logStr DEBUG "Pre-computing fixes..."
-      let inContext = noLoc . HsLet NoExtField e_ctxt
-          addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
-      nzh <- findEvaluatedHoles desc'
-      fits <-
-        collectStats $
-          runGhc (Just libdir) $
-            getHoleFits compConf exprFitCands (map addContext nzh)
-      let fix_cands :: [(EFix, EExpr)]
-          fix_cands = map (first Map.fromList) (zip nzh fits >>= uncurry replacements)
-          initialFixes' = Just $ map fst fix_cands
-      logStr DEBUG "Initial fixes:"
-      logOut DEBUG initialFixes'
-      return $ desc' {initialFixes = initialFixes'}
-    else return desc'
+        if repPrecomputeFixes repConf
+          then do
+            logStr DEBUG "Pre-computing fixes..."
+            let inContext = noLoc . HsLet NoExtField e_ctxt
+                addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
+            nzh <- findEvaluatedHoles desc'
+            fits <-
+              collectStats $
+                runGhc (Just libdir) $
+                  getHoleFits compConf exprFitCands (map addContext nzh)
+            let fix_cands :: [(EFix, EExpr)]
+                fix_cands = map (first Map.fromList) (zip nzh fits >>= uncurry replacements)
+                initialFixes' = Just $ map fst fix_cands
+            logStr DEBUG "Initial fixes:"
+            logOut DEBUG initialFixes'
+            return $ desc' {initialFixes = initialFixes'}
+          else return desc'
