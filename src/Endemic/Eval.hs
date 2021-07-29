@@ -541,11 +541,11 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               Just r -> Just r
               _ -> error $ "Could not find type of the target `" ++ t ++ "`!"
           Nothing -> getTarget fix_targets
-
-    let prob = case int_prob of
-          Nothing -> Just $ ExProb local_prop_var_names
-          _ -> int_prob
-    return (cc', tc_modul, prob)
+    -- We don't do ExProbs yet
+    --     let prob = case int_prob of
+    --           Nothing -> Just $ ExProb local_prop_var_names
+    --           _ -> int_prob
+    return (cc', tc_modul, int_prob)
 
 -- Create a fake base loc for a trace.
 fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> IO SrcSpan

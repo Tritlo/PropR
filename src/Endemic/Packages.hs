@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -115,7 +116,9 @@ repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
                     }
               }
       -- TODO: We could instead incorporate the module vs package into
-      -- describe problem.
+      -- describe problem instead
       logStr DEBUG $ show conf'
-      desc <- describeProblem conf' testMod
-      fixesToDiffs desc <$> runRepair searchAlgorithm desc
+      describeProblem conf' testMod
+        >>= \case
+          Just desc -> fixesToDiffs desc <$> runRepair searchAlgorithm desc
+          Nothing -> logStr INFO "All props are passing, nothing to repair." >> return []

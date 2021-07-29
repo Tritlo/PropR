@@ -163,18 +163,22 @@ optParser = info (pickOpt <**> helper) modinfo
 repairModule :: Configuration -> FilePath -> IO [String]
 repairModule conf@Conf {..} target = do
   -- Set the global flags
-  desc@ProbDesc {..} <- describeProblem conf target
-  let p@EProb {..} = progProblem
-  logStr VERBOSE $ "PROGRAM TO REPAIR: "
-  logStr VERBOSE $ showUnsafe e_prog
+  describeProblem conf target
+    >>= \case
+      Nothing ->
+        logStr INFO "All props are passing, nothing to repair." >> return []
+      Just desc@ProbDesc {..} -> do
+        let p@EProb {..} = progProblem
+        logStr VERBOSE $ "PROGRAM TO REPAIR: "
+        logStr VERBOSE $ showUnsafe e_prog
 
-  logStr INFO "REPAIRING..."
-  fixes <- runRepair searchAlgorithm desc
-  logStr DEBUG "DONE! Fixes:"
-  mapM_ (logOut DEBUG) fixes
-  logStr DEBUG "After applying:"
-  mapM_ (logOut DEBUG . applyFixToEProg e_prog) fixes
-  return $ fixesToDiffs desc fixes
+        logStr INFO "REPAIRING..."
+        fixes <- runRepair searchAlgorithm desc
+        logStr DEBUG "DONE! Fixes:"
+        mapM_ (logOut DEBUG) fixes
+        logStr DEBUG "After applying:"
+        mapM_ (logOut DEBUG . applyFixToEProg e_prog) fixes
+        return $ fixesToDiffs desc fixes
 
 main :: IO ()
 main = do

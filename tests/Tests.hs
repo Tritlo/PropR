@@ -216,7 +216,7 @@ failingPropsTests =
           map showUnsafe failed_props @?= props,
       localOption (mkTimeout 10_000_000) $
         testCase "Two failing TastyProps" $ do
-          desc@ProbDesc {..} <- describeProblem def "tests/cases/TastyTwoFix.hs"
+          Just desc@ProbDesc {..} <- describeProblem def "tests/cases/TastyTwoFix.hs"
           failed_props <- failingProps repConf compConf progProblem
           length failed_props @?= 2
     ]
@@ -431,19 +431,23 @@ mkModuleTest timeout tag toFix repair_target expected =
   localOption (mkTimeout timeout) $
     testCase tag $ do
       setSeedGenSeed tESTSEED
-      (cc', mod, Just tp@EProb {..}) <- moduleToProb def toFix repair_target
-      fixes <- repair cc' def tp
-      let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
-          fixDiffs =
-            map
-              ( concatMap ppDiff
-                  . snd
-                  . applyFixes (tm_parsed_module mod)
-                  . getFixBinds
-                  . head
-              )
-              fixProgs
-      sort fixDiffs @?= sort expected
+      (cc', mod, mb_prob) <- moduleToProb def toFix repair_target
+      case mb_prob of
+        Nothing -> [] @?= expected
+        Just ExProb {..} -> error "not supported yet!"
+        Just tp@EProb {..} -> do
+          fixes <- repair cc' def tp
+          let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
+              fixDiffs =
+                map
+                  ( concatMap ppDiff
+                      . snd
+                      . applyFixes (tm_parsed_module mod)
+                      . getFixBinds
+                      . head
+                  )
+                  fixProgs
+          sort fixDiffs @?= sort expected
 
 moduleTests =
   testGroup
@@ -502,7 +506,9 @@ moduleTests =
               "-theAnswer = 17",
               "+theAnswer = 42"
             ]
-          ]
+          ],
+      mkModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing [],
+      mkModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing []
     ]
 
 main = defaultMain tests
