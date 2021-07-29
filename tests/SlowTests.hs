@@ -22,7 +22,7 @@ import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
 import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (noLoc)
+import GhcPlugins (noLoc, ppr, showSDocUnsafe)
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -53,7 +53,20 @@ mkRepairTest how timeout tag file expected =
         >>= \case
           Just desc -> do
             fixes <- how desc
-            sort (fixesToDiffs desc fixes) @?= sort expected
+
+            let diffs = fixesToDiffs desc fixes
+                check = sort diffs == sort expected
+                msg =
+                  unlines
+                    [ "Fix mismatch!",
+                      "Expected:",
+                      unlines expected,
+                      "But got:",
+                      unlines diffs,
+                      "Actual fixes were:",
+                      unlines (map (showSDocUnsafe . ppr) $ Set.toList fixes)
+                    ]
+            assertBool msg check
           Nothing -> [] @?= expected
 
 mkGenConfTest :: Integer -> TestName -> FilePath -> [String] -> TestTree

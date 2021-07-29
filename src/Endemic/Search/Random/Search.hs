@@ -74,9 +74,9 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
           -- TODO: Where are the "<interactive>" coming from?
 
           runGhc (Just libdir) $ do
-            ~[fits] <- collectStats $ getHoleFits compConf exprFitCands [chosen_hole]
+            ~[fits] <- collectStats $ getHoleFits compConf exprFitCands [first (: []) chosen_hole]
             let fix_cands' :: [(EFix, EExpr)]
-                fix_cands' = map (first Map.fromList) $ replacements chosen_hole fits
+                fix_cands' = map (first Map.fromList) $ replacements (snd chosen_hole) fits
                 fix_cands = map (second (replicate (length e_prog))) fix_cands'
                 (r_fix_ind, gen'') = nextInteger 0 (fromIntegral (length fix_cands - 1)) gen'
                 (chosen_fix, fixed_prog) = fix_cands !! fromIntegral r_fix_ind

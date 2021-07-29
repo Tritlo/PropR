@@ -29,6 +29,7 @@ import Data.Char (isAlphaNum)
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
 import Data.Function (on)
+import qualified Data.Functor
 import Data.IORef (modifyIORef', writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
@@ -44,7 +45,7 @@ import Endemic.Check
 import Endemic.Configuration
 import Endemic.Eval
 import Endemic.Plugin (resetHoleFitCache, resetHoleFitList)
-import Endemic.Traversals (fillHole, flattenExpr, sanctifyExpr)
+import Endemic.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr)
 import Endemic.Types
 import Endemic.Util
 import FV (fvVarSet)
@@ -54,7 +55,7 @@ import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
 import PrelNames (mkMainModule)
 import StringBuffer (stringToStringBuffer)
-import System.Directory (createDirectoryIfMissing)
+import System.Directory (createDirectoryIfMissing, removeDirectory, removeDirectoryRecursive)
 import System.FilePath (dropExtension, dropFileName, takeFileName)
 import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
@@ -82,7 +83,7 @@ getHoleFits ::
   -- |  A given Compiler Config
   [ExprFitCand] ->
   -- | A list of existing and reachable candidate-expression
-  [LHsExpr GhcPs] ->
+  [([SrcSpan], LHsExpr GhcPs)] ->
   -- | The existing Expressions including holes
   Ghc [[[HsExpr GhcPs]]]
 getHoleFits cc local_exprs exprs = do
@@ -94,17 +95,33 @@ getHoleFits cc local_exprs exprs = do
           >> handleSourceError
             (getHoleFitsFromError plugRef)
             (Right <$> compileParsedExpr expr)
-  mapM exprFits exprs >>= processFits . map (map fst) . lefts
+  mapM (\(l, e) -> mapLeft (zip l) <$> exprFits e) exprs
+    -- TODO: We get some refinement holefits here as well, but we just
+    -- throw them out currently
+    >>= processFits . map (map (second fst)) . lefts
+  where
+    mapLeft :: (a -> c) -> Either a b -> Either c b
+    mapLeft f (Left a) = Left (f a)
+    mapLeft _ (Right r) = Right r
 
--- | Returns for a given compiler config and an expression the possible holes to fill.
-getHoley ::
-  -- | A compiler setup/config to evaluate the expression in
-  CompileConfig ->
-  -- | A given Expression
-  RExpr ->
-  -- | All versions of the Expression with new holes poked in it
-  IO [(SrcSpan, LHsExpr GhcPs)]
-getHoley cc str = runGhc (Just libdir) $ sanctifyExpr <$> justParseExpr cc str
+-- | Takes a list of list of list of hole fits and processes each fit so that
+-- it becomes a proper HsExpr
+processFits :: [[(SrcSpan, [HoleFit])]] -> Ghc [[[HsExpr GhcPs]]]
+processFits fits = do
+  -- We process the fits ourselves, since we might have some expression fits
+  let processFit :: SrcSpan -> HoleFit -> Ghc (HsExpr GhcPs)
+      processFit loc HoleFit {..} =
+        return $ HsVar noExtField (L loc (nukeExact $ getName hfId))
+        where
+          -- NukeExact copied from RdrName
+          nukeExact :: Name -> RdrName
+          nukeExact n
+            | isExternalName n = Orig (nameModule n) (nameOccName n)
+            | otherwise = Unqual (nameOccName n)
+      processFit loc (RawHoleFit sd) = do
+        (L l e) <- parseExprNoInit (showUnsafe sd)
+        return $ unLoc $ parenthesizeHsExpr appPrec (L loc e)
+  mapM (mapM (\(l, ffh) -> mapM (processFit l) ffh)) fits
 
 -- |  Takes an expression with one or more holes and a list of expressions that
 -- fit each holes and returns a list of expressions where each hole has been
@@ -115,14 +132,16 @@ replacements ::
   -- | A list of expressions that fits the holes
   [[HsExpr GhcPs]] ->
   [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
-replacements r [] = [([], r)]
+replacements e [] = [([], e)]
 replacements e (first_hole_fit : rest) = concat rest_fit_res
   where
     -- mapMaybe', but keep the result
     mapMaybe' :: (a -> Maybe b) -> [a] -> [(a, b)]
     mapMaybe' _ [] = []
     mapMaybe' f (a : as) = (case f a of Just b -> ((a, b) :); _ -> id) $ mapMaybe' f as
-    res = map (\(e', (l, r)) -> ([(l, e')], r)) (mapMaybe' (`fillHole` e) first_hole_fit)
+    res =
+      map (\(e', (l, r)) -> ([(l, e')], r)) $
+        mapMaybe' (`fillHole` e) first_hole_fit
     (first_fit_locs_and_e, first_fit_res) = unzip res
     rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
     -- addL = Add Left, adds the gien expression at any lefthand side of the expressions existing
@@ -230,7 +249,7 @@ repair _ _ _ = error "Cannot repair external problems yet!"
 -- and returns those as programs with holes at that location.
 findEvaluatedHoles ::
   ProblemDescription ->
-  IO [LHsExpr GhcPs]
+  IO [(SrcSpan, LHsExpr GhcPs)]
 findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc,
@@ -303,35 +322,15 @@ findEvaluatedHoles
       -- in the sense that we remove only holes which did not get evaluated at all,
       -- so they are definitely not going to matter).
       let fk trace_correl (expr, invokes) =
-            map snd $ filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
+            filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
             where
               non_zero = filter ((> 0) . snd) $ Map.toList invokes
               non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
           non_zero_holes = zipWith fk trace_correl traces_that_worked
           nubOrd = Set.toList . Set.fromList
 
-      liftIO $ logStr VERBOSE "Non-zero holes"
-      liftIO $ mapM (logOut VERBOSE) non_zero_holes
       return $ nubOrd $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
-
--- | Takes a list of list of list of hole fits and processes each fit so that
--- it becomes a proper HsExpr
-processFits :: [[[HoleFit]]] -> Ghc [[[HsExpr GhcPs]]]
-processFits fits = do
-  -- We process the fits ourselves, since we might have some expression fits
-  let processFit :: HoleFit -> Ghc (HsExpr GhcPs)
-      processFit HoleFit {..} =
-        return $ HsVar noExtField (L noSrcSpan (nukeExact $ getName hfId))
-        where
-          -- NukeExact copied from RdrName
-          nukeExact :: Name -> RdrName
-          nukeExact n
-            | isExternalName n = Orig (nameModule n) (nameOccName n)
-            | otherwise = Unqual (nameOccName n)
-      processFit (RawHoleFit sd) =
-        unLoc . parenthesizeHsExpr appPrec <$> parseExprNoInit (showUnsafe sd)
-  mapM (mapM (mapM processFit)) fits
 
 -- | This method tries to repair a given Problem.
 -- It first creates the program with holes in it and runs it against the properties.
@@ -350,18 +349,23 @@ repairAttempt
     } = collectStats $ do
     -- We add the context by replacing a hole in a let.
     let inContext = noLoc . HsLet NoExtField e_ctxt
-        addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
+        addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
+        addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
 
     nzh <- findEvaluatedHoles desc
     runGhc (Just libdir) $ do
-      fits <- collectStats $ getHoleFits cc efcs (map addContext nzh)
+      fits <- collectStats $ getHoleFits cc efcs (map (\(l, he) -> ([l], addContext l he)) nzh)
 
       let fix_cands' :: [(EFix, EExpr)]
-          fix_cands' =
-            -- We do a from and to from a list to avoid duplicates.
-            Map.toList $
-              Map.fromList $
-                map (first Map.fromList) (zip nzh fits >>= uncurry replacements)
+          fix_cands' = concatMap toCands $ zip nzh fits
+            where
+              toCands ((loc, hole_expr), [fits])
+                | isGoodSrcSpan loc =
+                  map ((\f -> (f, f `replaceExpr` hole_expr)) . Map.singleton loc) $ nubSort fits
+              -- We ignore the spans than are bad or unhelpful.
+              toCands ((loc, _), [_]) = []
+              toCands ((_, hole_expr), multi_fits) =
+                map (first Map.fromList) $ replacements hole_expr multi_fits
           fix_cands :: [(EFix, EProgFix)]
           fix_cands = map (second (replicate (length e_prog))) fix_cands'
 
@@ -391,9 +395,10 @@ checkFixes
       ..
     }
   fixes = do
+    td_seed <- liftIO $ newSeed
     let RepConf {..} = rc
-        tempDir = "./fake_targets"
-    liftIO $ createDirectoryIfMissing False tempDir
+        tempDir = "./fake_targets/target-" ++ show (abs td_seed)
+    liftIO $ createDirectoryIfMissing True tempDir
     (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
     seed <- liftIO $ newSeed
     -- We generate the name of the module from the temporary file
@@ -402,7 +407,6 @@ checkFixes
         strBuff = stringToStringBuffer modTxt
         exeName = dropExtension the_f
         timeoutVal = fromIntegral repTimeout
-    -- mixFilePath = tempDir
 
     liftIO $ logStr DEBUG modTxt
     -- Note: we do not need to dump the text of the module into the file, it
@@ -417,7 +421,7 @@ checkFixes
           dynFlags
             { mainModIs = mkMainModule $ fsLit mname,
               mainFunIs = Just "main__",
-              hpcDir = "./fake_targets",
+              hpcDir = tempDir,
               ghcMode = if repUseInterpreted then CompManager else OneShot,
               ghcLink = if repUseInterpreted then LinkInMemory else LinkBinary,
               hscTarget = if repUseInterpreted then HscInterpreted else HscAsm
@@ -461,25 +465,28 @@ checkFixes
                   else Right False
 
     let inds = take (length fixes) [0 ..]
-    if repUseInterpreted
-      then do
-        let m_name = mkModuleName mname
-            checkArr arr = if and arr then Right True else Left arr
-        setContext [IIDecl $ simpleImportDecl m_name]
-        checks_expr <- compileExpr "checks__"
-        let checks :: [IO [Bool]]
-            checks = unsafeCoerce# checks_expr
-            evf = if repParChecks then mapConcurrently else mapM
-        liftIO $ collectStats $ evf (checkArr <$>) checks
-      else
-        liftIO $
-          if repParChecks
-            then do
-              -- By starting all the processes and then waiting on them, we get more
-              -- mode parallelism.
-              procs <- collectStats $ mapM startCheck inds
-              collectStats $ mapM waitOnCheck procs
-            else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+    res <-
+      if repUseInterpreted
+        then do
+          let m_name = mkModuleName mname
+              checkArr arr = if and arr then Right True else Left arr
+          setContext [IIDecl $ simpleImportDecl m_name]
+          checks_expr <- compileExpr "checks__"
+          let checks :: [IO [Bool]]
+              checks = unsafeCoerce# checks_expr
+              evf = if repParChecks then mapConcurrently else mapM
+          liftIO $ collectStats $ evf (checkArr <$>) checks
+        else
+          liftIO $
+            if repParChecks
+              then do
+                -- By starting all the processes and then waiting on them, we get more
+                -- mode parallelism.
+                procs <- collectStats $ mapM startCheck inds
+                collectStats $ mapM waitOnCheck procs
+              else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+    liftIO $ removeDirectoryRecursive tempDir
+    return res
 
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
 describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
@@ -499,14 +506,15 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
           then do
             logStr DEBUG "Pre-computing fixes..."
             let inContext = noLoc . HsLet NoExtField e_ctxt
-                addContext = snd . fromJust . flip fillHole (inContext hole) . unLoc
+                addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
+                addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
             nzh <- findEvaluatedHoles desc'
             fits <-
               collectStats $
                 runGhc (Just libdir) $
-                  getHoleFits compConf exprFitCands (map addContext nzh)
+                  getHoleFits compConf exprFitCands (map (\(l, he) -> ([l], addContext l he)) nzh)
             let fix_cands :: [(EFix, EExpr)]
-                fix_cands = map (first Map.fromList) (zip nzh fits >>= uncurry replacements)
+                fix_cands = map (first Map.fromList) (zip (map snd nzh) fits >>= uncurry replacements)
                 initialFixes' = Just $ map fst fix_cands
             logStr DEBUG "Initial fixes:"
             logOut DEBUG initialFixes'

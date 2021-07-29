@@ -41,7 +41,7 @@ import System.IO (appendFile, hFlush, stdout)
 import Text.Printf (printf)
 
 progAtTy :: EExpr -> EType -> EExpr
-progAtTy e_prog e_ty =
+progAtTy e_prog@(L l _) e_ty =
   noLoc $ ExprWithTySig NoExtField (noLoc $ HsPar NoExtField e_prog) e_ty
 
 undefVar :: HsExpr GhcPs

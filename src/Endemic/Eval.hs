@@ -65,7 +65,7 @@ import GhcPlugins hiding (exprType)
 import PrelNames (mkMainModule, toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
-import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute)
+import System.Directory (createDirectoryIfMissing, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive)
 import System.Exit (ExitCode (..))
 import System.FilePath
 import System.IO (Handle, hClose, hGetLine, openTempFile)
@@ -569,7 +569,7 @@ buildTraceCorrelExpr cc EProb {..} exprs = do
       correl_ctxts :: [LHsLocalBinds GhcPs]
       correl_ctxts = map (\c -> noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag c) [])) correl
       correl_exprs :: [LHsExpr GhcPs]
-      correl_exprs = map (\ctxt -> noLoc $ HsLet NoExtField ctxt hole) correl_ctxts
+      correl_exprs = map (\ctxt -> noLoc $ HsLet NoExtField ctxt (noLoc hole)) correl_ctxts
 
   pcorrels <- runGhc (Just libdir) $ do
     _ <- initGhcCtxt cc
@@ -624,8 +624,9 @@ traceTargets ::
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
 traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
-  let tempDir = "./fake_targets"
-  createDirectoryIfMissing False tempDir
+  td_seed <- newSeed
+  let tempDir = "./fake_targets/target-" ++ show (abs td_seed)
+  createDirectoryIfMissing True tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   seed <- newSeed
   -- We generate the name of the module from the temporary file
@@ -652,7 +653,7 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
         dynFlags
           { mainModIs = mkMainModule $ fsLit mname,
             mainFunIs = Just "main__",
-            hpcDir = "./fake_targets"
+            hpcDir = tempDir
           }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
@@ -699,6 +700,7 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
           loop ec 3
 
           tix <- readTix tixFilePath
+          -- TODO: When run in parallel, this can fail
           let rm m = (m,) <$> readMix [mixFilePath] (Right m)
               isTargetMod = (mname ==) . tixModuleName
           case tix of
@@ -714,7 +716,9 @@ traceTargets rc@RepConf {..} cc tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _
             _ -> return Nothing
     removeTarget tid
     let (checks, _) = unzip $ zip [0 ..] ps_w_ce
-    mapM runTrace checks
+    res <- mapM runTrace checks
+    liftIO $ removeDirectoryRecursive tempDir
+    return res
   where
     correl =
       zipWith

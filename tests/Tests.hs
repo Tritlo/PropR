@@ -21,7 +21,7 @@ import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
 import GHC (tm_parsed_module)
-import GhcPlugins (GenLocated (L), getLoc, unLoc)
+import GhcPlugins (GenLocated (L), getLoc, ppr, showSDocUnsafe, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
@@ -438,7 +438,7 @@ mkModuleTest timeout tag toFix repair_target expected =
         Just tp@EProb {..} -> do
           fixes <- repair cc' def tp
           let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
-              fixDiffs =
+              diffs =
                 map
                   ( concatMap ppDiff
                       . snd
@@ -447,7 +447,18 @@ mkModuleTest timeout tag toFix repair_target expected =
                       . head
                   )
                   fixProgs
-          sort fixDiffs @?= sort expected
+              check = sort diffs == sort expected
+              msg =
+                unlines
+                  [ "Fix mismatch!",
+                    "Expected:",
+                    unlines expected,
+                    "But got:",
+                    unlines diffs,
+                    "Actual fixes were:",
+                    unlines (map (showSDocUnsafe . ppr) fixes)
+                  ]
+          assertBool msg check
 
 moduleTests =
   testGroup
