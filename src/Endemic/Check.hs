@@ -97,8 +97,8 @@ tt :: String -> LHsType GhcPs
 tt = noLoc . HsTyVar NoExtField NotPromoted . noLoc . mkUnqual tcName . fsLit
 
 -- | The building brick that resembles a "hole" for an expression.
-hole :: LHsExpr GhcPs
-hole = noLoc $ HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
+hole :: HsExpr GhcPs
+hole = HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc "_")
 
 -- Note: Every fix is checked with the same seed, to make sure that
 -- it's the fix that's making it work and not the seed.

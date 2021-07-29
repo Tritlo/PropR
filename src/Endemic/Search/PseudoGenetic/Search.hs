@@ -99,8 +99,8 @@ crossover _ i1 i2 = [breed i1 i2, breed i2 i1]
     lor [] [] = []
     lor _ _ = error "crossover length mismatch!"
 
-selection :: PseudoGenConf -> [Individual] -> IO [Individual]
-selection gc indivs = pure $ pruneGeneration gc de_duped
+selection :: PseudoGenConf -> [Individual] -> [Individual]
+selection gc indivs = pruneGeneration gc de_duped
   where
     -- Compute the offsprigns of the best pairings
     pairings :: [Individual]
@@ -138,8 +138,8 @@ pseudoGeneticRepair
             loop _ rounds | rounds >= genRounds = return Set.empty
             loop attempt rounds = do
               let gen = individuals attempt
-              new_gen <- selection gc gen
-              let ga = avg $ map fitness gen
+                  new_gen = selection gc gen
+                  ga = avg $ map fitness gen
                   nga = avg $ map fitness new_gen
               logStr INFO $ "GENERATION " ++ show rounds
               logStr INFO $ "AVERAGE FITNESS: " ++ show ga
