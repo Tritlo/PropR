@@ -401,11 +401,11 @@ checkFixes
         p _ = Nothing
         startCheck :: Int -> IO (Handle, ProcessHandle)
         startCheck which = do
-          let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
           (_, Just hout, _, ph) <-
             createProcess
               (proc exeName [show which])
-                { env = Just [("HPCTIXFILE", tixFilePath)],
+                { -- TODO: /dev/null should be NUL if we're on windows.
+                  env = Just [("HPCTIXFILE", "/dev/null")],
                   -- We ignore the output
                   std_out = CreatePipe
                 }
