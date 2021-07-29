@@ -50,7 +50,6 @@ import Endemic.Types
 import Endemic.Util
 import FV (fvVarSet)
 import GHC
-import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
 import PrelNames (mkMainModule)
@@ -153,8 +152,7 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
 
 -- | Translate from the old String based version to the new LHsExpr version.
 translate :: HasCallStack => CompileConfig -> RProblem -> IO EProblem
-translate cc RProb {..} = runGhc (Just libdir) $ do
-  _ <- initGhcCtxt cc
+translate cc RProb {..} = runGhc' cc $ do
   e_prog' <- parseExprNoInit r_prog
   ~(L _ (ExprWithTySig _ _ e_ty)) <- parseExprNoInit ("undefined :: " ++ r_ty)
   let clt = "let {" ++ (intercalate "; " . concatMap lines $ r_ctxt) ++ "} in undefined"
@@ -197,9 +195,7 @@ propCounterExamples ProbDesc {..} props = do
         exec <- dynCompileParsedExpr `reportOnError` mk_bcc prop seed
         (map addPar <$>) <$> liftIO (fromDyn exec (return Nothing))
   liftIO $
-    runGhc (Just libdir) $ do
-      _ <- initGhcCtxt cc'
-      mapM checkProp props
+    runGhc' cc' $ mapM checkProp props
   where
     addPar arg = ('(' : arg) ++ ")"
     -- TODO: If we had the type here as well, we could do better.
@@ -353,7 +349,7 @@ repairAttempt
         addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
 
     nzh <- findEvaluatedHoles desc
-    runGhc (Just libdir) $ do
+    runGhcWithCleanup $ do
       fits <- collectStats $ getHoleFits cc efcs (map (\(l, he) -> ([l], addContext l he)) nzh)
 
       let fix_cands' :: [(EFix, EExpr)]
@@ -511,7 +507,7 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
             nzh <- findEvaluatedHoles desc'
             fits <-
               collectStats $
-                runGhc (Just libdir) $
+                runGhcWithCleanup $
                   getHoleFits compConf exprFitCands (map (\(l, he) -> ([l], addContext l he)) nzh)
             let fix_cands :: [(EFix, EExpr)]
                 fix_cands = map (first Map.fromList) (zip (map snd nzh) fits >>= uncurry replacements)
