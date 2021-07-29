@@ -55,7 +55,7 @@ import GhcPlugins
 import PrelNames (mkMainModule)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, removeDirectory, removeDirectoryRecursive)
-import System.FilePath (dropExtension, dropFileName, takeFileName)
+import System.FilePath (dropExtension, dropFileName, takeFileName, (</>))
 import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
 import System.Posix.Signals
@@ -349,7 +349,7 @@ repairAttempt
         addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
 
     nzh <- findEvaluatedHoles desc
-    runGhcWithCleanup $ do
+    runGhcWithCleanup cc $ do
       fits <- collectStats $ getHoleFits cc efcs (map (\(l, he) -> ([l], addContext l he)) nzh)
 
       let fix_cands' :: [(EFix, EExpr)]
@@ -385,15 +385,15 @@ checkFixes ::
   Ghc [TestSuiteResult]
 checkFixes
   ProbDesc
-    { compConf = cc,
+    { compConf = cc@CompConf {..},
       repConf = rc,
       progProblem = tp,
       ..
     }
   fixes = do
-    td_seed <- liftIO $ newSeed
+    td_seed <- liftIO newSeed
     let RepConf {..} = rc
-        tempDir = "./fake_targets/target-" ++ show (abs td_seed)
+        tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
     liftIO $ createDirectoryIfMissing True tempDir
     (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
     seed <- liftIO $ newSeed
@@ -430,7 +430,7 @@ checkFixes
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     addTarget target
-    addLocalTargets [] (modBase cc)
+    addLocalTargets [] modBase
     _ <- collectStats $ load LoadAllTargets
     let p '1' = Just True
         p '0' = Just False
@@ -507,7 +507,7 @@ describeProblem conf@Conf {compileConfig = cc, repairConfig = repConf} fp = do
             nzh <- findEvaluatedHoles desc'
             fits <-
               collectStats $
-                runGhcWithCleanup $
+                runGhcWithCleanup compConf $
                   getHoleFits compConf exprFitCands (map (\(l, he) -> ([l], addContext l he)) nzh)
             let fix_cands :: [(EFix, EExpr)]
                 fix_cands = map (first Map.fromList) (zip (map snd nzh) fits >>= uncurry replacements)

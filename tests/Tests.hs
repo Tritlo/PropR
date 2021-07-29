@@ -48,7 +48,7 @@ compileParsedCheck cc expr =
     dynCompileParsedExpr `reportOnError` expr
 
 runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
-runJustParseExpr cc str = runGhcWithCleanup $ justParseExpr cc str
+runJustParseExpr cc str = runGhcWithCleanup cc $ justParseExpr cc str
 
 -- | Chosen fairly by Random.org
 tESTSEED :: Int

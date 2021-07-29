@@ -25,6 +25,7 @@ import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Search.Random.Configuration
 import Endemic.Types
 import GHC (ParsedModule, TypecheckedModule (TypecheckedModule))
+import System.FilePath ((</>))
 
 -- | Logging configuration
 data LogConfig = LogConf
@@ -225,14 +226,16 @@ instance Materializeable CompileConfig where
       umHoleLvl :: Maybe Int,
       umUnfoldTastyTests :: Maybe Bool,
       umModBase :: Maybe [FilePath],
-      umAdditionalTargets :: Maybe [FilePath]
+      umAdditionalTargets :: Maybe [FilePath],
+      umTempDirBase :: Maybe FilePath,
+      umRandomizeHpcDir :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
       (FromJSON, ToJSON)
       via CustomJSON '[OmitNothingFields, RejectUnknownFields, FieldLabelModifier '[StripPrefix "um", CamelToSnake]] (Unmaterialized CompileConfig)
 
-  conjure = UmCompConf Nothing Nothing Nothing Nothing Nothing Nothing
+  conjure = UmCompConf Nothing Nothing Nothing Nothing Nothing Nothing Nothing Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
@@ -242,7 +245,9 @@ instance Materializeable CompileConfig where
         hole_lvl = fromMaybe hole_lvl umHoleLvl,
         modBase = fromMaybe modBase umModBase,
         unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests,
-        additionalTargets = fromMaybe additionalTargets umAdditionalTargets
+        additionalTargets = fromMaybe additionalTargets umAdditionalTargets,
+        tempDirBase = fromMaybe tempDirBase umTempDirBase,
+        randomizeHpcDir = fromMaybe randomizeHpcDir umRandomizeHpcDir
       }
 
 -- | Configuration for the compilation itself
@@ -257,7 +262,14 @@ data CompileConfig = CompConf
     additionalTargets :: [FilePath],
     -- | the "depth" of the holes, see general notes on this
     hole_lvl :: Int,
-    unfoldTastyTests :: Bool
+    -- | Whether to unfold tasty TestTrees into multiple tests
+    unfoldTastyTests :: Bool,
+    -- | Where to put files generated during the run. We do a lot
+    -- of file system accesses, so this should be a fast directory.
+    tempDirBase :: FilePath,
+    -- | Whether to randomize the Hpc directory. Can help with
+    -- congestion on highly parallell systems.
+    randomizeHpcDir :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -272,7 +284,9 @@ instance Default CompileConfig where
         importStmts = ["import Prelude"],
         unfoldTastyTests = True,
         modBase = [],
-        additionalTargets = []
+        additionalTargets = [],
+        tempDirBase = "." </> "fake_targets",
+        randomizeHpcDir = True
       }
 
 -- | Configuration for the checking of repairs
