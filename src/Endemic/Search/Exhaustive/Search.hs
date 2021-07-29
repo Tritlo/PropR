@@ -23,7 +23,7 @@ import qualified Data.Set as Set
 import Endemic.Configuration.Types (ProblemDescription (..), (<~))
 import Endemic.Eval (runGhc')
 import Endemic.Repair (checkFixes, repairAttempt)
-import Endemic.Search.Exhaustive.Configuration (ExhaustiveConf (..), Unmaterialized (umExhaustiveSearchBudget))
+import Endemic.Search.Exhaustive.Configuration (ExhaustiveConf (..))
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
