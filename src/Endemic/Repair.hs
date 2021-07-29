@@ -21,17 +21,21 @@ module Endemic.Repair where
 
 import Bag (bagToList, emptyBag, listToBag)
 import Constraint
-import Control.Arrow (first, second)
+import Control.Arrow (first, second, (***))
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (when, (>=>))
+import qualified Data.Bifunctor
 import Data.Char (isAlphaNum)
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
 import Data.Function (on)
 import Data.IORef (modifyIORef', writeIORef)
-import Data.List (intercalate, nub, nubBy, sort, sortOn)
+import Data.IntMap (IntMap)
+import qualified Data.IntMap as IntMap
+import Data.List (groupBy, intercalate, nub, nubBy, sort, sortOn, transpose)
+import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (catMaybes, fromJust, mapMaybe)
+import Data.Maybe (catMaybes, fromJust, isJust, mapMaybe)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (flatten)
@@ -234,11 +238,10 @@ findEvaluatedHoles
       progProblem = tp@EProb {..}
     } = collectStats $ do
     logStr DEBUG "Finding evaluated holes..."
-    -- We apply the fixes to all of the contexts, and all of the contexsts
+    -- We apply the fixes to all of the contexts, and all of the contexts
     -- contain the entire current program.
     -- TODO: Is this safe?
     let id_prog = eProgToEProgFixAtTy e_prog
-        holey_exprss = map sanctifyExpr id_prog
 
     logStr DEBUG "Building trace correlation..."
     trace_correl <- buildTraceCorrel cc tp id_prog
@@ -257,25 +260,58 @@ findEvaluatedHoles
           ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
       -- We compute the locations that are touched by the failing counter-examples
       liftIO $ logStr DEBUG "Tracing program..."
-      all_invokes <-
-        collectStats $
-          map
-            ( Map.toList
-                . Map.unionsWith (+)
-                . map toInvokes
-            )
-            . catMaybes
-            <$> liftIO (traceTargets rc cc tp id_prog ps_w_ce)
+      let assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
+          assigToExprProp xs = resolve $ joinExprs mergeExprs
+            where
+              eprop_map :: Map Integer EProp
+              eprop_map = Map.fromList (map fst xs)
+              expr_map :: IntMap EExpr
+              expr_map = IntMap.fromList $ map fst $ concatMap snd xs
+              indsOnly :: [(Integer, [(Int, Trace)])]
+              indsOnly = map (Data.Bifunctor.bimap fst (map (first fst))) xs
+              dupProps :: [(Integer, (Int, Trace))]
+              dupProps = concatMap (\(p, ls) -> map (p,) ls) indsOnly
+              flipProps :: [(Int, (Integer, Trace))]
+              flipProps = map (\(p, (e, t)) -> (e, (p, t))) dupProps
+              mergeExprs :: [[(Int, (Integer, Trace))]]
+              mergeExprs = groupBy ((==) `on` fst) $ sortOn fst flipProps
+              joinExprs :: [[(Int, (Integer, Trace))]] -> [(Int, [(Integer, Trace)])]
+              joinExprs xs = map comb xs
+                where
+                  comb :: [(Int, (Integer, Trace))] -> (Int, [(Integer, Trace)])
+                  comb xs@((i, _) : _) = foldr f (i, []) xs
+                    where
+                      f :: (Int, (Integer, Trace)) -> (Int, [(Integer, Trace)]) -> (Int, [(Integer, Trace)])
+                      f (_, t) (i, ts) = (i, t : ts)
+                  comb [] = error "expr with no traces!"
+              resolve :: [(Int, [(Integer, Trace)])] -> [(EExpr, [(EProp, Trace)])]
+              resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map Map.!))
+
+      traces_that_worked <-
+        liftIO $
+          map (second (Map.unionsWith (+) . map (toInvokes . snd)))
+            -- The traces are per prop per expr, but we need a per expr per prop,
+            -- so we add indices and then use this custom transpose to get
+            -- the traces per expr.
+            . assigToExprProp
+            . map (zip (zip [0 :: Int ..] id_prog) <$>)
+            . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
+            . zip (zip [0 :: Integer ..] ps_w_ce)
+            <$> traceTargets rc cc tp id_prog ps_w_ce
 
       -- We then remove suggested holes that are unlikely to help (naively for now
       -- in the sense that we remove only holes which did not get evaluated at all,
       -- so they are definitely not going to matter).
-      let fk holey_exprs trace_correl invokes = map snd $ filter ((`Set.member` non_zero_src) . fst) holey_exprs
+      let fk trace_correl (expr, invokes) =
+            map snd $ filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
             where
-              non_zero = filter ((> 0) . snd) invokes
+              non_zero = filter ((> 0) . snd) $ Map.toList invokes
               non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-          non_zero_holes = zipWith3 fk holey_exprss trace_correl all_invokes
+          non_zero_holes = zipWith fk trace_correl traces_that_worked
           nubOrd = Set.toList . Set.fromList
+
+      liftIO $ logStr VERBOSE "Non-zero holes"
+      liftIO $ mapM (logOut VERBOSE) non_zero_holes
       return $ nubOrd $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 

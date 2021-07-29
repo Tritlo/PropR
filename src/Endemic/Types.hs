@@ -30,11 +30,13 @@ import Control.DeepSeq (NFData (..))
 import Data.Aeson
 import Data.Default
 import Data.Function (on)
+import Data.Graph (Tree)
 import Data.Map (Map, differenceWith)
 import GHC
 import GHC.Generics
 import Outputable (Outputable (ppr), showSDocUnsafe, text, (<+>))
 import qualified Outputable as O
+import Trace.Hpc.Mix (BoxLabel)
 
 -- |
 -- Properties as in QuickCheck Properties.  Properties are strings, for now. We
@@ -76,6 +78,10 @@ type TestSuiteResult = Either [Bool] Bool
 isFixed :: TestSuiteResult -> Bool
 isFixed (Right x) = True
 isFixed (Left xs) = and xs
+
+type Trace = Tree (SrcSpan, [(BoxLabel, Integer)])
+
+type TraceRes = [Trace]
 
 -- | A fix is a list of replacements and their locations
 type EFix = Map SrcSpan (HsExpr GhcPs)
