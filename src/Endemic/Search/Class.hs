@@ -7,10 +7,9 @@
 --
 -- This module defines a TopLevel Class to define Search Algorithms, that is dependent on a (parameterized) Configuration.
 -- The class hence pushes all responsibilities towards the algorithms and enables the rest of the program to use them "plug-and-play".
--- For example, the Genetic Search provides an interface to runRepair given a GeneticConfiguration. 
--- All the logic the Genetic Search requires is fully handeled by the genetic repair, including calling functions for fixes etc. 
+-- For example, the Genetic Search provides an interface to runRepair given a GeneticConfiguration.
+-- All the logic the Genetic Search requires is fully handeled by the genetic repair, including calling functions for fixes etc.
 -- Towards the higher level functions, all other pieces can use the repair exchangeably and just need a proper setup of the configurations.
-
 module Endemic.Search.Class where
 
 import Data.Set (Set)

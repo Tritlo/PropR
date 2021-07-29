@@ -598,20 +598,30 @@ buildTraceCorrel cc prob exprs = do
 -- TODO: Does this slow things down massively? We lose out on the pre-generated
 -- mix files for sure.
 runGhcWithCleanup :: CompileConfig -> Ghc a -> IO a
-runGhcWithCleanup CompConf {..} act | parChecks && randomizeHpcDir = do
-  tempHpcDir <- do
-    td_seed <- newSeed
+runGhcWithCleanup CompConf {..} act | parChecks = do
+  td_seed <- abs <$> newSeed
+  let tdBase = tempDirBase </> "run-" ++ show td_seed
+      hpcDir = tdBase </> "hpc"
+      buildDir = tdBase </> "build"
+  createDirectoryIfMissing True tdBase
 
-    let dir = tempDirBase </> "hpc-" ++ show (abs td_seed)
-    -- The hpc directory will create itself when needed.
-    createDirectoryIfMissing True tempDirBase
-    return dir
   res <- runGhc (Just libdir) $ do
     dflags <- getSessionDynFlags
-    setSessionDynFlags dflags {hpcDir = tempHpcDir}
+    let dflags' =
+          if randomizeOutputDir
+            then
+              dflags
+                { hpcDir = hpcDir,
+                  hiDir = Just buildDir,
+                  hieDir = Just buildDir,
+                  objectDir = Just buildDir,
+                  stubDir = Just buildDir
+                }
+            else dflags
+    setSessionDynFlags dflags'
     act
-  check <- doesDirectoryExist tempHpcDir
-  when check $ removeDirectoryRecursive tempHpcDir
+  check <- doesDirectoryExist tdBase
+  when check $ removeDirectoryRecursive tdBase
   return res
 runGhcWithCleanup _ act = runGhc (Just libdir) act
 

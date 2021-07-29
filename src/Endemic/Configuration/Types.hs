@@ -223,7 +223,7 @@ instance Materializeable CompileConfig where
       umModBase :: Maybe [FilePath],
       umAdditionalTargets :: Maybe [FilePath],
       umTempDirBase :: Maybe FilePath,
-      umRandomizeHpcDir :: Maybe Bool,
+      umRandomizeOutputDir :: Maybe Bool,
       umParChecks :: Maybe Bool,
       umUseInterpreted :: Maybe Bool,
       umPrecomputeFixes :: Maybe Bool,
@@ -259,7 +259,7 @@ instance Materializeable CompileConfig where
         unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests,
         additionalTargets = fromMaybe additionalTargets umAdditionalTargets,
         tempDirBase = fromMaybe tempDirBase umTempDirBase,
-        randomizeHpcDir = fromMaybe randomizeHpcDir umRandomizeHpcDir,
+        randomizeOutputDir = fromMaybe randomizeOutputDir umRandomizeOutputDir,
         parChecks = fromMaybe parChecks umParChecks,
         useInterpreted = fromMaybe useInterpreted umUseInterpreted,
         timeout = fromMaybe timeout umTimeout,
@@ -285,9 +285,9 @@ data CompileConfig = CompConf
     tempDirBase :: FilePath,
     -- | Whether or not to use parallelisation
     parChecks :: Bool,
-    -- | Whether to randomize the HPC directory when parChecks is enabled. Can
+    -- | Whether to randomize the output directory when parChecks is enabled. Can
     -- help with congestion on highly parallell systems.
-    randomizeHpcDir :: Bool,
+    randomizeOutputDir :: Bool,
     -- | Whether or not to use bytecode or to
     -- just interpret the resulting code.
     -- Usuallly safe to set to true, except
@@ -318,8 +318,8 @@ instance Default CompileConfig where
         unfoldTastyTests = True,
         modBase = [],
         additionalTargets = [],
-        tempDirBase = "." </> "fake_targets",
-        randomizeHpcDir = True,
+        tempDirBase = "." </> "temp_dir",
+        randomizeOutputDir = True,
         parChecks = True,
         useInterpreted = True,
         timeout = 1_000_000,
