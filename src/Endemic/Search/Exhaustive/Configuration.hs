@@ -41,9 +41,9 @@ instance Default ExhaustiveConf where
 
 instance Materializeable ExhaustiveConf where
   data Unmaterialized ExhaustiveConf = UmExhaustiveRepairConfiguration
-    { umExhaustiveSearchBudget :: Maybe Int,
-      umExhaustiveStopOnResults :: Maybe Bool,
-      umExhaustiveBatchSize :: Maybe Int
+    { umExhSearchBudget :: Maybe Int,
+      umExhStopOnResults :: Maybe Bool,
+      umExhBatchSize :: Maybe Int
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -55,7 +55,7 @@ instance Materializeable ExhaustiveConf where
   override x Nothing = x
   override ExhaustiveConf {..} (Just UmExhaustiveRepairConfiguration {..}) =
     ExhaustiveConf
-      { exhSearchBudget = fromMaybe exhSearchBudget umExhaustiveSearchBudget,
-        exhStopOnResults = fromMaybe exhStopOnResults umExhaustiveStopOnResults,
-        exhBatchSize = fromMaybe exhBatchSize umExhaustiveBatchSize
+      { exhSearchBudget = fromMaybe exhSearchBudget umExhSearchBudget,
+        exhStopOnResults = fromMaybe exhStopOnResults umExhStopOnResults,
+        exhBatchSize = fromMaybe exhBatchSize umExhBatchSize
       }
