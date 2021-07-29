@@ -417,6 +417,7 @@ checkFixes
             Nothing -> terminateProcess ph >> return (Right False)
             Just _ -> do
               res <- hGetLine hout
+              hClose hout
               let parsed = mapMaybe p res
               return $
                 if length parsed == length res
