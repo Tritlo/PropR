@@ -423,6 +423,8 @@ checkFixes
     dynFlags <- getSessionDynFlags
     _ <-
       setSessionDynFlags $
+      -- turn-off all warnings
+      flip (foldl wopt_unset) [toEnum 0..] $
         flip (foldl gopt_unset) setFlags $ -- Remove the HPC
           dynFlags
             { mainModIs = mkMainModule $ fsLit mname,
