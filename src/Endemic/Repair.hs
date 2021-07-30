@@ -54,8 +54,8 @@ import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
 import PrelNames (mkMainModule)
 import StringBuffer (stringToStringBuffer)
-import System.Directory (createDirectoryIfMissing, removeDirectory, removeDirectoryRecursive)
-import System.FilePath (dropExtension, dropFileName, takeFileName, (</>))
+import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
+import System.FilePath (dropExtension, dropFileName, takeFileName, (<.>), (</>))
 import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
 import System.Posix.Signals
@@ -424,9 +424,10 @@ checkFixes
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
-    addTarget target
+    target_name <- addTargetGetModName target
     addLocalTargets [] modBase
-    _ <- collectStats $ load LoadAllTargets
+    _ <- load (LoadUpTo target_name)
+
     let p '1' = Just True
         p '0' = Just False
         p _ = Nothing
@@ -476,7 +477,7 @@ checkFixes
                 procs <- collectStats $ mapM startCheck inds
                 collectStats $ mapM waitOnCheck procs
               else collectStats $ mapM (startCheck >=> waitOnCheck) inds
-    liftIO $ removeDirectoryRecursive tempDir
+    cleanupAfterLoads tempDir mname dynFlags
     return res
 
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)

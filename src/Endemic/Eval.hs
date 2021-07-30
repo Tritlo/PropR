@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
@@ -65,7 +66,7 @@ import GhcPlugins hiding (exprType)
 import PrelNames (mkMainModule, toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
-import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive)
+import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath
 import System.IO (Handle, hClose, hGetLine, openTempFile)
@@ -249,6 +250,13 @@ addLocalTargets imports local_paths = addLocalTargets' False imports local_paths
       when any_changed $ addLocalTargets' True [] local_paths
       unless recurring $ liftIO $ logStr DEBUG "Local targets added."
 
+addTargetGetModName :: Target -> Ghc ModuleName
+addTargetGetModName target = do
+  mnames_before <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
+  addTarget target
+  mnames_after <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
+  return $ Set.findMin $ mnames_after `Set.difference` mnames_before
+
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
 moduleToProb ::
@@ -265,11 +273,8 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
   runGhc' cc {importStmts = importStmts ++ checkImports} $ do
     liftIO $ logStr DEBUG "Loading module targets..."
 
-    mnames_before <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
-    addTarget target
-    mnames_after <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
-    let mname = Set.findMin $ mnames_after `Set.difference` mnames_before
-        no_ext = dropExtension mod_path
+    mname <- addTargetGetModName target
+    let no_ext = dropExtension mod_path
         thisModBase = case stripPrefix (reverse $ moduleNameSlashes mname) no_ext of
           Just dir -> reverse dir
           _ -> dropFileName no_ext
@@ -613,9 +618,11 @@ runGhcWithCleanup CompConf {..} act | parChecks = do
               dflags
                 { hpcDir = hpcDir,
                   hiDir = Just buildDir,
-                  hieDir = Just buildDir,
-                  objectDir = Just buildDir,
-                  stubDir = Just buildDir
+                  -- Objects are loaded and unloaded  and we can't load them
+                  -- twice (since that confuses the C linker). Using
+                  -- Linker.unload makes it segfault, so we'll have to make
+                  -- do with placing the objects at the same place.
+                  objectDir = Just (tempDirBase </> "common" </> "build")
                 }
             else dflags
     setSessionDynFlags dflags'
@@ -686,13 +693,14 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
-    addTarget target
+    target_name <- addTargetGetModName target
     addLocalTargets [] modBase
-    _ <- load LoadAllTargets
+    _ <- load (LoadUpTo target_name)
+
     -- We should for here in case it doesn't terminate, and modify
     -- the run function so that it use the trace reflect functionality
     -- to timeout and dump the tix file if possible.
-    let runTrace which = liftIO $ do
+    let runTrace which = do
           let tixFilePath = exeName ++ "_" ++ show @Integer which ++ ".tix"
           (_, _, _, ph) <-
             createProcess
@@ -739,10 +747,9 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
               res <- map nd . filter isTarget . concatMap toDom <$> mapM rm fake_only
               return $ Just res
             _ -> return Nothing
-    removeTarget tid
-    let (checks, _) = unzip $ zip [0 ..] ps_w_ce
-    res <- mapM runTrace checks
-    liftIO $ removeDirectoryRecursive tempDir
+
+    res <- liftIO $ mapM runTrace $ fst $ unzip $ zip [0 ..] ps_w_ce
+    cleanupAfterLoads tempDir mname dynFlags
     return res
   where
     correl =
@@ -778,6 +785,18 @@ traceTargets cc tp exprs@(e@(L _ xp) : _) ps_w_ce = do
   tl <- fakeBaseLoc cc tp exprs
   traceTargets cc tp (map (L tl . unLoc) exprs) ps_w_ce
 traceTargets _ _ [] _ = error "No fix!"
+
+cleanupAfterLoads :: FilePath -> String -> DynFlags -> Ghc ()
+cleanupAfterLoads tempDir mname dynFlags = do
+  liftIO $ do
+    -- Remove the dir with the .hs and .hi file
+    removeDirectoryRecursive tempDir
+    case objectDir dynFlags of
+      Just dir | fp <- dir </> mname <.> "o" ->
+        do
+          check <- doesFileExist fp
+          when check $ removeFile fp
+      _ -> return ()
 
 exprToTraceModule ::
   CompileConfig ->
