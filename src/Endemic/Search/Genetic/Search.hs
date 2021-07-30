@@ -146,6 +146,12 @@ geneticSearch = collectStats $ do
                 ++ show (length winners)
                 ++ " Results)"
             )
+          let average doubles = realToFrac (sum doubles) / realToFrac (length doubles)
+          averageFitness :: Double <- average <$> fitnessMany nextPop
+          logStr' VERBOSE ("Average Fitness of Generation " ++ show currentGen
+                ++ " is " 
+                ++ show (averageFitness)
+                )
           liftIO $ do
             logStr AUDIT "Current gen:"
             mapM (logOut AUDIT) pop
