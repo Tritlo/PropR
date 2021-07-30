@@ -50,6 +50,7 @@
         "ringwise_migration": true
       },
       "drop_rate": 0.25,
+      "max_fix_size_step": 1,
       "try_minimize_fixes": false,
       "replace_winners": true,
       "use_parallel_map": true

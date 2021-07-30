@@ -8,7 +8,7 @@ module Endemic.Search.Genetic.Search where
 import Control.Monad (foldM, forM)
 import qualified Control.Monad.Trans.Reader as R
 import Data.Function (on)
-import Data.List (partition, sortBy, sortOn)
+import Data.List (partition, sortBy, sortOn, minimumBy)
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -142,16 +142,21 @@ geneticSearch = collectStats $ do
             INFO
             ( "Finished Generation " ++ show currentGen ++ " at "
                 ++ show end
-                ++ "("
+                ++ " ("
                 ++ show (length winners)
                 ++ " Results)"
             )
+          -- TODO: Only evaluate this if the log level is > VERBOSE
           let average doubles = realToFrac (sum doubles) / realToFrac (length doubles)
-          averageFitness :: Double <- average <$> fitnessMany nextPop
+          popFitness <- fitnessMany nextPop
+          let averageFitness = average popFitness
+              (bestFitness, bestCand) = minimumBy (compare `on` fst) $ zip popFitness nextPop
           logStr' VERBOSE ("Average Fitness of Generation " ++ show currentGen
                 ++ " is " 
                 ++ show (averageFitness)
                 )
+          logStr' VERBOSE ("Best candidate so far with fitness " ++ show bestFitness ++ ":")
+          liftIO $ logOut VERBOSE bestCand
           liftIO $ do
             logStr AUDIT "Current gen:"
             mapM (logOut AUDIT) pop
