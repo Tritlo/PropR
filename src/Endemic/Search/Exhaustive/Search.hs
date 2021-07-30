@@ -71,7 +71,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                 checked' = not_checked `Set.union` checked
                 check_list = Set.toList not_checked
             logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ ( show $ length check_list))
-            mapM_ (logOut DEBUG) check_list
+            mapM_ (logOut AUDIT) check_list
             fixes <-
               Set.fromList . map fst
                 . filter (isFixed . snd)

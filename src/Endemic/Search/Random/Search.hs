@@ -58,7 +58,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
       -> EFix           -- ^ Running Fix, to be changed randomly 
       -> IO (Set EFix)  -- ^ Set of found fixes
     randomRepair' start gen fix_so_far = do
-      logOut DEBUG fix_so_far
+      logOut AUDIT fix_so_far
       cur_time <- getCPUTime
       let diff = cur_time - start
           budget_over = diff >= budgetInPicoSeconds
@@ -95,7 +95,6 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
                 done = do
                   logStr INFO "Fix found in Random Search!"
                   logOut INFO complete_fix
-                  logOut DEBUG fixed_prog
                   if randStopOnResults
                     then return $ Set.singleton complete_fix
                     else Set.insert complete_fix <$> randomRepair' start gen'' Map.empty
