@@ -1,5 +1,6 @@
 dist*/
 fake_targets/
+temp_dir/
 cabal.project.local
 *.mix
 
