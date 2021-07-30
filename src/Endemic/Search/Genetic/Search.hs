@@ -267,6 +267,9 @@ geneticSearch = collectStats $ do
           mergedPop = pop ++ mutated_children
       -- select best fitting N elements, we assume 0 (smaller) fitness is better
       gen'' <- getGen
+      -- We shuffle the merged pop, as otherwise the parents will always be before the children
+      -- This would lead to stagnation if they have the same fitness (e.g. fitness of 1)
+      -- The shuffling introduces a bit more demographic movement
       let (shuffledMergedPop, gen''') = shuffle mergedPop gen''
       putGen gen'''
       mergedPop' <- sortPopByFitness shuffledMergedPop
@@ -297,6 +300,9 @@ geneticSearch = collectStats $ do
       conf <- R.ask
       let iConf = fromJust $ islandConfiguration conf
       sortedIslands <- forM islandPops $ \island -> do
+        -- We shuffle the merged pop, as otherwise the parents will always be before the children
+        -- This would lead to stagnation if they have the same fitness (e.g. fitness of 1)
+        -- The shuffling introduces a bit more demographic movement
         (shuffledIslandPop, gen') <- shuffle island <$> getGen
         putGen gen'
         sortPopByFitness shuffledIslandPop

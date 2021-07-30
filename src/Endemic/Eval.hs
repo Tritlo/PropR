@@ -585,6 +585,7 @@ buildTraceCorrelExpr _ _ _ = error "External fixes not supported!"
 
 -- We build a Map from the traced expression and to the  original so we can
 -- correlate the trace information with the expression we're checking.
+-- This helps e.g. to find placements of changed elements (in our fixes) to the original position.
 buildTraceCorrel :: CompileConfig -> EProblem -> EProgFix -> IO [Map.Map SrcSpan SrcSpan]
 buildTraceCorrel cc prob exprs = do
   expr_n_trac_exprs <- zip exprs <$> buildTraceCorrelExpr cc prob exprs
