@@ -601,30 +601,44 @@ buildTraceCorrel cc prob exprs = do
 -- | Runs a GHC action and cleans up any hpc-directories that might have been
 -- created as a side-effect.
 -- TODO: Does this slow things down massively? We lose out on the pre-generated
--- mix files for sure.
+-- mix and hi files for sure, but we don't get those weird
+-- "Exception: tests/cases/ThreeFixes.hi: openBinaryFile: resource busy (file is locked)"
+-- or
+-- "Exception: .hpc/FourFixes.mix: openFile: resource busy (file is locked)"
+-- exceptions.
 runGhcWithCleanup :: CompileConfig -> Ghc a -> IO a
 runGhcWithCleanup CompConf {..} act | parChecks = do
   td_seed <- abs <$> newSeed
   let tdBase = tempDirBase </> "run-" ++ show td_seed
-      hpcDir = tdBase </> "hpc"
-      buildDir = tdBase </> "build"
+      common = tempDirBase </> "common"
   createDirectoryIfMissing True tdBase
 
   res <- runGhc (Just libdir) $ do
     dflags <- getSessionDynFlags
     let dflags' =
-          if randomizeOutputDir
-            then
-              dflags
-                { hpcDir = hpcDir,
-                  hiDir = Just buildDir,
-                  -- Objects are loaded and unloaded  and we can't load them
-                  -- twice (since that confuses the C linker). Using
-                  -- Linker.unload makes it segfault, so we'll have to make
-                  -- do with placing the objects at the same place.
-                  objectDir = Just (tempDirBase </> "common" </> "build")
-                }
-            else dflags
+          dflags
+            { hpcDir =
+                if randomizeHpcDir
+                  then tdBase </> "hpc"
+                  else common </> "hpc",
+              -- Objects are loaded and unloaded  and we can't load them
+              -- twice (since that confuses the C linker). Using
+              -- Linker.unload makes it segfault, so we'll have to make
+              -- do with placing the objects at the same place.
+              -- So we can't just set
+              -- ```
+              -- objectDir = Just (tdBase </> "build"),
+              --- ```
+              -- we have to put it into a "common" directory (but at least it
+              -- can be in the temp directory).
+              objectDir = Just (common </> "build"),
+              hiDir =
+                Just
+                  ( if randomizeHiDir
+                      then tdBase </> "build"
+                      else common </> "build"
+                  )
+            }
     setSessionDynFlags dflags'
     act
   check <- doesDirectoryExist tdBase
@@ -792,10 +806,10 @@ cleanupAfterLoads tempDir mname dynFlags = do
     -- Remove the dir with the .hs and .hi file
     removeDirectoryRecursive tempDir
     case objectDir dynFlags of
-      Just dir | fp <- dir </> mname <.> "o" ->
-        do
-          check <- doesFileExist fp
-          when check $ removeFile fp
+      Just dir | fp <- dir </> mname ->
+        forM_ ["o", "hi"] $ \ext -> do
+          check <- doesFileExist (fp <.> ext)
+          when check $ removeFile (fp <.> ext)
       _ -> return ()
 
 exprToTraceModule ::
