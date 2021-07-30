@@ -12,6 +12,10 @@
 -- This is a highlevel module that utilizes most of the other modules implemented.
 -- This is an impure module, as GHC is run which requires IO.
 --
+-- Abbreviations:
+--    nzh=non-zero-holes - Holes that are touched by properties
+--    id_prog=identity-Program - The unchanged Program (initial input to repair)
+-- 
 -- Note on (SrcSpan, LHsExpr GhcPs):
 -- We thought about Synomising this, but it resembles multiple things;
 --   1. An expression and it's (new) hole
@@ -270,10 +274,19 @@ findEvaluatedHoles
 
       let hasCE (p, Just ce) = Just (p, ce)
           hasCE _ = Nothing
+          -- ps_w_ce = Properties with CounterExamples -> The Failing Properties
           ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
       -- We compute the locations that are touched by the failing counter-examples
       liftIO $ logStr DEBUG "Tracing program..."
-      let assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
+      let 
+          -- | This Method helps us to go resolve the traces per expressions touched by properties 
+          -- To get the traces per properties touched by expressions.
+          -- If it were a matrix, this would be a classic matrix transpose.
+          -- We introduce the Ints before Properties and EExprs to have a trace-able ID for them, 
+          -- As they do not provide Equality themselves. 
+          -- However, (Toplevel) Expressions and Properties are unique, so we do not carry around duplicates.
+          -- It was just easier to use an Integer as a helper than to implement equality for Compiler-Objects.
+          assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
           assigToExprProp xs = resolve $ joinExprs mergeExprs
             where
               eprop_map :: Map Integer EProp
@@ -300,12 +313,13 @@ findEvaluatedHoles
               resolve :: [(Int, [(Integer, Trace)])] -> [(EExpr, [(EProp, Trace)])]
               resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map Map.!))
 
+      -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
       traces_that_worked <-
         liftIO $
           map (second (Map.unionsWith (+) . map (toInvokes . snd)))
             -- The traces are per prop per expr, but we need a per expr per prop,
             -- so we add indices and then use this custom transpose to get
-            -- the traces per expr.
+            -- the traces per expr. (See above)
             . assigToExprProp
             . map (zip (zip [0 :: Int ..] id_prog) <$>)
             . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
@@ -321,8 +335,8 @@ findEvaluatedHoles
               non_zero = filter ((> 0) . snd) $ Map.toList invokes
               non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
           non_zero_holes = zipWith fk trace_correl traces_that_worked
+          -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
           nubOrd = Set.toList . Set.fromList
-
       return $ nubOrd $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
@@ -344,7 +358,8 @@ repairAttempt
     let inContext = noLoc . HsLet NoExtField e_ctxt
         addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
         addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
-
+    
+    -- nzh=non-zero-holes - Holes that are touched by properties
     nzh <- findEvaluatedHoles desc
     runGhcWithCleanup cc $ do
       fits <- collectStats $ getHoleFits cc efcs (map (\(l, he) -> ([l], addContext l he)) nzh)

@@ -203,5 +203,5 @@ main = do
         savePatchesToFiles oc diffs
 
       mapM_ (putStrLn . colorizeDiff) diffs
-      reportStats' VERBOSE
+      reportStats' DEBUG
       logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"

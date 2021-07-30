@@ -38,7 +38,7 @@ exhaustiveRepair :: ExhaustiveConf -> ProblemDescription -> IO (Set EFix)
 exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
   start <- getCPUTime
   -- We use BFS, i.e. check all 1 level fixes, then all 2 level fixes, etc:
-  logStr VERBOSE "Starting exhaustive search!"
+  logStr INFO "Starting exhaustive Search"
   -- Note: we don't have to recompute the fixes again and again
   all_fix_combs <-
     lazyAllCombsByLevel <$> case initialFixes of
@@ -47,11 +47,16 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
 
   let isFixed (Right x) = x
       isFixed (Left ps) = and ps
-      loop :: Set EFix -> [[EFix]] -> IO (Set EFix)
-      loop _ [] = return Set.empty
-      loop checked ([] : lvls) = loop checked lvls
-      loop checked (lvl : lvls) = do
-        logOut VERBOSE (length lvl)
+      loop :: 
+        Set EFix -- ^ The seen fixes, to remove duplicates and cached items
+        -> [[EFix]] -- ^ The fixes to check, a (lazy) list of changes to test. 
+                    -- A check is a bunch of changes, hence a list too. The lay list is sorted ascending in length, the 1-Change entries are in the first list of list, the 2 Change entries are in the second list of list ...
+        -> Int      -- ^ Current depth of levels, just for better debugging and logging 
+        -> IO (Set EFix) -- The results found within a certain time-budget
+      loop _ [] _ = return Set.empty -- Initial Case on creation, the first set of changes is the empty list. Also invoked if we exhaust the exhaustive search.
+      loop checked ([] : lvls) n = loop checked lvls (n+1) -- This case happens when we exhausted one level of changes 
+      loop checked (lvl : lvls) n = do -- Normal case where we have checks left in the current level
+        logStr VERBOSE ("Remaining Fixes of length " ++ (show n) ++ " : " ++ show (length lvl))
         cur_time <- getCPUTime
         let diff = cur_time - start
             budget_over = diff >= budgetInPicoSeconds
@@ -65,23 +70,23 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                 not_checked = Set.fromList $ filter (not . (`Set.member` checked)) to_check
                 checked' = not_checked `Set.union` checked
                 check_list = Set.toList not_checked
-            --     logStr VERBOSE "CHECKING:"
-            mapM_ (logOut VERBOSE) check_list
+            logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ ( show $ length check_list))
+            mapM_ (logOut DEBUG) check_list
             fixes <-
               Set.fromList . map fst
                 . filter (isFixed . snd)
                 . zip check_list
                 <$> runGhc' compConf (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list))
             if Set.null fixes
-              then loop checked' (rest : lvls)
+              then loop checked' (rest : lvls) n
               else do
                 logStr INFO $ "Found fixes after " ++ show (Set.size checked') ++ " checks!"
                 mapM_ (logOut INFO) $ Set.toList fixes
                 if exhStopOnResults
                   then return fixes
-                  else Set.union fixes <$> loop checked' (rest : lvls)
+                  else Set.union fixes <$> loop checked' (rest : lvls) n
 
-  loop Set.empty all_fix_combs
+  loop Set.empty all_fix_combs 1
   where
     EProb {..} = progProblem
     -- PicoSeconds are the granularity provided by the CPU-Time

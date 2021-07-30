@@ -43,16 +43,22 @@ import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 --      Check fix
 --      Add Fix either to Results or Seen-Fixes
 --    Update Timer
+-- 
+-- The patches are growing randomly to a certain max-size, from which a new random one is created.
 randomRepair :: RandomConf -> ProblemDescription -> IO (Set EFix)
 randomRepair r@RandConf {..} desc@ProbDesc {..} = do
-  logStr VERBOSE "Starting random search!"
+  logStr INFO "Starting random search!"
   start <- getCPUTime
   seed <- newSeed
   randomRepair' start (mkSMGen $ fromIntegral seed) Map.empty
   where
-    randomRepair' :: Integer -> SMGen -> EFix -> IO (Set EFix)
+    randomRepair' :: 
+      Integer           -- ^ Currently passed time in pico-seconds 
+      -> SMGen          -- ^ A premade Split-Mix Generator, to help with randomness
+      -> EFix           -- ^ Running Fix, to be changed randomly 
+      -> IO (Set EFix)  -- ^ Set of found fixes
     randomRepair' start gen fix_so_far = do
-      logOut VERBOSE fix_so_far
+      logOut DEBUG fix_so_far
       cur_time <- getCPUTime
       let diff = cur_time - start
           budget_over = diff >= budgetInPicoSeconds
@@ -60,9 +66,9 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
       if budget_over || fix_too_big
         then
           if budget_over
-            then logStr INFO "Time budget done, returning!" >> return Set.empty
+            then logStr INFO "Random Search Budget exhausted, returning!" >> return Set.empty
             else do
-              logStr INFO "Fix got too big, starting over!"
+              logStr VERBOSE "Randomly growing Fix got too big, starting new Random-Fix"
               randomRepair' start gen Map.empty
         else do
           let prog' = applyFixToEProg e_prog fix_so_far
@@ -97,6 +103,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
 
             liftIO $ case check_res of
               -- We might want to avoid programs that timeout or fail for some reason.
+              -- Default is to keep them in, as we may want to repair programs that don't terminate (GCD Example)
               Right False ->
                 if randIgnoreFailing
                   then try_again

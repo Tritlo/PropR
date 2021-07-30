@@ -11,6 +11,8 @@ cabal.project.local
 
 output-patches-*
 
+compose-output
+
 log.txt 
 *.log
 
