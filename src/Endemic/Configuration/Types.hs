@@ -223,7 +223,8 @@ instance Materializeable CompileConfig where
       umModBase :: Maybe [FilePath],
       umAdditionalTargets :: Maybe [FilePath],
       umTempDirBase :: Maybe FilePath,
-      umRandomizeOutputDir :: Maybe Bool,
+      umRandomizeHpcDir :: Maybe Bool,
+      umRandomizeHiDir :: Maybe Bool,
       umParChecks :: Maybe Bool,
       umUseInterpreted :: Maybe Bool,
       umPrecomputeFixes :: Maybe Bool,
@@ -248,6 +249,7 @@ instance Materializeable CompileConfig where
       Nothing
       Nothing
       Nothing
+      Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
@@ -259,7 +261,8 @@ instance Materializeable CompileConfig where
         unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests,
         additionalTargets = fromMaybe additionalTargets umAdditionalTargets,
         tempDirBase = fromMaybe tempDirBase umTempDirBase,
-        randomizeOutputDir = fromMaybe randomizeOutputDir umRandomizeOutputDir,
+        randomizeHpcDir = fromMaybe randomizeHpcDir umRandomizeHpcDir,
+        randomizeHiDir = fromMaybe randomizeHiDir umRandomizeHiDir,
         parChecks = fromMaybe parChecks umParChecks,
         useInterpreted = fromMaybe useInterpreted umUseInterpreted,
         timeout = fromMaybe timeout umTimeout,
@@ -285,9 +288,17 @@ data CompileConfig = CompConf
     tempDirBase :: FilePath,
     -- | Whether or not to use parallelisation
     parChecks :: Bool,
-    -- | Whether to randomize the output directory when parChecks is enabled. Can
+    -- | Whether to randomize the HPC directory when parChecks is enabled. Can
     -- help with congestion on highly parallell systems.
-    randomizeOutputDir :: Bool,
+    -- Use this if you're getting crashes saying:
+    -- "Exception: .hpc/FourFixes.mix: openFile: resource busy (file is locked)"
+    randomizeHpcDir :: Bool,
+    -- | Whether to randomize the directory where .hi files are placed when
+    -- parChecks is enabled. Similar to randomizeHpcDir, but can cause a
+    -- bigger slowdown.
+    -- Use this if you're getting crashes saying:
+    -- "Exception: tests/cases/ThreeFixes.hi: openBinaryFile: resource busy (file is locked)"
+    randomizeHiDir :: Bool,
     -- | Whether or not to use bytecode or to
     -- just interpret the resulting code.
     -- Usuallly safe to set to true, except
@@ -319,8 +330,9 @@ instance Default CompileConfig where
         modBase = [],
         additionalTargets = [],
         tempDirBase = "." </> "temp_dir",
-        randomizeOutputDir = True,
         parChecks = True,
+        randomizeHpcDir = True,
+        randomizeHiDir = True,
         useInterpreted = True,
         timeout = 1_000_000,
         precomputeFixes = True
