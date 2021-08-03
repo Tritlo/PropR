@@ -275,15 +275,6 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
   runGhc' cc {importStmts = importStmts ++ checkImports} $ do
     liftIO $ logStr DEBUG "Loading module targets..."
 
-    dynFlags <- getSessionDynFlags
-    _ <-
-      setSessionDynFlags $
-        flip gopt_unset Opt_Hpc $
-          dynFlags
-            { ghcMode = CompManager,
-              ghcLink = LinkInMemory,
-              hscTarget = HscInterpreted
-            }
     mname <- addTargetGetModName target
     let no_ext = dropExtension mod_path
         thisModBase = case stripPrefix (reverse $ moduleNameSlashes mname) no_ext of
