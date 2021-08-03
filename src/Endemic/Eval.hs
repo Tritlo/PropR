@@ -270,7 +270,7 @@ moduleToProb ::
   -- | "mb_target" whether to target a specific type (?)
   IO (CompileConfig, TypecheckedModule, Maybe EProblem)
 moduleToProb cc@CompConf {..} mod_path mb_target = do
-  let target = Target (TargetFile mod_path Nothing) False Nothing
+  let target = Target (TargetFile mod_path Nothing) True Nothing
   -- Feed the given Module into GHC
   runGhc' cc {importStmts = importStmts ++ checkImports} $ do
     liftIO $ logStr DEBUG "Loading module targets..."
