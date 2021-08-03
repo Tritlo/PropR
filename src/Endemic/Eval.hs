@@ -285,6 +285,15 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               hscTarget = HscInterpreted
             }
     mname <- addTargetGetModName target
+    when (moduleNameString mname == "Main") $
+      liftIO $
+        logStr WARN $
+          unwords
+            [ "Data declarations and instances will not be",
+              "picked up from unnamed modules or modules named 'Main'",
+              "due to a GHC bug. Please add a module header or give it",
+              "a different name."
+            ]
     let no_ext = dropExtension mod_path
         thisModBase = case stripPrefix (reverse $ moduleNameSlashes mname) no_ext of
           Just dir -> reverse dir
