@@ -56,7 +56,7 @@ import FV (fvVarSet)
 import GHC
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
-import PrelNames (mkMainModule)
+import PrelNames (mkMainModule, mkMainModule_)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath (dropExtension, dropFileName, takeFileName, (<.>), (</>))
@@ -426,9 +426,7 @@ checkFixes
         flip (foldl wopt_unset) [toEnum 0 ..] $
           flip (foldl gopt_unset) setFlags $ -- Remove the HPC
             dynFlags
-              { mainModIs = mkMainModule $ fsLit mname,
-                mainFunIs = Just "main__",
-                hpcDir = tempDir,
+              { hpcDir = tempDir,
                 ghcMode = if useInterpreted then CompManager else OneShot,
                 ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
                 hscTarget = if useInterpreted then HscInterpreted else HscAsm
@@ -441,6 +439,15 @@ checkFixes
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     target_name <- addTargetGetModName target
+
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        dynFlags
+          { mainModIs = mkModule mainUnitId target_name,
+            mainFunIs = Just "main__"
+          }
+
     addLocalTargets [] modBase
     _ <- load (LoadUpTo target_name)
 

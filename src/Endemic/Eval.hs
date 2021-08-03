@@ -63,7 +63,7 @@ import GHC
 import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
-import PrelNames (mkMainModule, toDynName)
+import PrelNames (toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive, removeFile)
@@ -270,11 +270,20 @@ moduleToProb ::
   -- | "mb_target" whether to target a specific type (?)
   IO (CompileConfig, TypecheckedModule, Maybe EProblem)
 moduleToProb cc@CompConf {..} mod_path mb_target = do
-  let target = Target (TargetFile mod_path Nothing) True Nothing
+  let target = Target (TargetFile mod_path Nothing) False Nothing
   -- Feed the given Module into GHC
   runGhc' cc {importStmts = importStmts ++ checkImports} $ do
     liftIO $ logStr DEBUG "Loading module targets..."
 
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        flip gopt_unset Opt_Hpc $
+          dynFlags
+            { ghcMode = CompManager,
+              ghcLink = LinkInMemory,
+              hscTarget = HscInterpreted
+            }
     mname <- addTargetGetModName target
     let no_ext = dropExtension mod_path
         thisModBase = case stripPrefix (reverse $ moduleNameSlashes mname) no_ext of
@@ -289,7 +298,6 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
     liftIO $ logStr DEBUG "Type checking module..."
     tc_modul@TypecheckedModule {..} <- typecheckModule modul
-
     dynFlags <- getSessionDynFlags
     _ <-
       setSessionDynFlags $
@@ -306,12 +314,21 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
           cc
             { -- We import the module itself to get all instances and data
               -- declarations in scope.
-              importStmts = ("import " ++ moduleNameString mname) : (importStmts ++ imps'),
+              importStmts =
+                if moduleNameString mname /= "Main"
+                  then self_import : rest_imports
+                  else rest_imports,
               modBase = dropFileName mod_path : modBase,
-              additionalTargets = mod_path : additionalTargets
+              additionalTargets =
+                if moduleNameString mname /= "Main"
+                  then mod_path : additionalTargets
+                  else additionalTargets
             }
           where
             imps' = map showUnsafe hsmodImports
+            self_import = "import " ++ moduleNameString mname
+            self_target = mod_path
+            rest_imports = importStmts ++ imps'
         -- Retrieves the Values declared in the given Haskell-Module
         valueDeclarations :: [LHsBind GhcPs]
         valueDeclarations = mapMaybe fromValD hsmodDecls
@@ -698,13 +715,7 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
     -- We set the module as the main module, which makes GHC generate
     -- the executable.
     dynFlags <- getSessionDynFlags
-    _ <-
-      setSessionDynFlags $
-        dynFlags
-          { mainModIs = mkMainModule $ fsLit mname,
-            mainFunIs = Just "main__",
-            hpcDir = tempDir
-          }
+    _ <- setSessionDynFlags $ dynFlags {hpcDir = tempDir}
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
         target = Target tid True $ Just (strBuff, now)
@@ -712,6 +723,14 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     target_name <- addTargetGetModName target
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        dynFlags
+          { mainModIs = mkModule mainUnitId target_name,
+            mainFunIs = Just "main__"
+          }
+
     addLocalTargets [] modBase
     _ <- load (LoadUpTo target_name)
 

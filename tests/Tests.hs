@@ -528,7 +528,18 @@ moduleTests =
             ]
           ],
       mkModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing [],
-      mkModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing []
+      mkModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing [],
+      mkModuleTest 5_000_000 "Unnamed" "tests/cases/unnamed.hs" Nothing $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/unnamed.hs b/tests/cases/unnamed.hs",
+              "--- a/tests/cases/unnamed.hs",
+              "+++ b/tests/cases/unnamed.hs",
+              "@@ -5,1 +5,1 @@ x = 4",
+              "-x = 4",
+              "+x = 5"
+            ]
+          ]
     ]
 
 main = defaultMain tests
