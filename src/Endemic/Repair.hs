@@ -29,7 +29,7 @@ import Constraint
 import Control.Arrow (first, second, (***))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (when, (>=>))
+import Control.Monad (forM_, when, (>=>))
 import qualified Data.Bifunctor
 import Data.Char (isAlphaNum)
 import Data.Dynamic (fromDyn)
@@ -39,7 +39,7 @@ import qualified Data.Functor
 import Data.IORef (IORef, modifyIORef', writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
-import Data.List (groupBy, intercalate, nub, nubBy, sort, sortOn, transpose)
+import Data.List (groupBy, intercalate, nub, nubBy, partition, sort, sortOn, transpose)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromJust, fromMaybe, isJust, mapMaybe)
@@ -93,49 +93,105 @@ getHoleFits ::
   [([SrcSpan], LHsExpr GhcPs)] ->
   -- | The existing Expressions including holes
   Ghc [[[HsExpr GhcPs]]]
-getHoleFits cc local_exprs exprs = initGhcCtxt' True cc local_exprs >>= flip getHoleFits' exprs
+getHoleFits cc local_exprs exprs = initGhcCtxt' True cc local_exprs >>= flip (getHoleFits' cc) exprs
 
 -- Gets the holes without any initialization, provided a given plugin
 getHoleFits' ::
+  CompileConfig ->
   IORef HoleFitState ->
   [([SrcSpan], LHsExpr GhcPs)] ->
   Ghc [[[HsExpr GhcPs]]]
-getHoleFits' _ [] = return []
-getHoleFits' plugRef exprs = do
+getHoleFits' _ _ [] = return []
+getHoleFits' cc@CompConf {..} plugRef exprs = do
   -- Then we can actually run the program!
   setNoDefaulting
-  let exprFits expr =
-        liftIO (modifyIORef' plugRef resetHoleFitList)
-          >> handleSourceError
-            (getHoleFitsFromError plugRef)
-            (Right <$> compileParsedExpr expr)
-  mapM (\(l, e) -> mapLeft (zip l) <$> exprFits e) exprs
-    -- TODO: We get some refinement holefits here as well, but we just
-    -- throw them out currently
-    >>= processFits . map (map (second fst)) . lefts
+  res <- getHoleFits' plugRef (if holeLvl == 0 then 0 else holeDepth) exprs
+  return $ map (map (map snd . snd) . snd) res
   where
+    exprFits plugRef expr =
+      liftIO (modifyIORef' plugRef resetHoleFitList)
+        >> handleSourceError
+          (getHoleFitsFromError plugRef)
+          (Right <$> compileParsedExpr expr)
+    getHoleFits' ::
+      IORef HoleFitState ->
+      Int ->
+      [([SrcSpan], LHsExpr GhcPs)] ->
+      Ghc [(LHsExpr GhcPs, [(SrcSpan, [(Int, HsExpr GhcPs)])])]
+    getHoleFits' plugRef n exprs | n <= 0 = do
+      -- We don't want any more additional hole fits, so we just grab the
+      -- identifier ones.
+      -- We know we won't be lookning at the refinement hole-fits,
+      -- so we ignore them:
+      dflags <- getSessionDynFlags
+      setSessionDynFlags dflags {refLevelHoleFits = Just 0}
+      res <-
+        mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef e) exprs
+          >>= processFits . map (second (map (second fst))) . lefts
+      dflags <- getSessionDynFlags
+      setSessionDynFlags dflags {refLevelHoleFits = Just 0}
+      return res
+    getHoleFits' plugRef n exprs = do
+      fits <- lefts <$> mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef e) exprs
+      procs <- processFits $ map (second $ map (second (uncurry (++)))) fits
+      --       pprPanic "ppr" $ ppr procs
+      let f :: LHsExpr GhcPs -> SrcSpan -> [(Int, HsExpr GhcPs)] -> Ghc (SrcSpan, [(Int, HsExpr GhcPs)])
+          f expr loc fits = do
+            let (hasHoles, done) = partition ((> 0) . fst) fits
+                filled =
+                  mapMaybe
+                    ( \(lvl, fit) ->
+                        (fmap ((fit,) . first (replicate lvl)) . (`fillHole` expr)) fit
+                    )
+                    hasHoles
+
+            recur <- zip (map (L loc . fst) filled) . map snd <$> getHoleFits' plugRef (n -1) (map snd filled)
+            let repls = map (second (reverse . map (map snd . snd))) recur >>= uncurry replacements
+                procced :: [(Int, HsExpr GhcPs)]
+                procced = map ((0,) . unLoc . snd) repls
+            return (loc, done ++ procced)
+      mapM (\(e, xs) -> (e,) <$> mapM (uncurry (f e)) xs) procs
+
     mapLeft :: (a -> c) -> Either a b -> Either c b
     mapLeft f (Left a) = Left (f a)
     mapLeft _ (Right r) = Right r
 
 -- | Takes a list of list of list of hole fits and processes each fit so that
 -- it becomes a proper HsExpr
-processFits :: [[(SrcSpan, [HoleFit])]] -> Ghc [[[HsExpr GhcPs]]]
+processFits ::
+  [(LHsExpr GhcPs, [(SrcSpan, [HoleFit])])] ->
+  Ghc [(LHsExpr GhcPs, [(SrcSpan, [(Int, HsExpr GhcPs)])])]
 processFits fits = do
   -- We process the fits ourselves, since we might have some expression fits
-  let processFit :: SrcSpan -> HoleFit -> Ghc (HsExpr GhcPs)
-      processFit loc HoleFit {..} =
-        return $ HsVar noExtField (L loc (nukeExact $ getName hfId))
+  let processFit :: SrcSpan -> HoleFit -> Ghc (Int, HsExpr GhcPs)
+      processFit loc HoleFit {..} = return (hfRefLvl, addPar $ app hfRefLvl)
         where
-          -- NukeExact copied from RdrName
-          nukeExact :: Name -> RdrName
-          nukeExact n
-            | isExternalName n = Orig (nameModule n) (nameOccName n)
-            | otherwise = Unqual (nameOccName n)
+          addPar
+            | hfRefLvl > 0 = HsPar NoExtField . L loc
+            | otherwise = id
+          app :: Int -> HsExpr GhcPs
+          app 0 =
+            HsVar noExtField $ noLoc (nukeExact $ getName hfId)
+          app n = HsApp NoExtField (noLoc $ app (n - 1)) $ noLoc hv
+            where
+              hn = show n
+              hv = HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc $ "_" ++ locToStr loc ++ "_" ++ hn)
+              locToStr (UnhelpfulSpan x) = unpackFS x
+              locToStr s@(RealSrcSpan r) =
+                intercalate "_" $
+                  map show $
+                    [srcSpanStartLine r, srcSpanStartCol r]
+                      ++ ([srcSpanEndLine r | not (isOneLineSpan s)])
+                      ++ [srcSpanEndCol r]
       processFit loc (RawHoleFit sd) = do
         (L l e) <- parseExprNoInit (showUnsafe sd)
-        return $ unLoc $ parenthesizeHsExpr appPrec (L loc e)
-  mapM (mapM (\(l, ffh) -> mapM (processFit l) ffh)) fits
+        return (0, unLoc $ parenthesizeHsExpr appPrec (L loc e))
+      -- NukeExact copied from RdrName
+      nukeExact :: Name -> RdrName
+      nukeExact n
+        | isExternalName n = Orig (nameModule n) (nameOccName n)
+        | otherwise = Unqual (nameOccName n)
+  mapM (\(e, xs) -> (e,) <$> mapM (\(l, ffh) -> (l,) <$> mapM (processFit l) ffh) xs) fits
 
 -- |  Takes an expression with one or more holes and a list of expressions that
 -- fit each holes and returns a list of expressions where each hole has been
@@ -391,8 +447,8 @@ generateFixCandidates
             then map ((\l -> ([l], wrapExpr l (wrapInHole l) one_prog)) . fst) nzh
             else []
     plugRef <- initGhcCtxt' True cc efcs
-    hole_fits <- collectStats $ getHoleFits' plugRef holed_exprs
-    raw_wrapped_fits <- collectStats $ getHoleFits' plugRef wrapped_in_holes
+    hole_fits <- collectStats $ getHoleFits' cc plugRef holed_exprs
+    raw_wrapped_fits <- collectStats $ getHoleFits' cc plugRef wrapped_in_holes
     let subexprs = Map.fromList (map (\(L l k) -> (l, k)) $ flattenExpr one_prog)
         with_wrappee :: [[[HsExpr GhcPs]]]
         with_wrappee =
@@ -576,10 +632,6 @@ checkFixes
                   ( \i a -> do
                       logStr DEBUG $ "Checking " ++ show i ++ ":"
                       logOut DEBUG (fixes !! i)
-                      -- TODO: Proper timeout here,
-                      -- ``` fromMaybe (Right False) <$>
-                      --    System.Timeout.timeout ((length a) * timeoutVal) (checkArr <$> a) ```
-                      -- isn't enough
                       a
                   )
                   inds

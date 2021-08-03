@@ -219,6 +219,7 @@ instance Materializeable CompileConfig where
     { umImportStmts :: Maybe [String],
       umPackages :: Maybe [String],
       umHoleLvl :: Maybe Int,
+      umHoleDepth :: Maybe Int,
       umUnfoldTastyTests :: Maybe Bool,
       umModBase :: Maybe [FilePath],
       umAdditionalTargets :: Maybe [FilePath],
@@ -252,13 +253,15 @@ instance Materializeable CompileConfig where
       Nothing
       Nothing
       Nothing
+      Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
     CompConf
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
-        hole_lvl = fromMaybe hole_lvl umHoleLvl,
+        holeLvl = fromMaybe holeLvl umHoleLvl,
+        holeDepth = fromMaybe holeDepth umHoleDepth,
         modBase = fromMaybe modBase umModBase,
         unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests,
         additionalTargets = fromMaybe additionalTargets umAdditionalTargets,
@@ -282,8 +285,18 @@ data CompileConfig = CompConf
     modBase :: [FilePath],
     -- | Any additional targets to include
     additionalTargets :: [FilePath],
-    -- | the "depth" of the holes, see general notes on this
-    hole_lvl :: Int,
+    -- | The "level" and "depth" of the holes, see general notes on this.
+    -- holeLvl determines how many additional holes a hole fit can have.
+    -- Note: a holeLvl > 0 means that we must have a holeDepth of > 0,
+    -- since we *must* fill all holes.
+    holeLvl :: Int,
+    -- |  Hole depth determines how many levels of additional holes we allow.
+    -- I.e. we have holeLvl = 1 then and x :: a, y :: a -> a in scope, a hole
+    -- _ :: a would give the following:
+    -- + holeDepth 0 would give x :: a,
+    -- + holeDepth 1 would give x :: a, (y x) :: a
+    -- + holeDepth 2 would give x :: a, (y x) :: a, and (y (y x)) :: a etc.
+    holeDepth :: Int,
     -- | Whether to unfold tasty TestTrees into multiple tests
     unfoldTastyTests :: Bool,
     -- | Where to put files generated during the run. We do a lot
@@ -302,20 +315,16 @@ data CompileConfig = CompConf
     -- Use this if you're getting crashes saying:
     -- "Exception: tests/cases/ThreeFixes.hi: openBinaryFile: resource busy (file is locked)"
     randomizeHiDir :: Bool,
-    -- | Whether or not to use bytecode or to
-    -- just interpret the resulting code.
-    -- Usuallly safe to set to true, except
-    -- when Core-to-Core plugins are involved.
+    -- | Whether or not to use bytecode or to just interpret the resulting code.
+    -- Usuallly safe to set to true, except when Core-to-Core plugins are involved.
     useInterpreted :: Bool,
-    -- | Set the timeout in microseconds for each
-    -- heck, after which we assume the check is
-    -- in an infinte loop.
+    -- | Set the timeout in microseconds for each heck, after which we assume the
+    -- check is in an infinte loop.
     timeout :: Integer,
-    -- | Whether or not we're allowed to precompute
-    -- the fixes at the beginning. Better in most
-    -- cases, but can slow down if we have big
-    -- programs and aren't considering all of it
-    -- (e.t. random search).
+    -- | Whether or not we're allowed to precompute the fixes at the beginning.
+    -- Better in most cases, but can slow down if we have big programs and aren't
+    -- considering all of it (e.t. random search). Might interfere with
+    -- function fits and refinement fits.
     precomputeFixes :: Bool,
     -- Whether to allow fits of the type `(_ x)` where x is some identifier
     -- in the code. Makes the search space bigger, but finds more fits.
@@ -329,7 +338,8 @@ data CompileConfig = CompConf
 instance Default CompileConfig where
   def =
     CompConf
-      { hole_lvl = 0,
+      { holeLvl = 0,
+        holeDepth = 1,
         packages = ["base"],
         importStmts = ["import Prelude"],
         unfoldTastyTests = True,

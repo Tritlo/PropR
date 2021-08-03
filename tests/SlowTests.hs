@@ -117,7 +117,16 @@ specialTests =
         120_000_000
         "Non-interpreted"
         "tests/cases/LoopBreaker.hs",
-      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs"
+      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs",
+      mkRepairTest
+        ( def
+            { compileConfig = def {holeLvl = 2, useInterpreted = False}
+            }
+        )
+        (runGenRepair' (tESTGENCONF {populationSize = 128}))
+        180_000_000
+        "Refinement test"
+        "tests/cases/SimpleRefinement.hs"
     ]
 
 main :: IO ()
