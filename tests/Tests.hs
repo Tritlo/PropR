@@ -539,6 +539,17 @@ moduleTests =
               "-x = 4",
               "+x = 5"
             ]
+          ],
+      mkModuleTest 5_000_000 "Main module" "tests/cases/mainMod.hs" Nothing $
+        map
+          unlines
+          [ [ "diff --git a/tests/cases/mainMod.hs b/tests/cases/mainMod.hs",
+              "--- a/tests/cases/mainMod.hs",
+              "+++ b/tests/cases/mainMod.hs",
+              "@@ -6,1 +6,1 @@ x = B",
+              "-x = B",
+              "+x = A"
+            ]
           ]
     ]
 

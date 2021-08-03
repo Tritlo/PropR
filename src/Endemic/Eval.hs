@@ -285,15 +285,6 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
               hscTarget = HscInterpreted
             }
     mname <- addTargetGetModName target
-    when (moduleNameString mname == "Main") $
-      liftIO $
-        logStr WARN $
-          unwords
-            [ "Data declarations and instances will not be",
-              "picked up from unnamed modules or modules named 'Main'",
-              "due to a GHC bug. Please add a module header or give it",
-              "a different name."
-            ]
     let no_ext = dropExtension mod_path
         thisModBase = case stripPrefix (reverse $ moduleNameSlashes mname) no_ext of
           Just dir -> reverse dir
@@ -318,20 +309,67 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
                 hscTarget = HscInterpreted
               }
 
+    -- Due to an issue with the GHC linker, we have to give modules a name
+    -- so we can import them. So we create a "FakeMain" module to represent
+    -- the unnamed or Main module we're checking. Note: this creates a
+    -- file that needs to be deleted later. However: only one such is created
+    -- per run.
+    (fake_target, fake_import) <-
+      if moduleNameString mname == "Main"
+        then liftIO $ do
+          td_seed <- abs <$> newSeed
+          let fakeMname = "FakeMain" ++ show td_seed
+              fakeMainLoc = tempDirBase </> fakeMname <.> "hs"
+              mod :: HsModule GhcPs
+              mod = unLoc pm_parsed_source
+              (toRemove, exportStr) =
+                case hsmodName mod of
+                  -- A truly unnamed module
+                  Nothing -> (Nothing, "")
+                  Just (L (RealSrcSpan rsp) mname) ->
+                    ( Just rsp,
+                      case hsmodExports mod of
+                        Nothing -> ""
+                        Just (L _ exports) ->
+                          let exps =
+                                intercalate "," $
+                                  map (showSDocUnsafe . ppr) exports
+                           in ("(" ++ exps ++ ")")
+                    )
+                  _ -> (Nothing, "")
+
+          contents <- lines <$> readFile mod_path
+
+          let mhead = unwords ["module", fakeMname, exportStr, "where", "\n"]
+              filtered =
+                case toRemove of
+                  Nothing -> mhead : contents
+                  Just rsp ->
+                    take (srcSpanStartLine rsp - 1) contents
+                      ++ [mhead]
+                      ++ drop (srcSpanEndLine rsp) contents
+          writeFile fakeMainLoc $ unlines filtered
+          return (fakeMainLoc, unwords ["import", fakeMname])
+        else return ([], [])
+
     let (L _ HsModule {..}) = pm_parsed_source
         cc' =
           cc
             { -- We import the module itself to get all instances and data
               -- declarations in scope.
               importStmts =
-                if moduleNameString mname /= "Main"
-                  then self_import : rest_imports
-                  else rest_imports,
+                ( if moduleNameString mname /= "Main"
+                    then self_import
+                    else fake_import
+                ) :
+                rest_imports,
               modBase = dropFileName mod_path : modBase,
               additionalTargets =
-                if moduleNameString mname /= "Main"
-                  then mod_path : additionalTargets
-                  else additionalTargets
+                ( if moduleNameString mname /= "Main"
+                    then mod_path
+                    else fake_target
+                ) :
+                additionalTargets
             }
           where
             imps' = map showUnsafe hsmodImports
