@@ -15,7 +15,7 @@
 -- Abbreviations:
 --    nzh=non-zero-holes - Holes that are touched by properties
 --    id_prog=identity-Program - The unchanged Program (initial input to repair)
--- 
+--
 -- Note on (SrcSpan, LHsExpr GhcPs):
 -- We thought about Synomising this, but it resembles multiple things;
 --   1. An expression and it's (new) hole
@@ -191,7 +191,7 @@ propCounterExample cc ep prop =
 -- makes it fail.
 propCounterExamples :: ProblemDescription -> [EProp] -> Ghc [Maybe [RExpr]]
 propCounterExamples ProbDesc {..} props = do
-  let cc' = (compConf {hole_lvl = 0, importStmts = checkImports ++ importStmts compConf})
+  let cc' = (compConf {importStmts = checkImports ++ importStmts compConf})
       mk_bcc prop seed = buildCounterExampleCheck compConf seed prop progProblem
       checkProp prop | isTastyProp prop = return $ Just []
       checkProp prop = do
@@ -278,15 +278,14 @@ findEvaluatedHoles
           ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
       -- We compute the locations that are touched by the failing counter-examples
       liftIO $ logStr DEBUG "Tracing program..."
-      let 
-          -- | This Method helps us to go resolve the traces per expressions touched by properties 
-          -- To get the traces per properties touched by expressions.
-          -- If it were a matrix, this would be a classic matrix transpose.
-          -- We introduce the Ints before Properties and EExprs to have a trace-able ID for them, 
-          -- As they do not provide Equality themselves. 
-          -- However, (Toplevel) Expressions and Properties are unique, so we do not carry around duplicates.
-          -- It was just easier to use an Integer as a helper than to implement equality for Compiler-Objects.
-          assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
+      -- This Method helps us to go resolve the traces per expressions touched by properties
+      -- To get the traces per properties touched by expressions.
+      -- If it were a matrix, this would be a classic matrix transpose.
+      -- We introduce the Ints before Properties and EExprs to have a trace-able ID for them,
+      -- As they do not provide Equality themselves.
+      -- However, (Toplevel) Expressions and Properties are unique, so we do not carry around duplicates.
+      -- It was just easier to use an Integer as a helper than to implement equality for Compiler-Objects.
+      let assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
           assigToExprProp xs = resolve $ joinExprs mergeExprs
             where
               eprop_map :: Map Integer EProp
@@ -358,7 +357,7 @@ repairAttempt
     let inContext = noLoc . HsLet NoExtField e_ctxt
         addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
         addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
-    
+
     -- nzh=non-zero-holes - Holes that are touched by properties
     nzh <- findEvaluatedHoles desc
     runGhcWithCleanup cc $ do
@@ -423,18 +422,18 @@ checkFixes
     dynFlags <- getSessionDynFlags
     _ <-
       setSessionDynFlags $
-      -- turn-off all warnings
-      flip (foldl wopt_unset) [toEnum 0..] $
-        flip (foldl gopt_unset) setFlags $ -- Remove the HPC
-          dynFlags
-            { mainModIs = mkMainModule $ fsLit mname,
-              mainFunIs = Just "main__",
-              hpcDir = tempDir,
-              ghcMode = if useInterpreted then CompManager else OneShot,
-              ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
-              hscTarget = if useInterpreted then HscInterpreted else HscAsm
-              --optLevel = 2
-            }
+        -- turn-off all warnings
+        flip (foldl wopt_unset) [toEnum 0 ..] $
+          flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+            dynFlags
+              { mainModIs = mkMainModule $ fsLit mname,
+                mainFunIs = Just "main__",
+                hpcDir = tempDir,
+                ghcMode = if useInterpreted then CompManager else OneShot,
+                ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
+                hscTarget = if useInterpreted then HscInterpreted else HscAsm
+                --optLevel = 2
+              }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
         target = Target tid True $ Just (strBuff, now)

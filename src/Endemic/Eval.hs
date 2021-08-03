@@ -99,13 +99,13 @@ setFlags = [Opt_Hpc]
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
   -- turn-off all warnings
-  flip (foldl wopt_unset) [toEnum 0..] $
-  flip (foldl gopt_set) setFlags $
-    (foldl gopt_unset sflags (Opt_OmitYields : holeFlags))
-      { maxValidHoleFits = Nothing,
-        maxRefHoleFits = Nothing,
-        refLevelHoleFits = Just lvl
-      }
+  flip (foldl wopt_unset) [toEnum 0 ..] $
+    flip (foldl gopt_set) setFlags $
+      (foldl gopt_unset sflags (Opt_OmitYields : holeFlags))
+        { maxValidHoleFits = Nothing,
+          maxRefHoleFits = Nothing,
+          refLevelHoleFits = Just lvl
+        }
 
 ----
 
@@ -293,13 +293,13 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     dynFlags <- getSessionDynFlags
     _ <-
       setSessionDynFlags $
-       flip (foldl wopt_unset) [toEnum 0..] $  -- remove all warnings
-        flip (foldl gopt_unset) setFlags $ -- Remove the HPC
-          dynFlags
-            { ghcMode = CompManager,
-              ghcLink = LinkInMemory,
-              hscTarget = HscInterpreted
-            }
+        flip (foldl wopt_unset) [toEnum 0 ..] $ -- remove all warnings
+          flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+            dynFlags
+              { ghcMode = CompManager,
+                ghcLink = LinkInMemory,
+                hscTarget = HscInterpreted
+              }
 
     let (L _ HsModule {..}) = pm_parsed_source
         cc' =
