@@ -56,7 +56,8 @@ import FV (fvVarSet)
 import GHC
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
-import PrelNames (mkMainModule)
+import Numeric (showHex)
+import PrelNames (mkMainModule, mkMainModule_)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
 import System.FilePath (dropExtension, dropFileName, takeFileName, (<.>), (</>))
@@ -401,15 +402,15 @@ checkFixes
       ..
     }
   fixes = do
-    td_seed <- liftIO newSeed
-    let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
+    liftIO $ logStr DEBUG "Checking fixes..."
+    seed <- liftIO newSeed
+    let checkHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes, seed)
+        tempDir = tempDirBase </> "checks" </> checkHash
+        the_f = tempDir </> ("FakeCheckTarget" ++ checkHash) <.> "hs"
     liftIO $ createDirectoryIfMissing True tempDir
-    (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
-    seed <- liftIO $ newSeed
     -- We generate the name of the module from the temporary file
     let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
         modTxt = exprToCheckModule cc seed mname tp fixes
-        strBuff = stringToStringBuffer modTxt
         exeName = dropExtension the_f
         timeoutVal = fromIntegral timeout
 
@@ -417,7 +418,7 @@ checkFixes
     -- Note: we do not need to dump the text of the module into the file, it
     -- only needs to exist. Otherwise we would have to write something like
     -- `hPutStr handle modTxt`
-    liftIO $ hClose handle
+    liftIO $ writeFile the_f modTxt
     liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
     dynFlags <- getSessionDynFlags
     _ <-
@@ -426,9 +427,7 @@ checkFixes
         flip (foldl wopt_unset) [toEnum 0 ..] $
           flip (foldl gopt_unset) setFlags $ -- Remove the HPC
             dynFlags
-              { mainModIs = mkMainModule $ fsLit mname,
-                mainFunIs = Just "main__",
-                hpcDir = tempDir,
+              { hpcDir = tempDir,
                 ghcMode = if useInterpreted then CompManager else OneShot,
                 ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
                 hscTarget = if useInterpreted then HscInterpreted else HscAsm
@@ -436,13 +435,25 @@ checkFixes
               }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
-        target = Target tid True $ Just (strBuff, now)
+        target = Target tid True Nothing
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     target_name <- addTargetGetModName target
+
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        dynFlags
+          { mainModIs = mkModule mainUnitId target_name,
+            mainFunIs = Just "main__"
+          }
     addLocalTargets [] modBase
+    liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
     _ <- load (LoadUpTo target_name)
+    mg <- depanal [] True
+    liftIO $ logStr DEBUG "New graph:"
+    liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg
 
     let p '1' = Just True
         p '0' = Just False
@@ -473,16 +484,20 @@ checkFixes
                   else Right False
 
     let inds = take (length fixes) [0 ..]
+
     res <-
       if useInterpreted
         then do
           let m_name = mkModuleName mname
               checkArr arr = if and arr then Right True else Left arr
+          liftIO $ logStr DEBUG $ "Adding " ++ mname
           setContext [IIDecl $ simpleImportDecl m_name]
+          liftIO $ logStr DEBUG "Compiling checks__"
           checks_expr <- compileExpr "checks__"
           let checks :: [IO [Bool]]
               checks = unsafeCoerce# checks_expr
               evf = if parChecks then mapConcurrently else mapM
+          liftIO $ logStr DEBUG "Running checks..."
           liftIO $ collectStats $ evf (checkArr <$>) checks
         else
           liftIO $
@@ -490,6 +505,7 @@ checkFixes
               then do
                 -- By starting all the processes and then waiting on them, we get more
                 -- mode parallelism.
+                liftIO $ logStr DEBUG "Running checks..."
                 procs <- collectStats $ mapM startCheck inds
                 collectStats $ mapM waitOnCheck procs
               else collectStats $ mapM (startCheck >=> waitOnCheck) inds

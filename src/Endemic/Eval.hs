@@ -63,7 +63,8 @@ import GHC
 import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
-import PrelNames (mkMainModule, toDynName)
+import Numeric (showHex)
+import PrelNames (toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive, removeFile)
@@ -269,10 +270,18 @@ moduleToProb ::
   Maybe String ->
   -- | "mb_target" whether to target a specific type (?)
   IO (CompileConfig, TypecheckedModule, Maybe EProblem)
-moduleToProb cc@CompConf {..} mod_path mb_target = do
-  let target = Target (TargetFile mod_path Nothing) True Nothing
+moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
+  modHash <- flip showHex "" . abs . hashString <$> readFile mod_path
+
+  let tdBase = baseTempDir </> modHash </> dropExtensions mod_path
+      cc@CompConf {..} = baseCC {tempDirBase = tdBase}
+
+  let target_id = TargetFile mod_path Nothing
+      target = Target target_id True Nothing
+
   -- Feed the given Module into GHC
-  runGhc' cc {importStmts = importStmts ++ checkImports} $ do
+  runGhc' cc {importStmts = importStmts ++ checkImports, randomizeHiDir = False} $ do
+    dflags <- getSessionDynFlags
     liftIO $ logStr DEBUG "Loading module targets..."
 
     mname <- addTargetGetModName target
@@ -280,6 +289,7 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
         thisModBase = case stripPrefix (reverse $ moduleNameSlashes mname) no_ext of
           Just dir -> reverse dir
           _ -> dropFileName no_ext
+        orig_mname = mname
 
     addLocalTargets [] (thisModBase : modBase)
     mnames_after_local <- depanal [] False
@@ -290,28 +300,85 @@ moduleToProb cc@CompConf {..} mod_path mb_target = do
     liftIO $ logStr DEBUG "Type checking module..."
     tc_modul@TypecheckedModule {..} <- typecheckModule modul
 
-    dynFlags <- getSessionDynFlags
-    _ <-
-      setSessionDynFlags $
-        flip (foldl wopt_unset) [toEnum 0 ..] $ -- remove all warnings
-          flip (foldl gopt_unset) setFlags $ -- Remove the HPC
-            dynFlags
-              { ghcMode = CompManager,
-                ghcLink = LinkInMemory,
-                hscTarget = HscInterpreted
+    -- Due to an issue with the GHC linker, we have to give modules a name
+    -- so we can import them. So we create a "FakeMain" module to represent
+    -- the unnamed or Main module we're checking. Note: this creates a
+    -- file that needs to be deleted later. However: only one such is created
+    -- per run.
+    (fake_module, fake_import, mname) <-
+      if moduleNameString mname == "Main"
+        then do
+          let fakeMname = intercalate "_" ["FakeMain", modHash, takeBaseName mod_path]
+              fakeMainBase = tempDirBase </> "common" </> "build" </> fakeMname
+              fakeMainLoc = fakeMainBase <.> "hs"
+              mod :: HsModule GhcPs
+              mod = unLoc pm_parsed_source
+              (toRemove, exportStr) =
+                case hsmodName mod of
+                  -- A truly unnamed module
+                  Nothing -> (Nothing, "")
+                  Just (L (RealSrcSpan rsp) mname) ->
+                    ( Just rsp,
+                      case hsmodExports mod of
+                        Nothing -> ""
+                        Just (L _ exports) ->
+                          let exps =
+                                intercalate "," $
+                                  map (showSDocUnsafe . ppr) exports
+                           in ("(" ++ exps ++ ")")
+                    )
+                  _ -> (Nothing, "")
+
+          contents <- liftIO $ lines <$> readFile mod_path
+          -- We ignore the exportStr, since we're fixing things local to the
+          -- module. TODO: ignore exports on other local modules as well
+          let mhead = unwords ["module", fakeMname {-- exportStr, --}, "where", "\n"]
+              filtered =
+                case toRemove of
+                  Nothing -> mhead : contents
+                  Just rsp ->
+                    take (srcSpanStartLine rsp - 1) contents
+                      ++ [mhead]
+                      ++ drop (srcSpanEndLine rsp) contents
+          liftIO $ writeFile fakeMainLoc $ unlines filtered
+          let fake_target_id = TargetFile fakeMainLoc Nothing
+              fake_target = Target fake_target_id True Nothing
+
+          removeTarget target_id
+          fake_mname <- addTargetGetModName fake_target
+
+          setSessionDynFlags
+            dflags
+              { mainModIs = mkModule mainUnitId fake_mname
               }
+          _ <- load LoadAllTargets
+          return (fakeMainLoc, unwords ["import", fakeMname], fake_mname)
+        else return ([], [], mname)
 
     let (L _ HsModule {..}) = pm_parsed_source
         cc' =
           cc
             { -- We import the module itself to get all instances and data
               -- declarations in scope.
-              importStmts = ("import " ++ moduleNameString mname) : (importStmts ++ imps'),
+              importStmts =
+                ( if moduleNameString orig_mname /= "Main"
+                    then self_import
+                    else fake_import
+                ) :
+                rest_imports,
               modBase = dropFileName mod_path : modBase,
-              additionalTargets = mod_path : additionalTargets
+              additionalTargets =
+                ( if moduleNameString orig_mname /= "Main"
+                    then mod_path
+                    else fake_module
+                ) :
+                additionalTargets
             }
           where
             imps' = map showUnsafe hsmodImports
+            self_import = "import " ++ moduleNameString mname
+            self_target = mod_path
+            rest_imports = importStmts ++ imps'
         -- Retrieves the Values declared in the given Haskell-Module
         valueDeclarations :: [LHsBind GhcPs]
         valueDeclarations = mapMaybe fromValD hsmodDecls
@@ -611,10 +678,11 @@ buildTraceCorrel cc prob exprs = do
 -- "Exception: .hpc/FourFixes.mix: openFile: resource busy (file is locked)"
 -- exceptions.
 runGhcWithCleanup :: CompileConfig -> Ghc a -> IO a
-runGhcWithCleanup CompConf {..} act | parChecks = do
-  td_seed <- abs <$> newSeed
-  let tdBase = tempDirBase </> "run-" ++ show td_seed
+runGhcWithCleanup CompConf {..} act = do
+  td_seed <- flip showHex "" . abs <$> newSeed
+  let tdBase = tempDirBase </> "run" </> td_seed
       common = tempDirBase </> "common"
+      extra_dirs = [common </> "build", common]
   createDirectoryIfMissing True tdBase
 
   res <- runGhc (Just libdir) $ do
@@ -625,6 +693,8 @@ runGhcWithCleanup CompConf {..} act | parChecks = do
                 if randomizeHpcDir
                   then tdBase </> "hpc"
                   else common </> "hpc",
+              importPaths = importPaths dflags ++ extra_dirs,
+              libraryPaths = libraryPaths dflags ++ extra_dirs,
               -- Objects are loaded and unloaded  and we can't load them
               -- twice (since that confuses the C linker). Using
               -- Linker.unload makes it segfault, so we'll have to make
@@ -648,7 +718,6 @@ runGhcWithCleanup CompConf {..} act | parChecks = do
   check <- doesDirectoryExist tdBase
   when check $ removeDirectoryRecursive tdBase
   return res
-runGhcWithCleanup _ act = runGhc (Just libdir) act
 
 runGhc' :: CompileConfig -> Ghc a -> IO a
 runGhc' cc = runGhcWithCleanup cc . (initGhcCtxt cc >>)
@@ -675,24 +744,20 @@ traceTargets ::
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
-  td_seed <- newSeed
-  let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
-  createDirectoryIfMissing True tempDir
-  (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   seed <- newSeed
+  let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)
+      tempDir = tempDirBase </> "trace" </> traceHash
+      the_f = tempDir </> ("FakeTraceTarget" ++ traceHash) <.> "hs"
+  createDirectoryIfMissing True tempDir
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       modTxt = exprToTraceModule cc tp seed mname correl ps_w_ce
-      strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
       mixFilePath = tempDir
       timeoutVal = fromIntegral timeout
 
   logStr DEBUG modTxt
-  -- Note: we do not need to dump the text of the module into the file, it
-  -- only needs to exist. Otherwise we would have to write something like
-  -- `hPutStr handle modTxt`
-  hClose handle
+  writeFile the_f modTxt
   _ <- liftIO $ mapM (logStr DEBUG) $ lines modTxt
   runGhc' cc $ do
     -- We set the module as the main module, which makes GHC generate
@@ -701,17 +766,25 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
     _ <-
       setSessionDynFlags $
         dynFlags
-          { mainModIs = mkMainModule $ fsLit mname,
-            mainFunIs = Just "main__",
-            hpcDir = tempDir
+          { hpcDir = tempDir,
+            importPaths = importPaths dynFlags ++ [tempDir],
+            libraryPaths = libraryPaths dynFlags ++ [tempDir]
           }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
-        target = Target tid True $ Just (strBuff, now)
+        target = Target tid True Nothing
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
     target_name <- addTargetGetModName target
+    dynFlags <- getSessionDynFlags
+    _ <-
+      setSessionDynFlags $
+        dynFlags
+          { mainModIs = mkModule mainUnitId target_name,
+            mainFunIs = Just "main__"
+          }
+
     addLocalTargets [] modBase
     _ <- load (LoadUpTo target_name)
 
@@ -766,7 +839,7 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
               return $ Just res
             _ -> return Nothing
 
-    res <- liftIO $ mapM runTrace $ fst $ unzip $ zip [0 ..] ps_w_ce
+    res <- liftIO $ mapM (runTrace . fst) $ zip [0 ..] ps_w_ce
     cleanupAfterLoads tempDir mname dynFlags
     return res
   where
@@ -808,12 +881,18 @@ cleanupAfterLoads :: FilePath -> String -> DynFlags -> Ghc ()
 cleanupAfterLoads tempDir mname dynFlags = do
   liftIO $ do
     -- Remove the dir with the .hs and .hi file
-    removeDirectoryRecursive tempDir
+    check <- doesDirectoryExist tempDir
+    when check $ do
+      logStr DEBUG $ "Removing " ++ tempDir
+      removeDirectoryRecursive tempDir
     case objectDir dynFlags of
       Just dir | fp <- dir </> mname ->
         forM_ ["o", "hi"] $ \ext -> do
-          check <- doesFileExist (fp <.> ext)
-          when check $ removeFile (fp <.> ext)
+          let file = fp <.> ext
+          check <- doesFileExist file
+          when check $ do
+            logStr DEBUG $ "Removing " ++ file
+            removeFile file
       _ -> return ()
 
 exprToTraceModule ::
