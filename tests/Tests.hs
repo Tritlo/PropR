@@ -529,7 +529,7 @@ moduleTests =
           ],
       mkModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing [],
       mkModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing [],
-      mkModuleTest 5_000_000 "Unnamed" "tests/cases/unnamed.hs" Nothing $
+      mkModuleTest 15_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing $
         map
           unlines
           [ [ "diff --git a/tests/cases/unnamed.hs b/tests/cases/unnamed.hs",
@@ -540,7 +540,7 @@ moduleTests =
               "+x = 5"
             ]
           ],
-      mkModuleTest 5_000_000 "Main module" "tests/cases/mainMod.hs" Nothing $
+      mkModuleTest 15_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing $
         map
           unlines
           [ [ "diff --git a/tests/cases/mainMod.hs b/tests/cases/mainMod.hs",

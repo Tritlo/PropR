@@ -401,6 +401,7 @@ checkFixes
       ..
     }
   fixes = do
+    liftIO $ logStr DEBUG "Checking fixes..."
     td_seed <- liftIO newSeed
     let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
     liftIO $ createDirectoryIfMissing True tempDir
@@ -447,9 +448,12 @@ checkFixes
           { mainModIs = mkModule mainUnitId target_name,
             mainFunIs = Just "main__"
           }
-
     addLocalTargets [] modBase
+    liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
     _ <- load (LoadUpTo target_name)
+    mg <- depanal [] True
+    liftIO $ logStr DEBUG "New graph:"
+    liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg
 
     let p '1' = Just True
         p '0' = Just False
@@ -480,16 +484,20 @@ checkFixes
                   else Right False
 
     let inds = take (length fixes) [0 ..]
+
     res <-
       if useInterpreted
         then do
           let m_name = mkModuleName mname
               checkArr arr = if and arr then Right True else Left arr
+          liftIO $ logStr DEBUG $ "Adding " ++ mname
           setContext [IIDecl $ simpleImportDecl m_name]
+          liftIO $ logStr DEBUG "Compiling checks__"
           checks_expr <- compileExpr "checks__"
           let checks :: [IO [Bool]]
               checks = unsafeCoerce# checks_expr
               evf = if parChecks then mapConcurrently else mapM
+          liftIO $ logStr DEBUG "Running checks..."
           liftIO $ collectStats $ evf (checkArr <$>) checks
         else
           liftIO $
@@ -497,6 +505,7 @@ checkFixes
               then do
                 -- By starting all the processes and then waiting on them, we get more
                 -- mode parallelism.
+                liftIO $ logStr DEBUG "Running checks..."
                 procs <- collectStats $ mapM startCheck inds
                 collectStats $ mapM waitOnCheck procs
               else collectStats $ mapM (startCheck >=> waitOnCheck) inds
