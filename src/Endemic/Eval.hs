@@ -746,7 +746,7 @@ traceTargets ::
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
   let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce)
       tempDir = tempDirBase </> "trace" </> traceHash
-      the_f = tempDir </> "FakeTarget" <.> "hs"
+      the_f = tempDir </> ("FakeTarget" ++ traceHash) <.> "hs"
   createDirectoryIfMissing True tempDir
   seed <- newSeed
   -- We generate the name of the module from the temporary file
