@@ -403,8 +403,8 @@ checkFixes
     }
   fixes = do
     liftIO $ logStr DEBUG "Checking fixes..."
-    td_seed <- flip showHex "" . abs <$> liftIO newSeed
-    let tempDir = tempDirBase </> "checks" </> td_seed
+    let fixHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes)
+        tempDir = tempDirBase </> "checks" </> fixHash
     liftIO $ createDirectoryIfMissing True tempDir
     (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
     seed <- liftIO $ newSeed

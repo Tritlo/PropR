@@ -744,8 +744,8 @@ traceTargets ::
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
-  td_seed <- flip showHex "" . abs <$> newSeed
-  let tempDir = tempDirBase </> "trace" </> td_seed
+  let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce)
+      tempDir = tempDirBase </> "trace" </> traceHash
   createDirectoryIfMissing True tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   seed <- newSeed
