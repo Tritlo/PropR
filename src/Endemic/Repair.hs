@@ -40,7 +40,7 @@ import qualified Data.IntMap as IntMap
 import Data.List (groupBy, intercalate, nub, nubBy, sort, sortOn, transpose)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Maybe (catMaybes, fromJust, isJust, mapMaybe)
+import Data.Maybe (catMaybes, fromJust, fromMaybe, isJust, mapMaybe)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (flatten)
@@ -460,11 +460,14 @@ checkFixes
         p _ = Nothing
         startCheck :: Int -> IO (Handle, ProcessHandle)
         startCheck which = do
-          (_, Just hout, _, ph) <-
+          (_, Just hout, _, ph) <- do
+            let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+            logStr DEBUG $ "Checking " ++ show which ++ ":"
+            logOut DEBUG (fixes !! which)
             createProcess
               (proc exeName [show which])
                 { -- TODO: /dev/null should be NUL if we're on windows.
-                  env = Just [("HPCTIXFILE", "/dev/null")],
+                  env = Just [("HPCTIXFILE", tixFilePath)],
                   -- We ignore the output
                   std_out = CreatePipe
                 }
@@ -494,11 +497,22 @@ checkFixes
           setContext [IIDecl $ simpleImportDecl m_name]
           liftIO $ logStr DEBUG "Compiling checks__"
           checks_expr <- compileExpr "checks__"
-          let checks :: [IO [Bool]]
-              checks = unsafeCoerce# checks_expr
+          let checks_ :: [IO [Bool]]
+              checks_ = unsafeCoerce# checks_expr
+              checks =
+                zipWith
+                  ( \i a -> do
+                      logStr DEBUG $ "Checking " ++ show i ++ ":"
+                      logOut DEBUG (fixes !! i)
+                      fromMaybe (Right False) <$> System.Timeout.timeout timeoutVal (checkArr <$> a)
+                  )
+                  inds
+                  checks_
               evf = if parChecks then mapConcurrently else mapM
           liftIO $ logStr DEBUG "Running checks..."
-          liftIO $ collectStats $ evf (checkArr <$>) checks
+          res <- liftIO $ collectStats $ evf id checks
+          liftIO $ logStr DEBUG "Done checking!"
+          return res
         else
           liftIO $
             if parChecks
