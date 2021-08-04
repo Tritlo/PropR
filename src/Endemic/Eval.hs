@@ -63,6 +63,7 @@ import GHC
 import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
+import Numeric (showHex)
 import PrelNames (toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
@@ -270,10 +271,13 @@ moduleToProb ::
   -- | "mb_target" whether to target a specific type (?)
   IO (CompileConfig, TypecheckedModule, Maybe EProblem)
 moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
+  modHash <- flip showHex "" . abs . hashString <$> readFile mod_path
+
+  let tdBase = baseTempDir </> modHash </> dropExtensions mod_path
+      cc@CompConf {..} = baseCC {tempDirBase = tdBase}
+
   let target_id = TargetFile mod_path Nothing
       target = Target target_id True Nothing
-      tdBase = baseTempDir </> dropExtensions mod_path
-      cc@CompConf {..} = baseCC {tempDirBase = tdBase}
 
   -- Feed the given Module into GHC
   runGhc' cc {importStmts = importStmts ++ checkImports, randomizeHiDir = False} $ do
@@ -304,8 +308,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
     (fake_module, fake_import, mname) <-
       if moduleNameString mname == "Main"
         then do
-          td_seed <- liftIO $ abs <$> newSeed
-          let fakeMname = intercalate "_" ["FakeMain", takeBaseName mod_path, show td_seed]
+          let fakeMname = intercalate "_" ["FakeMain", modHash, takeBaseName mod_path]
               fakeMainBase = tempDirBase </> "common" </> "build" </> fakeMname
               fakeMainLoc = fakeMainBase <.> "hs"
               mod :: HsModule GhcPs
@@ -676,8 +679,8 @@ buildTraceCorrel cc prob exprs = do
 -- exceptions.
 runGhcWithCleanup :: CompileConfig -> Ghc a -> IO a
 runGhcWithCleanup CompConf {..} act = do
-  td_seed <- abs <$> newSeed
-  let tdBase = tempDirBase </> "run-" ++ show td_seed
+  td_seed <- flip showHex "" . abs <$> newSeed
+  let tdBase = tempDirBase </> "run" </> td_seed
       common = tempDirBase </> "common"
       extra_dirs = [common </> "build", common]
   createDirectoryIfMissing True tdBase
@@ -741,8 +744,8 @@ traceTargets ::
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
-  td_seed <- newSeed
-  let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
+  td_seed <- flip showHex "" . abs <$> newSeed
+  let tempDir = tempDirBase </> "trace" </> td_seed
   createDirectoryIfMissing True tempDir
   (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   seed <- newSeed

@@ -56,6 +56,7 @@ import FV (fvVarSet)
 import GHC
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
+import Numeric (showHex)
 import PrelNames (mkMainModule, mkMainModule_)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
@@ -402,8 +403,8 @@ checkFixes
     }
   fixes = do
     liftIO $ logStr DEBUG "Checking fixes..."
-    td_seed <- liftIO newSeed
-    let tempDir = tempDirBase </> "target-" ++ show (abs td_seed)
+    td_seed <- flip showHex "" . abs <$> liftIO newSeed
+    let tempDir = tempDirBase </> "checks" </> td_seed
     liftIO $ createDirectoryIfMissing True tempDir
     (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
     seed <- liftIO $ newSeed
