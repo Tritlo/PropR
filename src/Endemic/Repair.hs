@@ -403,15 +403,14 @@ checkFixes
     }
   fixes = do
     liftIO $ logStr DEBUG "Checking fixes..."
-    let fixHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes)
-        tempDir = tempDirBase </> "checks" </> fixHash
+    seed <- liftIO newSeed
+    let checkHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes, seed)
+        tempDir = tempDirBase </> "checks" </> checkHash
+        the_f = tempDir </> ("FakeCheckTarget" ++ checkHash) <.> "hs"
     liftIO $ createDirectoryIfMissing True tempDir
-    (the_f, handle) <- liftIO $ openTempFile tempDir "FakeTargetCheck.hs"
-    seed <- liftIO $ newSeed
     -- We generate the name of the module from the temporary file
     let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
         modTxt = exprToCheckModule cc seed mname tp fixes
-        strBuff = stringToStringBuffer modTxt
         exeName = dropExtension the_f
         timeoutVal = fromIntegral timeout
 
@@ -419,7 +418,7 @@ checkFixes
     -- Note: we do not need to dump the text of the module into the file, it
     -- only needs to exist. Otherwise we would have to write something like
     -- `hPutStr handle modTxt`
-    liftIO $ hClose handle
+    liftIO $ writeFile the_f modTxt
     liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
     dynFlags <- getSessionDynFlags
     _ <-
@@ -436,7 +435,7 @@ checkFixes
               }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
-        target = Target tid True $ Just (strBuff, now)
+        target = Target tid True Nothing
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.

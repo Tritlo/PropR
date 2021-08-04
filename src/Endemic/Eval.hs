@@ -744,15 +744,14 @@ traceTargets ::
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
-  let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce)
-      tempDir = tempDirBase </> "trace" </> traceHash
-      the_f = tempDir </> ("FakeTarget" ++ traceHash) <.> "hs"
-  createDirectoryIfMissing True tempDir
   seed <- newSeed
+  let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)
+      tempDir = tempDirBase </> "trace" </> traceHash
+      the_f = tempDir </> ("FakeTraceTarget" ++ traceHash) <.> "hs"
+  createDirectoryIfMissing True tempDir
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
       modTxt = exprToTraceModule cc tp seed mname correl ps_w_ce
-      strBuff = stringToStringBuffer modTxt
       exeName = dropExtension the_f
       mixFilePath = tempDir
       timeoutVal = fromIntegral timeout
@@ -773,7 +772,7 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
           }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
-        target = Target tid True $ Just (strBuff, now)
+        target = Target tid True Nothing
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
