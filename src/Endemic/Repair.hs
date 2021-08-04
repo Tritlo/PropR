@@ -504,13 +504,17 @@ checkFixes
                   ( \i a -> do
                       logStr DEBUG $ "Checking " ++ show i ++ ":"
                       logOut DEBUG (fixes !! i)
-                      fromMaybe (Right False) <$> System.Timeout.timeout timeoutVal (checkArr <$> a)
+                      -- TODO: Proper timeout here,
+                      -- ``` fromMaybe (Right False) <$>
+                      --    System.Timeout.timeout ((length a) * timeoutVal) (checkArr <$> a) ```
+                      -- isn't enough
+                      a
                   )
                   inds
                   checks_
               evf = if parChecks then mapConcurrently else mapM
           liftIO $ logStr DEBUG "Running checks..."
-          res <- liftIO $ collectStats $ evf id checks
+          res <- liftIO $ collectStats $ evf (checkArr <$>) checks
           liftIO $ logStr DEBUG "Done checking!"
           return res
         else

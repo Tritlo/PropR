@@ -102,7 +102,7 @@ config lvl sflags =
   -- turn-off all warnings
   flip (foldl wopt_unset) [toEnum 0 ..] $
     flip (foldl gopt_set) setFlags $
-      (foldl gopt_unset sflags (Opt_OmitYields : holeFlags))
+      (foldl gopt_unset sflags ({- Opt_OmitYields : -} holeFlags))
         { maxValidHoleFits = Nothing,
           maxRefHoleFits = Nothing,
           refLevelHoleFits = Just lvl
