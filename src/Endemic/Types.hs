@@ -76,7 +76,7 @@ type EExpr = LHsExpr GhcPs
 type TestSuiteResult = Either [Bool] Bool
 
 isFixed :: TestSuiteResult -> Bool
-isFixed (Right x) = True
+isFixed (Right x) = x
 isFixed (Left xs) = and xs
 
 type Trace = Tree (SrcSpan, [(BoxLabel, Integer)])

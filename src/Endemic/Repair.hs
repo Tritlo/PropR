@@ -513,8 +513,12 @@ checkFixes
                   inds
                   checks_
               evf = if parChecks then mapConcurrently else mapM
+              evalCheck =
+                (fromMaybe (Right False) <$>)
+                  . System.Timeout.timeout timeoutVal
+                  . (checkArr <$>)
           liftIO $ logStr DEBUG "Running checks..."
-          res <- liftIO $ collectStats $ evf (checkArr <$>) checks
+          res <- liftIO $ collectStats $ evf evalCheck checks
           liftIO $ logStr DEBUG "Done checking!"
           return res
         else
