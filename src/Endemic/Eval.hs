@@ -746,8 +746,8 @@ traceTargets ::
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
   let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce)
       tempDir = tempDirBase </> "trace" </> traceHash
+      the_f = tempDir </> "FakeTarget" <.> "hs"
   createDirectoryIfMissing True tempDir
-  (the_f, handle) <- openTempFile tempDir "FakeTarget.hs"
   seed <- newSeed
   -- We generate the name of the module from the temporary file
   let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
@@ -758,16 +758,19 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
       timeoutVal = fromIntegral timeout
 
   logStr DEBUG modTxt
-  -- Note: we do not need to dump the text of the module into the file, it
-  -- only needs to exist. Otherwise we would have to write something like
-  -- `hPutStr handle modTxt`
-  hClose handle
+  writeFile the_f modTxt
   _ <- liftIO $ mapM (logStr DEBUG) $ lines modTxt
   runGhc' cc $ do
     -- We set the module as the main module, which makes GHC generate
     -- the executable.
     dynFlags <- getSessionDynFlags
-    _ <- setSessionDynFlags $ dynFlags {hpcDir = tempDir}
+    _ <-
+      setSessionDynFlags $
+        dynFlags
+          { hpcDir = tempDir,
+            importPaths = importPaths dynFlags ++ [tempDir],
+            libraryPaths = libraryPaths dynFlags ++ [tempDir]
+          }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
         target = Target tid True $ Just (strBuff, now)
@@ -879,8 +882,10 @@ cleanupAfterLoads :: FilePath -> String -> DynFlags -> Ghc ()
 cleanupAfterLoads tempDir mname dynFlags = do
   liftIO $ do
     -- Remove the dir with the .hs and .hi file
-    logStr DEBUG $ "Removing " ++ tempDir
-    removeDirectoryRecursive tempDir
+    check <- doesDirectoryExist tempDir
+    when check $ do
+      logStr DEBUG $ "Removing " ++ tempDir
+      removeDirectoryRecursive tempDir
     case objectDir dynFlags of
       Just dir | fp <- dir </> mname ->
         forM_ ["o", "hi"] $ \ext -> do
