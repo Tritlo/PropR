@@ -1,6 +1,4 @@
-name: Docker-CI
-
-# Taken from https://github.com/docker/build-push-action/blob/master/docs/advanced/tags-labels.md
+name: Build, test, and deploy
 
 on:
   push:
@@ -22,8 +20,43 @@ on:
       - '**.cabal'
       - 'Dockerfile'
       - '**.project'
+
 jobs:
-  docker:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions/setup-haskell@v1
+      with:
+        ghc-version: '8.10.4'
+        cabal-version: '3.4'
+
+    - name: Cache
+      uses: actions/cache@v2
+      env:
+        cache-name: cache-cabal
+      with:
+        path: |
+          ~/.cabal
+          dist-newstyle
+        key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('*.cabal') }}-${{ hashFiles('cabal.project') }}-${{ hashFiles('**/*.cabal') }}-${{ hashFiles('**/cabal.project') }}
+        restore-keys: |
+          ${{ runner.os }}-build-${{ env.cache-name }}-
+          ${{ runner.os }}-build-
+          ${{ runner.os }}-
+
+    - name: Install dependencies
+      run: |
+        cabal install --lib check-helpers tasty tasty-hunit
+        cabal build --only-dependencies --enable-tests --enable-benchmarks
+    - name: Build
+      run: cabal build --enable-tests --enable-benchmarks all
+    - name: Run tests
+      run: cabal test all
+
+  deploy:
     runs-on: ubuntu-latest
     steps:
       -

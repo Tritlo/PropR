@@ -1,8 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE NumericUnderscores #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Endemic.Repair
@@ -27,11 +30,14 @@ module Endemic.Repair where
 import Bag (bagToList, emptyBag, listToBag)
 import Constraint
 import Control.Arrow (first, second, (***))
-import Control.Concurrent (threadDelay)
+import Control.Concurrent (threadDelay, threadWaitRead)
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (forM_, when, (>=>))
+import Control.Monad (forM_, void, when, (>=>))
 import qualified Data.Bifunctor
+import Data.ByteString.Char8 (ByteString)
+import qualified Data.ByteString.Char8 as BSC
 import Data.Char (isAlphaNum)
+import Data.Default
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
 import Data.Function (on)
@@ -63,14 +69,16 @@ import PrelNames (mkMainModule, mkMainModule_)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (exitFailure)
-import System.FilePath (dropExtension, dropFileName, takeFileName, (<.>), (</>))
-import System.IO (Handle, hClose, hGetLine, openTempFile)
+import System.FilePath (dropExtension, dropFileName, takeDirectory, takeFileName, (<.>), (</>))
+import System.IO (Handle, IOMode (ReadMode, ReadWriteMode, WriteMode), hClose, hFlush, hGetLine, openTempFile)
+import System.Posix (fdToHandle, handleToFd)
 import System.Posix.Process
 import System.Posix.Signals
 import System.Process
 import qualified System.Timeout (timeout)
 import TcHoleErrors (HoleFit (..))
 import TcSimplify (captureTopConstraints)
+import Text.Read (readMaybe)
 
 -- | Provides a GHC without a ic_default set.
 -- IC is short for Interactive-Context (ic_default is set to empty list).
@@ -298,7 +306,8 @@ fakeDesc efcs cc prob =
       exprFitCands = efcs,
       compConf = cc,
       probModule = Nothing,
-      initialFixes = Nothing
+      initialFixes = Nothing,
+      addConf = def {assumeNoLoops = True}
     }
 
 -- | Primary method of this module.
@@ -307,7 +316,7 @@ fakeDesc efcs cc prob =
 repair :: CompileConfig -> EProblem -> IO [EFix]
 repair cc prob@EProb {..} = do
   ecfs <- runGhc' cc $ getExprFitCands $ Left $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
-  let desc = fakeDesc ecfs cc prob
+  let desc@ProbDesc {..} = fakeDesc ecfs cc prob
   map fst . filter (isFixed . snd) <$> repairAttempt desc
 repair _ _ = error "Cannot repair external problems yet!"
 
@@ -414,13 +423,11 @@ findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems y
 repairAttempt ::
   ProblemDescription ->
   IO [(EFix, TestSuiteResult)]
-repairAttempt desc@ProbDesc {compConf = cc} = liftIO $ do
+repairAttempt desc@ProbDesc {compConf = cc, ..} = liftIO $ do
   nzh <- findEvaluatedHoles desc
   runGhcWithCleanup cc $ do
-    fix_cands <- generateFixCandidates desc nzh
-    collectStats $
-      zipWith (\(fs, _) r -> (fs, r)) fix_cands
-        <$> checkFixes desc (map snd fix_cands)
+    (efixes, efixprogs) <- unzip <$> generateFixCandidates desc nzh
+    collectStats $ zip efixes <$> checkFixes desc {addConf = addConf {assumeNoLoops = False}} efixprogs
 
 -- | Retrieves the candidates for the holes given in non-zero holes
 generateFixCandidates ::
@@ -503,6 +510,7 @@ checkFixes
   ProbDesc
     { compConf = cc@CompConf {..},
       progProblem = tp,
+      addConf = AddConf {..},
       ..
     }
   fixes = do
@@ -524,6 +532,7 @@ checkFixes
     -- `hPutStr handle modTxt`
     liftIO $ writeFile the_f modTxt
     liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
+    let shouldInterpret = useInterpreted && assumeNoLoops
     dynFlags <- getSessionDynFlags
     _ <-
       setSessionDynFlags $
@@ -538,9 +547,9 @@ checkFixes
                 -- dependencies.
                 ghcMode = CompManager,
                 -- TODO: Should this be LinkDynLib for MacOS?
-                ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
-                hscTarget = if useInterpreted then HscInterpreted else HscAsm
-                --optLevel = 2
+                ghcLink = if shouldInterpret then LinkInMemory else LinkBinary,
+                hscTarget = if shouldInterpret then HscInterpreted else HscAsm,
+                optLevel = if shouldInterpret then 0 else 2
               }
     now <- liftIO getCurrentTime
     let tid = TargetFile the_f Nothing
@@ -574,6 +583,8 @@ checkFixes
     let p '1' = Just True
         p '0' = Just False
         p _ = Nothing
+        toP True = '1'
+        toP _ = '0'
         startCheck :: Int -> IO (Handle, ProcessHandle)
         startCheck which = do
           (_, Just hout, _, ph) <- do
@@ -617,7 +628,7 @@ checkFixes
 
     let inds = take (length fixes) [0 ..]
     res <-
-      if useInterpreted
+      if shouldInterpret
         then do
           let m_name = mkModuleName mname
               checkArr arr = if and arr then Right True else Left arr
@@ -625,17 +636,8 @@ checkFixes
           setContext [IIDecl $ simpleImportDecl m_name]
           liftIO $ logStr DEBUG "Compiling checks__"
           checks_expr <- compileExpr "checks__"
-          let checks_ :: [IO [Bool]]
-              checks_ = unsafeCoerce# checks_expr
-              checks =
-                zipWith
-                  ( \i a -> do
-                      logStr DEBUG $ "Checking " ++ show i ++ ":"
-                      logOut DEBUG (fixes !! i)
-                      a
-                  )
-                  inds
-                  checks_
+          let checks :: [IO [Bool]]
+              checks = unsafeCoerce# checks_expr
               evf = if parChecks then mapConcurrently else mapM
               evalCheck =
                 (fromMaybe (Right False) <$>)
@@ -659,28 +661,30 @@ checkFixes
     return res
 
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
-describeProblem conf@Conf {compileConfig = cc} fp = do
+describeProblem conf@Conf {compileConfig = ogcc} fp = do
   logStr DEBUG "Describing problem..."
-  (compConf, modul, problem) <- moduleToProb cc fp Nothing
+  (compConf@CompConf {..}, modul, problem) <- moduleToProb ogcc fp Nothing
   case problem of
     Just ExProb {} -> error "External targets not supported!"
     Nothing -> return Nothing
     Just progProblem@EProb {..} ->
       Just <$> do
-        exprFitCands <- runGhc' cc $ getExprFitCands $ Right modul
+        exprFitCands <- runGhc' compConf $ getExprFitCands $ Right modul
         let probModule = Just modul
             initialFixes = Nothing
+            addConf = AddConf {assumeNoLoops = True}
             desc' = ProbDesc {..}
-
-        if precomputeFixes cc
+        if precomputeFixes
           then do
             logStr DEBUG "Pre-computing fixes..."
-            let inContext = noLoc . HsLet NoExtField e_ctxt
-                addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
-                addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
             nzh <- findEvaluatedHoles desc'
-            initialFixes' <- Just . map fst <$> runGhc' cc (generateFixCandidates desc' nzh)
+            initialFixes' <- do
+              if keepLoopingFixes
+                then map fst <$> (findEvaluatedHoles desc' >>= runGhc' compConf . generateFixCandidates desc')
+                else
+                  map fst . filter ((/= Right False) . snd)
+                    <$> repairAttempt desc' {compConf = compConf {parChecks = False}}
             logStr DEBUG "Initial fixes:"
             logOut DEBUG initialFixes'
-            return $ desc' {initialFixes = initialFixes'}
+            return $ desc' {initialFixes = Just initialFixes'}
           else return desc'

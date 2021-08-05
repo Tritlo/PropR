@@ -230,6 +230,7 @@ instance Materializeable CompileConfig where
       umUseInterpreted :: Maybe Bool,
       umTimeout :: Maybe Integer,
       umPrecomputeFixes :: Maybe Bool,
+      umKeepLoopingFixes :: Maybe Bool,
       umAllowFunctionFits :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
@@ -239,6 +240,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -272,6 +274,7 @@ instance Materializeable CompileConfig where
         useInterpreted = fromMaybe useInterpreted umUseInterpreted,
         timeout = fromMaybe timeout umTimeout,
         precomputeFixes = fromMaybe precomputeFixes umPrecomputeFixes,
+        keepLoopingFixes = fromMaybe keepLoopingFixes umKeepLoopingFixes,
         allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits
       }
 
@@ -326,6 +329,9 @@ data CompileConfig = CompConf
     -- considering all of it (e.t. random search). Might interfere with
     -- function fits and refinement fits.
     precomputeFixes :: Bool,
+    -- | Whether or not we keep looping fits in the precomputed fixes. Defaults
+    -- to off, but maybe it's needed in conjunction with something else.
+    keepLoopingFixes :: Bool,
     -- Whether to allow fits of the type `(_ x)` where x is some identifier
     -- in the code. Makes the search space bigger, but finds more fits.
     allowFunctionFits :: Bool
@@ -352,6 +358,7 @@ instance Default CompileConfig where
         useInterpreted = True,
         timeout = 1_000_000,
         precomputeFixes = True,
+        keepLoopingFixes = False,
         allowFunctionFits = True
       }
 
@@ -381,12 +388,23 @@ instance Materializeable LogConfig where
         logFile = mbOverride logFile umLogFile
       }
 
+data AdditionalConf = AddConf
+  { -- | If assumeNoLoops is true, we check the fixes assuming that there
+    -- are no loops in the generated code. Beware! Will die with a message
+    -- saying Alarm Clock in case there were loops.
+    assumeNoLoops :: Bool
+  }
+
+instance Default AdditionalConf where
+  def = AddConf {assumeNoLoops = True}
+
 -- | The Problem Description is generated at runtime, descriping a particular
 -- program to fix.
 data ProblemDescription = ProbDesc
   { progProblem :: EProblem,
     exprFitCands :: [ExprFitCand],
     compConf :: CompileConfig,
+    addConf :: AdditionalConf,
     -- | The typechecked module, if available
     probModule :: Maybe TypecheckedModule,
     -- | Fix candidates, if available

@@ -45,8 +45,8 @@ defaultTests :: TestTree
 defaultTests =
   testGroup
     "Interpreted and Paralell tests"
-    [ mkGenConfTestEx def 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
-      mkGenConfTestEx def 180_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
+    [ mkGenConfTestEx def 360_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
+      mkGenConfTestEx def 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
     conf = def {compileConfig = def {useInterpreted = True, parChecks = True}}
@@ -55,8 +55,8 @@ nonInterpreted :: TestTree
 nonInterpreted =
   testGroup
     "Non-interpreted but Parallel tests"
-    [ mkGenConfTestEx conf 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
-      mkGenConfTestEx conf 180_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
+    [ mkGenConfTestEx conf 360_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
+      mkGenConfTestEx conf 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
     conf = def {compileConfig = def {useInterpreted = False, parChecks = True}}
@@ -65,8 +65,8 @@ nonPar :: TestTree
 nonPar =
   testGroup
     "Non-par tests"
-    [ mkGenConfTestEx conf 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
-      mkGenConfTestEx conf 180_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
+    [ mkGenConfTestEx conf 360_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
+      mkGenConfTestEx conf 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
     conf = def {compileConfig = def {parChecks = False, useInterpreted = True}}
@@ -75,8 +75,8 @@ neitherParNorIntepreted :: TestTree
 neitherParNorIntepreted =
   testGroup
     "Non-interpreted  non-interpreted tests"
-    [ mkGenConfTestEx conf 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
-      mkGenConfTestEx conf 180_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
+    [ mkGenConfTestEx conf 360_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
+      mkGenConfTestEx conf 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
     conf = def {compileConfig = def {parChecks = False, useInterpreted = False}}

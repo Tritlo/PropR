@@ -33,6 +33,21 @@ tESTSEED = 703_039_772
 tESTGENCONF :: GeneticConfiguration
 tESTGENCONF = def {crossoverRate = 0.4, mutationRate = 0.1, dropRate = 0.25, iterations = 1_000}
 
+data TestConf = TestConf
+  { mb_expected :: Maybe [String],
+    indices :: Maybe [Int],
+    allowMix :: Bool
+  }
+  deriving (Show, Eq)
+
+instance Default TestConf where
+  def =
+    TestConf
+      { mb_expected = Nothing,
+        indices = Nothing,
+        allowMix = False
+      }
+
 mkSimpleModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> TestTree
 mkSimpleModuleTest timeout tag toFix repair_target =
   localOption (mkTimeout timeout) $
@@ -75,7 +90,7 @@ mkRepairTest ::
   TestName ->
   FilePath ->
   TestTree
-mkRepairTest conf how timeout tag file = mkRepairTest' conf how timeout tag file Nothing Nothing
+mkRepairTest conf how timeout tag file = mkRepairTest' conf how timeout tag file def
 
 mkRepairTest' ::
   -- | The configuration to use
@@ -88,12 +103,9 @@ mkRepairTest' ::
   TestName ->
   -- | The module to repair
   FilePath ->
-  -- | A list of fixes. If nothing, fixes are read from the file
-  Maybe [String] ->
-  -- | Indices of the fixes to use, if only some of the fixes in the file should be used.
-  Maybe [Int] ->
+  TestConf ->
   TestTree
-mkRepairTest' conf how timeout tag file mb_expected indices =
+mkRepairTest' conf how timeout tag file TestConf {..} =
   localOption (mkTimeout timeout) $
     testCase tag $ do
       expected' <- case mb_expected of
@@ -110,7 +122,8 @@ mkRepairTest' conf how timeout tag file mb_expected indices =
             fixes <- how desc
 
             let diffs = fixesToDiffs desc fixes
-                check = sort diffs == sort expected || (null expected && all Map.null fixes)
+                check' = sort diffs == sort expected || (null expected && all Map.null fixes)
+                check = check' || (allowMix && not (Set.null (Set.fromList diffs `Set.intersection` Set.fromList expected)))
                 msg =
                   unlines
                     [ "Fix mismatch!",

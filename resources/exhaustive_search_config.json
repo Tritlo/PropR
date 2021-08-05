@@ -18,6 +18,7 @@
                 "use_interpreted": true,
                 "timeout": 1000000,
                 "precompute_fixes": true,
+                "keep_looping_fixes": false,
                 "allow_function_fits": true
         },
         "output_config": {
