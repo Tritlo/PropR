@@ -130,7 +130,7 @@ repairTests =
                 ]
           expr_cands <- runJustParseExpr def wrong_prog >>= (runGhc' def . getExprFitCands . Left)
           map showUnsafe expr_cands @?= expected,
-      localOption (mkTimeout 20_000_000) $
+      localOption (mkTimeout 60_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -218,7 +218,7 @@ failingPropsTests =
           tp <- translate cc rp
           failed_props <- failingProps cc tp
           map showUnsafe failed_props @?= props,
-      localOption (mkTimeout 10_000_000) $
+      localOption (mkTimeout 30_000_000) $
         testCase "Two failing TastyProps" $ do
           Just desc@ProbDesc {..} <- describeProblem def "tests/cases/TastyTwoFix.hs"
           failed_props <- failingProps compConf progProblem
@@ -428,6 +428,7 @@ sanctifyTests =
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]
 
+moduleTests :: TestTree
 moduleTests =
   testGroup
     "Module tests"
@@ -438,12 +439,12 @@ moduleTests =
           let [(e_target, _, _)] = e_prog
           showUnsafe e_target @?= "broken",
       mkSimpleModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken"),
-      mkSimpleModuleTest 90_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
+      mkSimpleModuleTest 240_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
       mkSimpleModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing,
       mkSimpleModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing,
       mkSimpleModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,
-      mkSimpleModuleTest 15_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing,
-      mkSimpleModuleTest 15_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing
+      mkSimpleModuleTest 30_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing,
+      mkSimpleModuleTest 30_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing
     ]
 
 main = defaultMain tests

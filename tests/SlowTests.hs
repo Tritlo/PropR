@@ -22,6 +22,8 @@ import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
 import Test.Tasty
+import Test.Tasty.ExpectedFailure
+import Test.Tasty.HUnit
 import TestUtils
 
 tests :: TestTree
@@ -33,7 +35,8 @@ tests =
       randTests,
       properGenTests,
       genTests,
-      exhaustiveTests
+      exhaustiveTests,
+      refinementTests
     ]
 
 runGenRepair :: ProblemDescription -> IO (Set EFix)
@@ -46,7 +49,8 @@ mkGenConfTestEx :: Integer -> TestName -> FilePath -> TestTree
 mkGenConfTestEx = mkRepairTest def runGenRepair
 
 mkSearchTestExPartial :: SearchAlgorithm -> Integer -> TestName -> FilePath -> Maybe [Int] -> TestTree
-mkSearchTestExPartial search_conf timeout tag file = mkRepairTest' def (runRepair search_conf) timeout tag file Nothing
+mkSearchTestExPartial search_conf timeout tag file indices =
+  mkRepairTest' def (runRepair search_conf) timeout tag file def {indices = indices}
 
 mkSearchTestEx :: SearchAlgorithm -> Integer -> TestName -> FilePath -> TestTree
 mkSearchTestEx search_conf = mkRepairTest def (runRepair search_conf)
@@ -88,7 +92,7 @@ properGenTests =
     [ mkGenConfTestEx 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
       mkGenConfTestEx 180_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs",
       -- With all the new fixes, we need to bump the population size
-      mkRepairTest def (runGenRepair' tESTGENCONF {populationSize = 92}) 180_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs"
+      mkRepairTest def (runGenRepair' tESTGENCONF {populationSize = 92}) 240_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs"
     ]
 
 genTests :: TestTree
@@ -114,19 +118,38 @@ specialTests =
       mkRepairTest
         def {compileConfig = def {useInterpreted = False}}
         runGenRepair
-        120_000_000
-        "Non-interpreted"
+        60_000_000
+        "Non-Interpreted"
         "tests/cases/LoopBreaker.hs",
-      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs",
       mkRepairTest
+        def {compileConfig = def {useInterpreted = True, parChecks = False}}
+        runGenRepair
+        120_000_000
+        "Interpreted Non-Par"
+        "tests/cases/LoopBreaker.hs",
+      mkRepairTest
+        def {compileConfig = def {useInterpreted = True, parChecks = True}}
+        runGenRepair
+        240_000_000
+        "Interpreted Par"
+        "tests/cases/LoopBreaker.hs",
+      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs"
+    ]
+
+refinementTests :: TestTree
+refinementTests =
+  testGroup
+    "Refinments"
+    [ mkRepairTest'
         ( def
-            { compileConfig = def {holeLvl = 2, useInterpreted = False}
+            { compileConfig = def {holeLvl = 2, timeout = 500_000}
             }
         )
         (runGenRepair' (tESTGENCONF {populationSize = 128}))
-        180_000_000
+        240_000_000
         "Refinement test"
         "tests/cases/SimpleRefinement.hs"
+        def {allowMix = True}
     ]
 
 main :: IO ()

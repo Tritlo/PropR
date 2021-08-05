@@ -21,4 +21,11 @@ main = putStrLn "hello, world"
 -- @@ -4,1 +4,1 @@ f = foldr (-) 1
 -- -f = foldr (-) 1
 -- +f = (foldl (+) two)
+--
+-- diff --git a/tests/cases/SimpleRefinement.hs b/tests/cases/SimpleRefinement.hs
+-- --- a/tests/cases/SimpleRefinement.hs
+-- +++ b/tests/cases/SimpleRefinement.hs
+-- @@ -4,1 +4,1 @@ f = foldr (-) 1
+-- -f = foldr (-) 1
+-- +f = (foldr (+) two)
 ---- END EXPECTED ----
