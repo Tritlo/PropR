@@ -634,15 +634,110 @@ checkFixes
           setContext [IIDecl $ simpleImportDecl m_name]
           liftIO $ logStr DEBUG "Compiling checks__"
           checks_expr <- compileExpr "checks__"
+          -- UNIX sockets are faster than creating and deleting files
           let checks :: [IO [Bool]]
               checks = unsafeCoerce# checks_expr
-              evf = if parChecks then mapConcurrently else mapM
-              evalCheck =
-                (fromMaybe (Right False) <$>)
-                  . System.Timeout.timeout timeoutVal
-                  . (checkArr <$>)
+              -- We need all this to workaround GHC issue #20209
+              runInProc ::
+                Int ->
+                (a -> ByteString) ->
+                (ByteString -> Maybe a) ->
+                IO a ->
+                IO (Maybe a)
+              runInProc timeout encode decode act = do
+                let header_size = 10
+                (read_h, write_h) <- createPipe
+                read_fd <- handleToFd read_h
+                eval_pid <- forkProcess $ do
+                  -- Ensure that the process gets killed by the
+                  -- unhandled alarm signal
+                  scheduleAlarm (floor (fromIntegral timeout / 1_000_000) + 1)
+                  to_write <- encode <$> act
+                  scheduleAlarm 0
+                  let twl = BSC.length to_write
+                      twll = length (show twl)
+                      header =
+                        BSC.concat
+                          [ BSC.replicate (header_size - twll) ' ',
+                            BSC.pack (show twl)
+                          ]
+                  BSC.hPut write_h header >> hFlush write_h
+                  BSC.hPut write_h to_write >> hFlush write_h
+                logStr DEBUG "Waiting for output ..."
+                System.Timeout.timeout timeout (threadWaitRead read_fd)
+                  >>= \case
+                    Just _ -> do
+                      logStr DEBUG "Got result!"
+                      res_h <- fdToHandle read_fd
+                      msg_len <-
+                        read @Int
+                          . BSC.unpack
+                          . BSC.dropSpace
+                          <$> BSC.hGet res_h header_size
+                      -- We want to block until the whole message is available
+                      BSC.hGet res_h msg_len >>= (<$ hClose res_h) . decode
+                    _ -> Nothing <$ logStr DEBUG "No result!"
+                  >>= (<$ hClose write_h)
+
+              forkWithFile :: ([Bool] -> Either [Bool] Bool) -> IO [Bool] -> IO (Either [Bool] Bool)
+              forkWithFile trans a =
+                do
+                  let encode = BSC.pack . map toP
+                      decode = Just . mapMaybe p . BSC.unpack
+                  maybe (Right False) trans <$> runInProc (2 * timeoutVal) encode decode a
+              -- Note: our current forkWithAlarm does not work with parChecks.
+              -- If we have an infinte loop
+              fwf = if assumeNoLoops then fmap else forkWithFile
+              (evalCheck, evf) =
+                if parChecks
+                  then ((checkArr <$>), mapConcurrently)
+                  else (fwf checkArr, mapM)
           liftIO $ logStr DEBUG "Running checks..."
-          res <- liftIO $ collectStats $ evf evalCheck checks
+          res <-
+            liftIO $
+              collectStats $
+                if parChecks
+                  then do
+                    let all_check_fp = exeName <.> "out" <.> "checks" <.> "fifo"
+                    let toB (Right False) = "R0"
+                        toB (Right True) = "R1"
+                        toB (Left xs) = "L" ++ map toP xs
+                        encode = BSC.pack . concatMap toB
+
+                        isRorL c = (c == 'L') || (c == 'R')
+                        fromB ['R', x] | Just b <- p x = Just $ Right b
+                        fromB ('L' : xs) = Just $ Left $ mapMaybe p xs
+                        fromB _ = Nothing
+                        splitRes [] = []
+                        splitRes xs =
+                          f : case r of
+                            [] -> []
+                            (rorl : rest) ->
+                              let (r, g) = break isRorL rest
+                               in (rorl : r) : splitRes rest
+                          where
+                            (f, r) = break isRorL xs
+                        decode = Just . mapMaybe fromB . splitRes . BSC.unpack
+
+                    let howToRun =
+                          if assumeNoLoops
+                            then (Just <$>)
+                            else runInProc ((1 + length checks) * timeoutVal) encode decode
+                    -- We want the process to die in case we were wrong,
+                    -- better than hanging.
+                    scheduleAlarm (1 + 10 * length checks * ceiling (fromIntegral timeoutVal / 1_000_000))
+                    howToRun (evf evalCheck checks)
+                      >>= (<$ scheduleAlarm 0) -- We finished, so turn off the alarm
+                      >>= \case
+                        Just res ->
+                          (res <$) $
+                            when (length res /= length checks) $ do
+                              logStr ERROR "Fewer results received than expected!"
+                              logStr ERROR ("Expected " ++ show (length checks))
+                              logStr ERROR ("Got " ++ show (length res))
+                              exitFailure
+                        Nothing -> mapM (forkWithFile checkArr) checks
+                  else evf evalCheck checks
           liftIO $ logStr DEBUG "Done checking!"
           return res
         else
