@@ -493,7 +493,7 @@ checkFixes
           case ec of
             Nothing -> do
               getPid ph >>= \case
-                Just pid -> signalProcess killProcess pid
+                Just pid -> signalProcess killProcess pid >> terminateProcess ph
                 _ -> return ()
               return (Right False)
             Just _ -> do

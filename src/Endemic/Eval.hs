@@ -769,7 +769,7 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
               loop :: Maybe ExitCode -> Integer -> IO ()
               loop _ 0 =
                 getPid ph >>= \case
-                  Just pid -> signalProcess killProcess pid
+                  Just pid -> signalProcess killProcess pid >> terminateProcess ph
                   _ -> return ()
               loop Nothing n = do
                 -- If it's taking too long, it's probably stuck in a loop.
