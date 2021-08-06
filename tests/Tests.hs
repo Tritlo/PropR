@@ -435,10 +435,22 @@ sanctifyTests =
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]
 
-mkModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> [[Char]] -> TestTree
-mkModuleTest timeout tag toFix repair_target expected =
+readExpected :: FilePath -> IO [String]
+readExpected fp = do
+  ls <- lines <$> readFile fp
+  let ex' =
+        takeWhile (/= "---- END EXPECTED ----") $
+          drop 1 $
+            dropWhile (/= "---- EXPECTED ----") ls
+      ex'' = map (drop 3) ex'
+      diffs = split "" ex''
+  return $ map unlines diffs
+
+mkModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> TestTree
+mkModuleTest timeout tag toFix repair_target =
   localOption (mkTimeout timeout) $
     testCase tag $ do
+      expected <- readExpected toFix
       setSeedGenSeed tESTSEED
       (cc', mod, mb_prob) <- moduleToProb def toFix repair_target
       case mb_prob of
@@ -478,79 +490,13 @@ moduleTests =
           (_, _, Just EProb {..}) <- moduleToProb def toFix Nothing
           let [(e_target, _, _)] = e_prog
           showUnsafe e_target @?= "broken",
-      mkModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken") $
-        map
-          unlines
-          [ [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
-              "--- a/tests/cases/BrokenModule.hs",
-              "+++ b/tests/cases/BrokenModule.hs",
-              "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
-              "-broken = foldl (-) 0",
-              "+broken = sum"
-            ],
-            [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
-              "--- a/tests/cases/BrokenModule.hs",
-              "+++ b/tests/cases/BrokenModule.hs",
-              "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
-              "-broken = foldl (-) 0",
-              "+broken = foldl add 0"
-            ],
-            [ "diff --git a/tests/cases/BrokenModule.hs b/tests/cases/BrokenModule.hs",
-              "--- a/tests/cases/BrokenModule.hs",
-              "+++ b/tests/cases/BrokenModule.hs",
-              "@@ -8,1 +8,1 @@ broken = foldl (-) 0",
-              "-broken = foldl (-) 0",
-              "+broken = foldl (+) 0"
-            ]
-          ],
-      mkModuleTest 90_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'") $
-        map
-          unlines
-          [ [ "diff --git a/tests/cases/BrokenGCD.hs b/tests/cases/BrokenGCD.hs",
-              "--- a/tests/cases/BrokenGCD.hs",
-              "+++ b/tests/cases/BrokenGCD.hs",
-              "@@ -19,3 +19,3 @@ gcd' 0 b = gcd' 0 b",
-              "-gcd' 0 b = gcd' 0 b",
-              "+gcd' 0 b = b",
-              " gcd' a b | b == 0 = a",
-              " gcd' a b = if (a > b) then gcd' (a - b) b else gcd' a (b - a)"
-            ]
-          ],
-      mkModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing $
-        map
-          unlines
-          [ [ "diff --git a/tests/cases/MagicConstant.hs b/tests/cases/MagicConstant.hs",
-              "--- a/tests/cases/MagicConstant.hs",
-              "+++ b/tests/cases/MagicConstant.hs",
-              "@@ -7,1 +7,1 @@ theAnswer = 17",
-              "-theAnswer = 17",
-              "+theAnswer = 42"
-            ]
-          ],
-      mkModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing [],
-      mkModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing [],
-      mkModuleTest 15_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing $
-        map
-          unlines
-          [ [ "diff --git a/tests/cases/unnamed.hs b/tests/cases/unnamed.hs",
-              "--- a/tests/cases/unnamed.hs",
-              "+++ b/tests/cases/unnamed.hs",
-              "@@ -5,1 +5,1 @@ x = 4",
-              "-x = 4",
-              "+x = 5"
-            ]
-          ],
-      mkModuleTest 15_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing $
-        map
-          unlines
-          [ [ "diff --git a/tests/cases/mainMod.hs b/tests/cases/mainMod.hs",
-              "--- a/tests/cases/mainMod.hs",
-              "+++ b/tests/cases/mainMod.hs",
-              "@@ -6,1 +6,1 @@ x = B",
-              "-x = B",
-              "+x = A"
-            ]
-          ]
+      mkModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken"),
+      mkModuleTest 90_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
+      mkModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing,
+      mkModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing,
+      mkModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,
+      mkModuleTest 15_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing,
+      mkModuleTest 15_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing
     ]
 
 main = defaultMain tests

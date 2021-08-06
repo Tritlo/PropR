@@ -12,3 +12,12 @@ prop_bigEnough = x > 2
 
 test :: TestTree
 test = testCase "Test 1" (x @?= 3)
+
+---- EXPECTED ----
+-- diff --git a/tests/cases/TastyMix.hs b/tests/cases/TastyMix.hs
+-- --- a/tests/cases/TastyMix.hs
+-- +++ b/tests/cases/TastyMix.hs
+-- @@ -7,1 +7,1 @@ x = 2
+-- -x = 2
+-- +x = 3
+---- END EXPECTED ----

@@ -6,3 +6,12 @@ x = 4
 
 main :: IO ()
 main = putStrLn "hello, world"
+
+---- EXPECTED ----
+-- diff --git a/tests/cases/unnamed.hs b/tests/cases/unnamed.hs
+-- --- a/tests/cases/unnamed.hs
+-- +++ b/tests/cases/unnamed.hs
+-- @@ -5,1 +5,1 @@ x = 4
+-- -x = 4
+-- +x = 5
+---- END EXPECTED ----

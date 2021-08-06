@@ -15,3 +15,12 @@ brokenPair = (1, 2)
 -- this would result in an out-of-scope error:
 fiveInTwoFixes :: Int
 fiveInTwoFixes = 7
+
+---- EXPECTED ----
+-- diff --git a/tests/cases/TwoFixes.hs b/tests/cases/TwoFixes.hs
+-- --- a/tests/cases/TwoFixes.hs
+-- +++ b/tests/cases/TwoFixes.hs
+-- @@ -12,1 +12,1 @@ brokenPair = (1, 2)
+-- -brokenPair = (1, 2)
+-- +brokenPair = (3, 4)
+---- END EXPECTED ----

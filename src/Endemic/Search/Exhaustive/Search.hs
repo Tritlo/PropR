@@ -47,15 +47,19 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
 
   let isFixed (Right x) = x
       isFixed (Left ps) = and ps
-      loop :: 
-        Set EFix -- ^ The seen fixes, to remove duplicates and cached items
-        -> [[EFix]] -- ^ The fixes to check, a (lazy) list of changes to test. 
-                    -- A check is a bunch of changes, hence a list too. The lay list is sorted ascending in length, the 1-Change entries are in the first list of list, the 2 Change entries are in the second list of list ...
-        -> Int      -- ^ Current depth of levels, just for better debugging and logging 
-        -> IO (Set EFix) -- The results found within a certain time-budget
+      loop ::
+        -- | The seen fixes, to remove duplicates and cached items
+        Set EFix ->
+        -- | The fixes to check, a (lazy) list of changes to test.
+        -- A check is a bunch of changes, hence a list too. The lay list is sorted ascending in length, the 1-Change entries are in the first list of list, the 2 Change entries are in the second list of list ...
+        [[EFix]] ->
+        -- | Current depth of levels, just for better debugging and logging
+        Int ->
+        IO (Set EFix) -- The results found within a certain time-budget
       loop _ [] _ = return Set.empty -- Initial Case on creation, the first set of changes is the empty list. Also invoked if we exhaust the exhaustive search.
-      loop checked ([] : lvls) n = loop checked lvls (n+1) -- This case happens when we exhausted one level of changes 
-      loop checked (lvl : lvls) n = do -- Normal case where we have checks left in the current level
+      loop checked ([] : lvls) n = loop checked lvls (n + 1) -- This case happens when we exhausted one level of changes
+      loop checked (lvl : lvls) n = do
+        -- Normal case where we have checks left in the current level
         logStr VERBOSE ("Remaining Fixes of length " ++ (show n) ++ " : " ++ show (length lvl))
         cur_time <- getCPUTime
         let diff = cur_time - start
@@ -70,7 +74,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                 not_checked = Set.fromList $ filter (not . (`Set.member` checked)) to_check
                 checked' = not_checked `Set.union` checked
                 check_list = Set.toList not_checked
-            logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ ( show $ length check_list))
+            logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ (show $ length check_list))
             mapM_ (logOut AUDIT) check_list
             fixes <-
               Set.fromList . map fst
@@ -99,6 +103,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
 lazyAllCombsByLevel :: [EFix] -> [[EFix]]
 lazyAllCombsByLevel fixes = fixes : lacbl' fixes fixes
   where
+    lacbl' _ [] = []
     lacbl' orig cur_level = merged : lacbl' orig merged
       where
         merged = orig >>= (flip map cur_level . mergeFixes)

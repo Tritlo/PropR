@@ -20,3 +20,15 @@ prop_XIs30 = x == 30
 
 main :: IO ()
 main = defaultMain tests
+
+---- EXPECTED ----
+-- diff --git a/tests/cases/Multi.hs b/tests/cases/Multi.hs
+-- --- a/tests/cases/Multi.hs
+-- +++ b/tests/cases/Multi.hs
+-- @@ -7,1 +7,1 @@ y = 20
+-- -y = 20
+-- +y = 12
+-- @@ -10,1 +10,1 @@ x = 25
+-- -x = 25
+-- +x = 30
+---- END EXPECTED ----

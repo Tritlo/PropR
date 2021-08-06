@@ -22,3 +22,12 @@ prop_5 = a < 5 && b < 5 && c > 0 && d > 0
 
 brokenPair :: (Int, Int, Int, Int)
 brokenPair = (1, 2, 3, 4)
+
+---- EXPECTED ----
+-- diff --git a/tests/cases/FourFixes.hs b/tests/cases/FourFixes.hs
+-- --- a/tests/cases/FourFixes.hs
+-- +++ b/tests/cases/FourFixes.hs
+-- @@ -24,1 +24,1 @@ brokenPair = (1, 2, 3, 4)
+-- -brokenPair = (1, 2, 3, 4)
+-- +brokenPair = (3, 4, 5, 6)
+---- END EXPECTED ----

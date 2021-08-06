@@ -21,3 +21,12 @@ brokenPair = (1, 2, 3)
 
 sixInThreeFixes :: Int
 sixInThreeFixes = 6
+
+---- EXPECTED ----
+-- diff --git a/tests/cases/ThreeFixes.hs b/tests/cases/ThreeFixes.hs
+-- --- a/tests/cases/ThreeFixes.hs
+-- +++ b/tests/cases/ThreeFixes.hs
+-- @@ -20,1 +20,1 @@ brokenPair = (1, 2, 3)
+-- -brokenPair = (1, 2, 3)
+-- +brokenPair = (3, 4, 5)
+---- END EXPECTED ----

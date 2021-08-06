@@ -23,3 +23,6 @@ tests =
     [ testCase "Test 1" (x + 2 @?= 4),
       testCase "Test 2" (x @?= 2)
     ]
+
+---- EXPECTED ----
+---- END EXPECTED ----

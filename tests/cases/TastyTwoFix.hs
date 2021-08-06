@@ -14,3 +14,12 @@ test =
       testCase "Test 2" (snd wrong_pair @?= 4),
       testCase "Test 3 (should work)" (uncurry (<) wrong_pair @?= True)
     ]
+
+---- EXPECTED ----
+-- diff --git a/tests/cases/TastyTwoFix.hs b/tests/cases/TastyTwoFix.hs
+-- --- a/tests/cases/TastyTwoFix.hs
+-- +++ b/tests/cases/TastyTwoFix.hs
+-- @@ -7,1 +7,1 @@ wrong_pair = (1, 2)
+-- -wrong_pair = (1, 2)
+-- +wrong_pair = (3, 4)
+---- END EXPECTED ----
