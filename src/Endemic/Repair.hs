@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TupleSections #-}
@@ -49,7 +50,7 @@ import Endemic.Check
 import Endemic.Configuration
 import Endemic.Eval
 import Endemic.Plugin (resetHoleFitCache, resetHoleFitList)
-import Endemic.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr)
+import Endemic.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr, wrapExpr)
 import Endemic.Types
 import Endemic.Util
 import FV (fvVarSet)
@@ -490,7 +491,11 @@ checkFixes
         waitOnCheck (hout, ph) = do
           ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
           case ec of
-            Nothing -> terminateProcess ph >> return (Right False)
+            Nothing -> do
+              getPid ph >>= \case
+                Just pid -> signalProcess killProcess pid
+                _ -> return ()
+              return (Right False)
             Just _ -> do
               res <- hGetLine hout
               hClose hout
@@ -567,14 +572,7 @@ describeProblem conf@Conf {compileConfig = cc} fp = do
             let inContext = noLoc . HsLet NoExtField e_ctxt
                 addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
                 addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
-            nzh <- findEvaluatedHoles desc'
-            fits <-
-              collectStats $
-                runGhcWithCleanup compConf $
-                  getHoleFits compConf exprFitCands (map (\(l, he) -> ([l], addContext l he)) nzh)
-            let fix_cands :: [(EFix, EExpr)]
-                fix_cands = map (first Map.fromList) (zip (map snd nzh) fits >>= uncurry replacements)
-                initialFixes' = Just $ map fst fix_cands
+            initialFixes' <- Just . map fst <$> repairAttempt desc'
             logStr DEBUG "Initial fixes:"
             logOut DEBUG initialFixes'
             return $ desc' {initialFixes = initialFixes'}

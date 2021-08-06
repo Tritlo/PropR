@@ -45,6 +45,14 @@ replaceExpr repls =
     L loc _ | loc `member` repls -> L loc (repls ! loc)
     e -> e
 
+-- | Replace all expressions in a given expression with those
+-- found in the given map.
+wrapExpr :: SrcSpan -> (HsExpr GhcPs -> HsExpr GhcPs) -> LHsExpr GhcPs -> LHsExpr GhcPs
+wrapExpr repl_loc trans =
+  transformOf uniplate $ \case
+    L loc x | loc == repl_loc -> L loc (trans x)
+    e -> e
+
 -- | All possible replacement of one variable with a hole, i.e. we are making
 -- the expression "holey". Which is pronounced holy.
 -- Could also be named `perforate`, `stigmatize` or

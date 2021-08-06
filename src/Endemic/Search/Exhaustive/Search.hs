@@ -16,6 +16,7 @@
 module Endemic.Search.Exhaustive.Search where
 
 import Control.Arrow (first, (***))
+import Data.List (nub)
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -98,6 +99,7 @@ lazyAllCombsByLevel :: Ord a => (a -> a -> a) -> [a] -> [[a]]
 lazyAllCombsByLevel comb fixes = fixes : lacbl' (Set.fromList fixes) fixes fixes
   where
     lacbl' _ _ [] = []
-    lacbl' seen orig cur_level = merged : lacbl' (seen `Set.union` Set.fromList merged) orig merged
+    lacbl' seen orig cur_level = merged : lacbl' (seen `Set.union` mset) orig cur_level
       where
-        merged = dropWhile (`Set.member` seen) $ orig >>= (flip map cur_level . comb)
+        merged = nub $ filter (not . (`Set.member` seen)) $ orig >>= (flip map cur_level . comb)
+        mset = Set.fromList merged

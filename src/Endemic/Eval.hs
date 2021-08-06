@@ -767,7 +767,10 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
           let -- If it doesn't respond to signals, we can't do anything
               -- other than terminate
               loop :: Maybe ExitCode -> Integer -> IO ()
-              loop _ 0 = terminateProcess ph
+              loop _ 0 =
+                getPid ph >>= \case
+                  Just pid -> signalProcess killProcess pid
+                  _ -> return ()
               loop Nothing n = do
                 -- If it's taking too long, it's probably stuck in a loop.
                 -- By sending the right signal though, it will dump the tix
