@@ -75,22 +75,34 @@ mkRepairTest ::
   TestName ->
   FilePath ->
   TestTree
-mkRepairTest conf how timeout tag file = mkRepairTest' conf how timeout tag file Nothing
+mkRepairTest conf how timeout tag file = mkRepairTest' conf how timeout tag file Nothing Nothing
 
 mkRepairTest' ::
+  -- | The configuration to use
   Configuration ->
+  -- | How to do the  repair
   (ProblemDescription -> IO (Set EFix)) ->
+  -- | The timeout for the test
   Integer ->
+  -- | The tag for the tests
   TestName ->
+  -- | The module to repair
   FilePath ->
+  -- | A list of fixes. If nothing, fixes are read from the file
   Maybe [String] ->
+  -- | Indices of the fixes to use, if only some of the fixes in the file should be used.
+  Maybe [Int] ->
   TestTree
-mkRepairTest' conf how timeout tag file mb_expected =
+mkRepairTest' conf how timeout tag file mb_expected indices =
   localOption (mkTimeout timeout) $
     testCase tag $ do
-      expected <- case mb_expected of
+      expected' <- case mb_expected of
         Just x -> return x
         Nothing -> readExpected file
+      let expected = case indices of
+            Just inds -> map (expected' !!) $ take (length expected') inds
+            _ -> expected'
+
       setSeedGenSeed (tESTSEED + 5)
       describeProblem conf file
         >>= \case

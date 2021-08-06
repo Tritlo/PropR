@@ -42,6 +42,9 @@ runGenRepair desc = runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostp
 mkGenConfTestEx :: Integer -> TestName -> FilePath -> TestTree
 mkGenConfTestEx = mkRepairTest def runGenRepair
 
+mkSearchTestExPartial :: SearchAlgorithm -> Integer -> TestName -> FilePath -> Maybe [Int] -> TestTree
+mkSearchTestExPartial search_conf timeout tag file = mkRepairTest' def (runRepair search_conf) timeout tag file Nothing
+
 mkSearchTestEx :: SearchAlgorithm -> Integer -> TestName -> FilePath -> TestTree
 mkSearchTestEx search_conf = mkRepairTest def (runRepair search_conf)
 
@@ -62,7 +65,7 @@ randTests =
   testGroup
     "Random search tests"
     [ let conf = Random def {randStopOnResults = True, randIgnoreFailing = True}
-       in mkSearchTestEx conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs"
+       in mkSearchTestExPartial conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs" (Just [1])
     ]
 
 exhaustiveTests :: TestTree
@@ -70,7 +73,7 @@ exhaustiveTests =
   testGroup
     "Exhaustive search tests"
     [ let conf = Exhaustive def {exhStopOnResults = True}
-       in mkSearchTestEx conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs",
+       in mkSearchTestExPartial conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs" (Just [1]),
       let conf = Exhaustive def {exhStopOnResults = True}
        in mkSearchTestEx conf 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs"
     ]
