@@ -45,12 +45,19 @@ tESTSEED = 703_039_772
 tESTGENCONF :: GeneticConfiguration
 tESTGENCONF = def {crossoverRate = 0.4, mutationRate = 0.1, dropRate = 0.25, iterations = 1_000}
 
-mkRepairTest :: (ProblemDescription -> IO (Set EFix)) -> Integer -> TestName -> FilePath -> [String] -> TestTree
-mkRepairTest how timeout tag file expected =
+mkRepairTestWithConf ::
+  Configuration ->
+  (ProblemDescription -> IO (Set EFix)) ->
+  Integer ->
+  TestName ->
+  FilePath ->
+  [String] ->
+  TestTree
+mkRepairTestWithConf conf how timeout tag file expected =
   localOption (mkTimeout timeout) $
     testCase tag $ do
       setSeedGenSeed (tESTSEED + 5)
-      describeProblem def file
+      describeProblem conf file
         >>= \case
           Just desc -> do
             fixes <- how desc
@@ -71,6 +78,9 @@ mkRepairTest how timeout tag file expected =
                     ]
             assertBool msg check
           Nothing -> [] @?= expected
+
+mkRepairTest :: (ProblemDescription -> IO (Set EFix)) -> Integer -> TestName -> FilePath -> [String] -> TestTree
+mkRepairTest = mkRepairTestWithConf def
 
 mkGenConfTest :: Integer -> TestName -> FilePath -> [String] -> TestTree
 mkGenConfTest = mkRepairTest (\desc -> runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing)
