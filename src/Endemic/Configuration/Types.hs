@@ -227,8 +227,9 @@ instance Materializeable CompileConfig where
       umRandomizeHiDir :: Maybe Bool,
       umParChecks :: Maybe Bool,
       umUseInterpreted :: Maybe Bool,
+      umTimeout :: Maybe Integer,
       umPrecomputeFixes :: Maybe Bool,
-      umTimeout :: Maybe Integer
+      umAllowFunctionFits :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -237,6 +238,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -266,7 +268,8 @@ instance Materializeable CompileConfig where
         parChecks = fromMaybe parChecks umParChecks,
         useInterpreted = fromMaybe useInterpreted umUseInterpreted,
         timeout = fromMaybe timeout umTimeout,
-        precomputeFixes = fromMaybe precomputeFixes umPrecomputeFixes
+        precomputeFixes = fromMaybe precomputeFixes umPrecomputeFixes,
+        allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits
       }
 
 -- | Configuration for the compilation itself
@@ -313,7 +316,10 @@ data CompileConfig = CompConf
     -- cases, but can slow down if we have big
     -- programs and aren't considering all of it
     -- (e.t. random search).
-    precomputeFixes :: Bool
+    precomputeFixes :: Bool,
+    -- Whether to allow fits of the type `(_ x)` where x is some identifier
+    -- in the code. Makes the search space bigger, but finds more fits.
+    allowFunctionFits :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -335,7 +341,8 @@ instance Default CompileConfig where
         randomizeHiDir = True,
         useInterpreted = True,
         timeout = 1_000_000,
-        precomputeFixes = True
+        precomputeFixes = True,
+        allowFunctionFits = True
       }
 
 instance Default LogConfig where

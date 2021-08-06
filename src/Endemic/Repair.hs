@@ -100,6 +100,7 @@ getHoleFits' ::
   IORef HoleFitState ->
   [([SrcSpan], LHsExpr GhcPs)] ->
   Ghc [[[HsExpr GhcPs]]]
+getHoleFits' _ [] = return []
 getHoleFits' plugRef exprs = do
   -- Then we can actually run the program!
   setNoDefaulting
@@ -385,14 +386,16 @@ generateFixCandidates
         holed_exprs = map (\(l, he) -> ([l], addContext l he)) nzh
         wrapInHole loc hsexpr = HsPar NoExtField (noLoc $ HsApp NoExtField (L loc hole) (noLoc hsexpr))
         ((_, _, one_prog) : _) = e_prog
-        subexprs = Map.fromList (map (\(L l k) -> (l, k)) $ flattenExpr one_prog)
-        wrapped_in_holes = map ((\l -> ([l], wrapExpr l (wrapInHole l) one_prog)) . fst) nzh
-        wrapped = map ((subexprs Map.!) . fst) nzh
+        wrapped_in_holes =
+          if allowFunctionFits cc
+            then map ((\l -> ([l], wrapExpr l (wrapInHole l) one_prog)) . fst) nzh
+            else []
     plugRef <- initGhcCtxt' True cc efcs
     hole_fits <- collectStats $ getHoleFits' plugRef holed_exprs
-    wrapped_fits <- collectStats $ getHoleFits' plugRef wrapped_in_holes
-    let withWrapped :: [[[HsExpr GhcPs]]]
-        withWrapped =
+    raw_wrapped_fits <- collectStats $ getHoleFits' plugRef wrapped_in_holes
+    let subexprs = Map.fromList (map (\(L l k) -> (l, k)) $ flattenExpr one_prog)
+        with_wrappee :: [[[HsExpr GhcPs]]]
+        with_wrappee =
           zipWith
             ( \wrp fits ->
                 map
@@ -407,13 +410,12 @@ generateFixCandidates
                   )
                   fits
             )
-            wrapped
-            wrapped_fits
+            (map ((subexprs Map.!) . fst) nzh)
+            raw_wrapped_fits
+        wrapped_holes = map (first head) wrapped_in_holes
+
     let fix_cands' :: [(EFix, EExpr)]
-        fix_cands' =
-          concatMap toCands $
-            zip (nzh ++ map (first head) wrapped_in_holes) $
-              (hole_fits ++ withWrapped)
+        fix_cands' = concatMap toCands $ zip (nzh ++ wrapped_holes) (hole_fits ++ with_wrappee)
           where
             toCands ((loc, hole_expr), [fits])
               | isGoodSrcSpan loc =
