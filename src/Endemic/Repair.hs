@@ -36,7 +36,7 @@ import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
 import Data.Function (on)
 import qualified Data.Functor
-import Data.IORef (modifyIORef', writeIORef)
+import Data.IORef (IORef, modifyIORef', writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.List (groupBy, intercalate, nub, nubBy, sort, sortOn, transpose)
@@ -50,7 +50,7 @@ import Desugar (deSugarExpr)
 import Endemic.Check
 import Endemic.Configuration
 import Endemic.Eval
-import Endemic.Plugin (resetHoleFitCache, resetHoleFitList)
+import Endemic.Plugin (HoleFitState, resetHoleFitCache, resetHoleFitList)
 import Endemic.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr, wrapExpr)
 import Endemic.Types
 import Endemic.Util
@@ -93,8 +93,15 @@ getHoleFits ::
   [([SrcSpan], LHsExpr GhcPs)] ->
   -- | The existing Expressions including holes
   Ghc [[[HsExpr GhcPs]]]
-getHoleFits cc local_exprs exprs = do
-  plugRef <- initGhcCtxt' True cc local_exprs
+getHoleFits cc local_exprs exprs = initGhcCtxt' True cc local_exprs >>= flip getHoleFits' exprs
+
+-- Gets the holes without any initialization, provided a given plugin
+getHoleFits' ::
+  IORef HoleFitState ->
+  [([SrcSpan], LHsExpr GhcPs)] ->
+  Ghc [[[HsExpr GhcPs]]]
+getHoleFits' _ [] = return []
+getHoleFits' plugRef exprs = do
   -- Then we can actually run the program!
   setNoDefaulting
   let exprFits expr =
@@ -377,9 +384,38 @@ generateFixCandidates
         addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
         addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
         holed_exprs = map (\(l, he) -> ([l], addContext l he)) nzh
-    fits <- collectStats $ getHoleFits cc efcs holed_exprs
+        wrapInHole loc hsexpr = HsPar NoExtField (noLoc $ HsApp NoExtField (L loc hole) (noLoc hsexpr))
+        ((_, _, one_prog) : _) = e_prog
+        wrapped_in_holes =
+          if allowFunctionFits cc
+            then map ((\l -> ([l], wrapExpr l (wrapInHole l) one_prog)) . fst) nzh
+            else []
+    plugRef <- initGhcCtxt' True cc efcs
+    hole_fits <- collectStats $ getHoleFits' plugRef holed_exprs
+    raw_wrapped_fits <- collectStats $ getHoleFits' plugRef wrapped_in_holes
+    let subexprs = Map.fromList (map (\(L l k) -> (l, k)) $ flattenExpr one_prog)
+        with_wrappee :: [[[HsExpr GhcPs]]]
+        with_wrappee =
+          zipWith
+            ( \wrp fits ->
+                map
+                  ( map
+                      ( \fit ->
+                          HsPar NoExtField $
+                            noLoc $
+                              HsApp NoExtField (noLoc fit) $
+                                noLoc $
+                                  HsPar NoExtField $ noLoc wrp
+                      )
+                  )
+                  fits
+            )
+            (map ((subexprs Map.!) . fst) nzh)
+            raw_wrapped_fits
+        wrapped_holes = map (first head) wrapped_in_holes
+
     let fix_cands' :: [(EFix, EExpr)]
-        fix_cands' = concatMap toCands $ zip nzh fits
+        fix_cands' = concatMap toCands $ zip (nzh ++ wrapped_holes) (hole_fits ++ with_wrappee)
           where
             toCands ((loc, hole_expr), [fits])
               | isGoodSrcSpan loc =

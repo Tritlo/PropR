@@ -19,5 +19,12 @@ test = testCase "Test 1" (x @?= 3)
 -- +++ b/tests/cases/TastyMix.hs
 -- @@ -7,1 +7,1 @@ x = 2
 -- -x = 2
+-- +x = (succ (2))
+--
+-- diff --git a/tests/cases/TastyMix.hs b/tests/cases/TastyMix.hs
+-- --- a/tests/cases/TastyMix.hs
+-- +++ b/tests/cases/TastyMix.hs
+-- @@ -7,1 +7,1 @@ x = 2
+-- -x = 2
 -- +x = 3
 ---- END EXPECTED ----

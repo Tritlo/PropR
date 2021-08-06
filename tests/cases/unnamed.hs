@@ -14,4 +14,11 @@ main = putStrLn "hello, world"
 -- @@ -5,1 +5,1 @@ x = 4
 -- -x = 4
 -- +x = 5
+--
+-- diff --git a/tests/cases/unnamed.hs b/tests/cases/unnamed.hs
+-- --- a/tests/cases/unnamed.hs
+-- +++ b/tests/cases/unnamed.hs
+-- @@ -5,1 +5,1 @@ x = 4
+-- -x = 4
+-- +x = (succ (4))
 ---- END EXPECTED ----
