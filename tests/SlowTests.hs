@@ -8,6 +8,7 @@ module Main where
 import Data.Default
 import Data.IORef (readIORef, writeIORef)
 import Data.List (sort)
+import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -55,7 +56,7 @@ mkRepairTest how timeout tag file expected =
             fixes <- how desc
 
             let diffs = fixesToDiffs desc fixes
-                check = sort diffs == sort expected
+                check = sort diffs == sort expected || (expected == [] && all Map.null fixes)
                 msg =
                   unlines
                     [ "Fix mismatch!",
@@ -64,7 +65,9 @@ mkRepairTest how timeout tag file expected =
                       "But got:",
                       unlines diffs,
                       "Actual fixes were:",
-                      unlines (map (showSDocUnsafe . ppr) $ Set.toList fixes)
+                      unlines (map (showSDocUnsafe . ppr) $ Set.toList fixes),
+                      "Number of fixes:",
+                      show (Set.size fixes)
                     ]
             assertBool msg check
           Nothing -> [] @?= expected
