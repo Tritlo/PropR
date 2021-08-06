@@ -151,16 +151,14 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
   liftIO $ logStr DEBUG "Setting DynFlags..."
   -- We might get "congestion" if multiple GHC threads are all making .mix files
 
-  toLink <- setSessionDynFlags flags'
+  toLink <- setSessionDynFlags flags' {importPaths = importPaths flags' ++ modBase}
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
   liftIO $ logStr DEBUG "Parsing imports..."
   imports <- mapM (fmap IIDecl . parseImportDecl) importStmts
   let toTarget mod_path = Target (TargetFile mod_path Nothing) True Nothing
-      targets = map toTarget additionalTargets
   liftIO $ logStr DEBUG "Adding additional targets..."
   mapM_ (addTarget . toTarget) additionalTargets
-  addLocalTargets imports modBase
   liftIO $ logStr DEBUG "Loading targets.."
   _ <- load LoadAllTargets
   liftIO $ logStr DEBUG "Adding imports to context..."
@@ -214,45 +212,6 @@ getHoleFitsFromError plugRef err = do
         holeOcc h1 == holeOcc h2
     sameHole _ _ = False
 
--- | addLocalTargets adds any modules that are imported that are in any of the
--- paths specified.
-addLocalTargets :: GhcMonad m => [InteractiveImport] -> [FilePath] -> m ()
-addLocalTargets imports local_paths = addLocalTargets' False imports local_paths
-  where
-    addLocalTargets' recurring imports local_paths = do
-      unless recurring $ liftIO $ logStr DEBUG "Adding local targets..."
-      liftIO $ logStr DEBUG "Analyzing dependencies..."
-      mg <- depanal [] False
-      -- We (crudely) add any missing local modules:
-      let mg_mods = map (map unLoc . ms_home_imps) (mgModSummaries mg)
-          already_a_target = Set.fromList $ map ms_mod_name $ mgModSummaries mg
-          imods = mapMaybe toModName imports
-          toModName (IIDecl id@ImportDecl {ideclName = L _ mname}) = Just mname
-          toModName (IIModule mname) = Just mname
-          toModName _ = Nothing
-          mods_to_add =
-            map moduleNameSlashes $
-              Set.toList $ Set.fromList (concat (imods : mg_mods)) `Set.difference` already_a_target
-      -- We add the targets recursively, in case any of the local dependencies have
-      -- local dependencies as well.
-      any_changed <- fmap or $
-        forM mods_to_add $ \mod_name ->
-          fmap or $
-            forM local_paths $ \mod_base -> do
-              let mod_path' = mod_base </> mod_name <.> ".hs"
-              abs_path <- liftIO $ makeAbsolute mod_path'
-              exists <- liftIO $ doesFileExist abs_path
-              let t' = Target (TargetFile abs_path Nothing) True Nothing
-              if exists
-                then do
-                  liftIO $ logStr DEBUG $ "Adding " ++ abs_path
-                  addTarget t'
-                  return True
-                else return False
-      -- We recur to add any depenencies that any of the local modules might have.
-      when any_changed $ addLocalTargets' True [] local_paths
-      unless recurring $ liftIO $ logStr DEBUG "Local targets added."
-
 addTargetGetModName :: Target -> Ghc ModuleName
 addTargetGetModName target = do
   mnames_before <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
@@ -290,8 +249,9 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
           Just dir -> reverse dir
           _ -> dropFileName no_ext
         orig_mname = mname
-
-    addLocalTargets [] (thisModBase : modBase)
+        local_paths = thisModBase : modBase
+    dflags <- getSessionDynFlags
+    setSessionDynFlags dflags {importPaths = importPaths dflags ++ local_paths}
     mnames_after_local <- depanal [] False
     _ <- load LoadAllTargets
     -- Retrieve the parsed module
@@ -682,7 +642,8 @@ runGhcWithCleanup CompConf {..} act = do
   td_seed <- flip showHex "" . abs <$> newSeed
   let tdBase = tempDirBase </> "run" </> td_seed
       common = tempDirBase </> "common"
-      extra_dirs = [common </> "build", common]
+      extra_dirs' = [common </> "build", common]
+  extra_dirs <- mapM makeAbsolute extra_dirs'
   createDirectoryIfMissing True tdBase
 
   res <- runGhc (Just libdir) $ do
@@ -782,10 +743,10 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
       setSessionDynFlags $
         dynFlags
           { mainModIs = mkModule mainUnitId target_name,
-            mainFunIs = Just "main__"
+            mainFunIs = Just "main__",
+            importPaths = importPaths dynFlags ++ modBase
           }
 
-    addLocalTargets [] modBase
     _ <- load (LoadUpTo target_name)
 
     -- We should for here in case it doesn't terminate, and modify

@@ -60,6 +60,7 @@ import Numeric (showHex)
 import PrelNames (mkMainModule, mkMainModule_)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
+import System.Exit (exitFailure)
 import System.FilePath (dropExtension, dropFileName, takeFileName, (<.>), (</>))
 import System.IO (Handle, hClose, hGetLine, openTempFile)
 import System.Posix.Process
@@ -428,7 +429,12 @@ checkFixes
           flip (foldl gopt_unset) setFlags $ -- Remove the HPC
             dynFlags
               { hpcDir = tempDir,
+                -- ghcMode = OneShot is the default, if we want it to compile
+                -- the files. But we've already compiled them at this point,
+                -- so we want it to use the CompManager to pick up the
+                -- dependencies.
                 ghcMode = if useInterpreted then CompManager else OneShot,
+                -- TODO: Should this be LinkDynLib for MacOS?
                 ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
                 hscTarget = if useInterpreted then HscInterpreted else HscAsm
                 --optLevel = 2
@@ -446,11 +452,18 @@ checkFixes
       setSessionDynFlags $
         dynFlags
           { mainModIs = mkModule mainUnitId target_name,
-            mainFunIs = Just "main__"
+            mainFunIs = Just "main__",
+            importPaths = importPaths dynFlags ++ modBase
           }
-    addLocalTargets [] modBase
     liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
-    _ <- load (LoadUpTo target_name)
+    sf2 <- load (LoadUpTo target_name)
+    when (failed sf2) $
+      liftIO $ do
+        logStr ERROR $
+          "Error while loading: " ++ moduleNameString target_name
+            ++ " see error message for more information"
+
+        exitFailure
     mg <- depanal [] True
     liftIO $ logStr DEBUG "New graph:"
     liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg
@@ -487,7 +500,6 @@ checkFixes
                   else Right False
 
     let inds = take (length fixes) [0 ..]
-
     res <-
       if useInterpreted
         then do
