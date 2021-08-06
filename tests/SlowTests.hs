@@ -264,8 +264,8 @@ properGenTests =
               "+x = 30"
             ]
           ],
-      mkGenConfTest 15_000_000 "All props pass" "tests/cases/AllPropsPass.hs" [],
-      mkGenConfTest 15_000_000 "No props" "tests/cases/NoProps.hs" []
+      mkGenConfTest 5_000_000 "All props pass" "tests/cases/AllPropsPass.hs" [],
+      mkGenConfTest 5_000_000 "No props" "tests/cases/NoProps.hs" []
     ]
 
 genTests :: TestTree

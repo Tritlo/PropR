@@ -10,13 +10,16 @@ x = 2
 prop_bigEnough :: Bool
 prop_bigEnough = x >= 2
 
+prop_smallEnough :: Bool
+prop_smallEnough = x <= 2
+
 prop_mul2Is4 :: Bool
 prop_mul2Is4 = x * 2 == 4
 
+tests :: TestTree
 tests =
-  [ testCase "Test 1" (x + 2 @?= 4),
-    testCase "Test 2" (x @?= 4)
-  ]
-
-test :: TestTree
-test = testCase "Test 1" (x @?= 3)
+  testGroup
+    "it's 2"
+    [ testCase "Test 1" (x + 2 @?= 4),
+      testCase "Test 2" (x @?= 2)
+    ]
