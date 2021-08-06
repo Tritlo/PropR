@@ -433,7 +433,7 @@ checkFixes
                 -- the files. But we've already compiled them at this point,
                 -- so we want it to use the CompManager to pick up the
                 -- dependencies.
-                ghcMode = if useInterpreted then CompManager else OneShot,
+                ghcMode = CompManager,
                 -- TODO: Should this be LinkDynLib for MacOS?
                 ghcLink = if useInterpreted then LinkInMemory else LinkBinary,
                 hscTarget = if useInterpreted then HscInterpreted else HscAsm

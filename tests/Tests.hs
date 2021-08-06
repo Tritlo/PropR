@@ -26,6 +26,7 @@ import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
+import TestUtils
 import Trace.Hpc.Mix
 
 tests :: TestTree
@@ -49,10 +50,6 @@ compileParsedCheck cc expr =
 
 runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
 runJustParseExpr cc str = runGhcWithCleanup cc $ justParseExpr cc str
-
--- | Chosen fairly by Random.org
-tESTSEED :: Int
-tESTSEED = 490_100_041
 
 prop_insertAt :: Eq a => Int -> a -> [a] -> Property
 prop_insertAt n a as = abs n < length as ==> insertAt n' a as !! n' == a
@@ -435,52 +432,6 @@ sanctifyTests =
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]
 
-readExpected :: FilePath -> IO [String]
-readExpected fp = do
-  ls <- lines <$> readFile fp
-  let ex' =
-        takeWhile (/= "---- END EXPECTED ----") $
-          drop 1 $
-            dropWhile (/= "---- EXPECTED ----") ls
-      ex'' = map (drop 3) ex'
-      diffs = split "" ex''
-  return $ map unlines diffs
-
-mkModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> TestTree
-mkModuleTest timeout tag toFix repair_target =
-  localOption (mkTimeout timeout) $
-    testCase tag $ do
-      expected <- readExpected toFix
-      setSeedGenSeed tESTSEED
-      (cc', mod, mb_prob) <- moduleToProb def toFix repair_target
-      case mb_prob of
-        Nothing -> [] @?= expected
-        Just ExProb {..} -> error "not supported yet!"
-        Just tp@EProb {..} -> do
-          fixes <- repair cc' tp
-          let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
-              diffs =
-                map
-                  ( concatMap ppDiff
-                      . snd
-                      . applyFixes (tm_parsed_module mod)
-                      . getFixBinds
-                      . head
-                  )
-                  fixProgs
-              check = sort diffs == sort expected
-              msg =
-                unlines
-                  [ "Fix mismatch!",
-                    "Expected:",
-                    unlines expected,
-                    "But got:",
-                    unlines diffs,
-                    "Actual fixes were:",
-                    unlines (map (showSDocUnsafe . ppr) fixes)
-                  ]
-          assertBool msg check
-
 moduleTests =
   testGroup
     "Module tests"
@@ -490,13 +441,13 @@ moduleTests =
           (_, _, Just EProb {..}) <- moduleToProb def toFix Nothing
           let [(e_target, _, _)] = e_prog
           showUnsafe e_target @?= "broken",
-      mkModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken"),
-      mkModuleTest 90_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
-      mkModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing,
-      mkModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing,
-      mkModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,
-      mkModuleTest 15_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing,
-      mkModuleTest 15_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing
+      mkSimpleModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken"),
+      mkSimpleModuleTest 90_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
+      mkSimpleModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing,
+      mkSimpleModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing,
+      mkSimpleModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,
+      mkSimpleModuleTest 15_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing,
+      mkSimpleModuleTest 15_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing
     ]
 
 main = defaultMain tests
