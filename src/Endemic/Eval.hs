@@ -28,6 +28,7 @@ import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag
 import Constraint
 import Control.Applicative (Const)
 import Control.Arrow ((***))
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Lens (Getting, to, universeOf, universeOn, universeOnOf)
 import Control.Lens.Combinators (Fold)
@@ -768,9 +769,18 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
               -- other than terminate
               loop :: Maybe ExitCode -> Integer -> IO ()
               loop _ 0 =
+                -- "WHY WON'T YOU DIE?" -- Freddy Kruger
                 getPid ph >>= \case
-                  Just pid -> signalProcess killProcess pid >> terminateProcess ph
-                  _ -> return ()
+                  Just pid ->
+                    let kill3 0 = return ()
+                        kill3 n = do
+                          terminateProcess ph
+                          signalProcess sigKILL pid
+                          threadDelay timeoutVal
+                          c <- isJust <$> getPid ph
+                          when c $ kill3 (n -1)
+                     in kill3 3
+                  _ -> terminateProcess ph
               loop Nothing n = do
                 -- If it's taking too long, it's probably stuck in a loop.
                 -- By sending the right signal though, it will dump the tix

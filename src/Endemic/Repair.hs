@@ -27,6 +27,7 @@ module Endemic.Repair where
 import Bag (bagToList, emptyBag, listToBag)
 import Constraint
 import Control.Arrow (first, second, (***))
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Monad (when, (>=>))
 import qualified Data.Bifunctor
@@ -492,9 +493,18 @@ checkFixes
           ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
           case ec of
             Nothing -> do
+              terminateProcess ph
               getPid ph >>= \case
-                Just pid -> signalProcess killProcess pid >> terminateProcess ph
-                _ -> return ()
+                Just pid ->
+                  let kill3 0 = return ()
+                      kill3 n = do
+                        terminateProcess ph
+                        signalProcess sigKILL pid
+                        threadDelay timeoutVal
+                        c <- isJust <$> getPid ph
+                        when c $ kill3 (n -1)
+                   in kill3 3
+                _ -> terminateProcess ph
               return (Right False)
             Just _ -> do
               res <- hGetLine hout
