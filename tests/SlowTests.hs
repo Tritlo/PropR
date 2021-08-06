@@ -39,6 +39,9 @@ tests =
 runGenRepair :: ProblemDescription -> IO (Set EFix)
 runGenRepair desc = runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing
 
+runGenRepair' :: GeneticConfiguration -> ProblemDescription -> IO (Set EFix)
+runGenRepair' gen_conf desc = runGenMonad gen_conf desc tESTSEED geneticSearchPlusPostprocessing
+
 mkGenConfTestEx :: Integer -> TestName -> FilePath -> TestTree
 mkGenConfTestEx = mkRepairTest def runGenRepair
 
@@ -84,7 +87,8 @@ properGenTests =
     "Genetic search tests"
     [ mkGenConfTestEx 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
       mkGenConfTestEx 180_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs",
-      mkGenConfTestEx 180_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs"
+      -- With all the new fixes, we need to bump the population size
+      mkRepairTest def (runGenRepair' tESTGENCONF {populationSize = 92}) 180_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs"
     ]
 
 genTests :: TestTree
