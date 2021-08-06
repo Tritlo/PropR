@@ -16,7 +16,6 @@
 module Endemic.Search.Exhaustive.Search where
 
 import Control.Arrow (first, (***))
-import Data.List (nub)
 import qualified Data.List as List
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -42,22 +41,24 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
   logStr INFO "Starting exhaustive Search"
   -- Note: we don't have to recompute the fixes again and again
   all_fix_combs <-
-    lazyAllCombsByLevel mergeFixes <$> case initialFixes of
+    lazyAllCombsByLevel <$> case initialFixes of
       Just fixes -> return fixes
       _ -> map fst <$> repairAttempt desc
 
   let isFixed (Right x) = x
       isFixed (Left ps) = and ps
       loop ::
+        -- | The seen fixes, to remove duplicates and cached items
+        Set EFix ->
         -- | The fixes to check, a (lazy) list of changes to test.
         -- A check is a bunch of changes, hence a list too. The lay list is sorted ascending in length, the 1-Change entries are in the first list of list, the 2 Change entries are in the second list of list ...
         [[EFix]] ->
         -- | Current depth of levels, just for better debugging and logging
         Int ->
         IO (Set EFix) -- The results found within a certain time-budget
-      loop [] _ = return Set.empty -- Initial Case on creation, the first set of changes is the empty list. Also invoked if we exhaust the exhaustive search.
-      loop ([] : lvls) n = loop lvls (n + 1) -- This case happens when we exhausted one level of changes
-      loop (lvl : lvls) n = do
+      loop _ [] _ = return Set.empty -- Initial Case on creation, the first set of changes is the empty list. Also invoked if we exhaust the exhaustive search.
+      loop checked ([] : lvls) n = loop checked lvls (n + 1) -- This case happens when we exhausted one level of changes
+      loop checked (lvl : lvls) n = do
         -- Normal case where we have checks left in the current level
         logStr VERBOSE ("Remaining Fixes of length " ++ (show n) ++ " : " ++ show (length lvl))
         cur_time <- getCPUTime
@@ -66,40 +67,47 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
         if budget_over
           then logStr INFO "Time budget done, returning!" >> return Set.empty
           else do
-            let (check_list, rest) = List.splitAt exhBatchSize lvl
-            logStr VERBOSE $ "  ... thereof un-cached & unseen in last batch: " ++ show (length check_list)
+            let (to_check, rest) = List.splitAt exhBatchSize lvl
+                -- Our way of constructing the combinations gives a lot of
+                -- repition, so we can cache tose we've checked already
+                -- to avoid having to check again.
+                not_checked = Set.fromList $ filter (not . (`Set.member` checked)) to_check
+                checked' = not_checked `Set.union` checked
+                check_list = Set.toList not_checked
+                rest' = dropWhile (`Set.member` checked') rest
+            logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ (show $ length check_list))
             mapM_ (logOut AUDIT) check_list
-            fixes <-
-              if null check_list
-                then return Set.empty
-                else
-                  Set.fromList . map fst
-                    . filter (isFixed . snd)
-                    . zip check_list
-                    <$> runGhc' compConf (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list))
+            fixes <- case check_list of
+              [] -> return Set.empty
+              _ ->
+                do Set.fromList
+                  . map fst
+                  . filter (isFixed . snd)
+                  . zip check_list
+                  <$> runGhc' compConf (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list))
             if Set.null fixes
-              then loop (rest : lvls) n
+              then loop checked' (rest' : lvls) n
               else do
+                logStr INFO $ "Found fixes after " ++ show (Set.size checked') ++ " checks!"
                 mapM_ (logOut INFO) $ Set.toList fixes
                 if exhStopOnResults
                   then return fixes
-                  else Set.union fixes <$> loop (rest : lvls) n
+                  else Set.union fixes <$> loop checked' (rest' : lvls) n
 
-  loop all_fix_combs 1
+  loop Set.empty all_fix_combs 1
   where
     EProb {..} = progProblem
     -- PicoSeconds are the granularity provided by the CPU-Time
     budgetInPicoSeconds = fromIntegral exhSearchBudget * 1_000_000_000_000
 
--- | Provides all unique combinations in a lazy way
+-- | Provides all combinations of fixes, for a given level, in a lazy way.
 -- Crucial, as otherwise all Fixes would need to be computed pre-emptively, making an iterative search nearly impossible.
 --
 -- "Finally, some lazy evaluation magic!"
-lazyAllCombsByLevel :: Ord a => (a -> a -> a) -> [a] -> [[a]]
-lazyAllCombsByLevel comb fixes = fixes : lacbl' (Set.fromList fixes) fixes fixes
+lazyAllCombsByLevel :: [EFix] -> [[EFix]]
+lazyAllCombsByLevel fixes = fixes : lacbl' fixes fixes
   where
-    lacbl' _ _ [] = []
-    lacbl' seen orig cur_level = merged : lacbl' (seen `Set.union` mset) orig cur_level
+    lacbl' _ [] = []
+    lacbl' orig cur_level = merged : lacbl' orig merged
       where
-        merged = nub $ filter (not . (`Set.member` seen)) $ orig >>= (flip map cur_level . comb)
-        mset = Set.fromList merged
+        merged = orig >>= (flip map cur_level . mergeFixes)
