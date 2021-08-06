@@ -704,6 +704,7 @@ traceTargets ::
   EProgFix ->
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
+traceTargets _ _ _ [] = return []
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
   seed <- newSeed
   let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)

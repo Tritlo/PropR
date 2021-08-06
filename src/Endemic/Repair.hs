@@ -396,6 +396,7 @@ checkFixes ::
   ProblemDescription ->
   [EProgFix] ->
   Ghc [TestSuiteResult]
+checkFixes _ [] = return []
 checkFixes
   ProbDesc
     { compConf = cc@CompConf {..},

@@ -73,22 +73,26 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                 -- to avoid having to check again.
                 not_checked = Set.fromList $ filter (not . (`Set.member` checked)) to_check
                 checked' = not_checked `Set.union` checked
+                rest' = dropWhile (`Set.member` checked') rest
                 check_list = Set.toList not_checked
             logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ (show $ length check_list))
             mapM_ (logOut AUDIT) check_list
             fixes <-
-              Set.fromList . map fst
-                . filter (isFixed . snd)
-                . zip check_list
-                <$> runGhc' compConf (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list))
+              if null check_list
+                then return Set.empty
+                else
+                  Set.fromList . map fst
+                    . filter (isFixed . snd)
+                    . zip check_list
+                    <$> runGhc' compConf (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list))
             if Set.null fixes
-              then loop checked' (rest : lvls) n
+              then loop checked' (rest' : lvls) n
               else do
                 logStr INFO $ "Found fixes after " ++ show (Set.size checked') ++ " checks!"
                 mapM_ (logOut INFO) $ Set.toList fixes
                 if exhStopOnResults
                   then return fixes
-                  else Set.union fixes <$> loop checked' (rest : lvls) n
+                  else Set.union fixes <$> loop checked' (rest' : lvls) n
 
   loop Set.empty all_fix_combs 1
   where
