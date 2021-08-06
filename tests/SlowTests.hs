@@ -109,7 +109,8 @@ specialTests =
         runGenRepair
         120_000_000
         "Non-interpreted"
-        "tests/cases/LoopBreaker.hs"
+        "tests/cases/LoopBreaker.hs",
+      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs"
     ]
 
 main :: IO ()

@@ -24,6 +24,13 @@ one = 1
 -- +++ b/tests/cases/UsesDependency.hs
 -- @@ -9,1 +9,1 @@ result = dependency + 3
 -- -result = dependency + 3
+-- +result = dependency + (signum (3))
+--
+-- diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs
+-- --- a/tests/cases/UsesDependency.hs
+-- +++ b/tests/cases/UsesDependency.hs
+-- @@ -9,1 +9,1 @@ result = dependency + 3
+-- -result = dependency + 3
 -- +result = dependency + 1
 --
 -- diff --git a/tests/cases/UsesDependency.hs b/tests/cases/UsesDependency.hs
