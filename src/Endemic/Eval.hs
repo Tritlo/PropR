@@ -28,6 +28,7 @@ import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag
 import Constraint
 import Control.Applicative (Const)
 import Control.Arrow ((***))
+import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Lens (Getting, to, universeOf, universeOn, universeOnOf)
 import Control.Lens.Combinators (Fold)
@@ -704,6 +705,7 @@ traceTargets ::
   EProgFix ->
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
+traceTargets _ _ _ [] = return []
 traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
   seed <- newSeed
   let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)
@@ -766,7 +768,19 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
           let -- If it doesn't respond to signals, we can't do anything
               -- other than terminate
               loop :: Maybe ExitCode -> Integer -> IO ()
-              loop _ 0 = terminateProcess ph
+              loop _ 0 =
+                -- "WHY WON'T YOU DIE?" -- Freddy Kruger
+                getPid ph >>= \case
+                  Just pid ->
+                    let kill3 0 = return ()
+                        kill3 n = do
+                          terminateProcess ph
+                          signalProcess sigKILL pid
+                          threadDelay timeoutVal
+                          c <- isJust <$> getPid ph
+                          when c $ kill3 (n -1)
+                     in kill3 3
+                  _ -> terminateProcess ph
               loop Nothing n = do
                 -- If it's taking too long, it's probably stuck in a loop.
                 -- By sending the right signal though, it will dump the tix
