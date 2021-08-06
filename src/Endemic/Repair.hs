@@ -351,42 +351,50 @@ findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems y
 repairAttempt ::
   ProblemDescription ->
   IO [(EFix, TestSuiteResult)]
-repairAttempt
+repairAttempt desc@ProbDesc {compConf = cc} = liftIO $ do
+  nzh <- findEvaluatedHoles desc
+  runGhcWithCleanup cc $ do
+    fix_cands <- generateFixCandidates desc nzh
+    collectStats $
+      zipWith (\(fs, _) r -> (fs, r)) fix_cands
+        <$> checkFixes desc (map snd fix_cands)
+
+-- | Retrieves the candidates for the holes given in non-zero holes
+generateFixCandidates ::
+  ProblemDescription ->
+  [(SrcSpan, LHsExpr GhcPs)] ->
+  Ghc [(EFix, EProgFix)]
+generateFixCandidates
   desc@ProbDesc
     { compConf = cc,
       progProblem = tp@EProb {..},
       exprFitCands = efcs
-    } = collectStats $ do
+    }
+  non_zero_holes = do
     -- We add the context by replacing a hole in a let.
-    let inContext = noLoc . HsLet NoExtField e_ctxt
+    let nzh = non_zero_holes
+        inContext = noLoc . HsLet NoExtField e_ctxt
         addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
         addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
-
-    -- nzh=non-zero-holes - Holes that are touched by properties
-    nzh <- findEvaluatedHoles desc
-    runGhcWithCleanup cc $ do
-      fits <- collectStats $ getHoleFits cc efcs (map (\(l, he) -> ([l], addContext l he)) nzh)
-
-      let fix_cands' :: [(EFix, EExpr)]
-          fix_cands' = concatMap toCands $ zip nzh fits
-            where
-              toCands ((loc, hole_expr), [fits])
-                | isGoodSrcSpan loc =
-                  map ((\f -> (f, f `replaceExpr` hole_expr)) . Map.singleton loc) $ nubSort fits
-              -- We ignore the spans than are bad or unhelpful.
-              toCands ((loc, _), [_]) = []
-              toCands ((_, hole_expr), multi_fits) =
-                map (first Map.fromList) $ replacements hole_expr multi_fits
-          fix_cands :: [(EFix, EProgFix)]
-          fix_cands = map (second (replicate (length e_prog))) fix_cands'
-
-      liftIO $ logStr DEBUG "Fix candidates:"
-      liftIO $ mapM_ (logOut DEBUG) fix_cands
-      liftIO $ logStr DEBUG "Those were all of them!"
-      collectStats $
-        zipWith (\(fs, _) r -> (fs, r)) fix_cands
-          <$> checkFixes desc (map snd fix_cands)
-repairAttempt _ = error "Cannot repair external problems yet!"
+        holed_exprs = map (\(l, he) -> ([l], addContext l he)) nzh
+    fits <- collectStats $ getHoleFits cc efcs holed_exprs
+    let fix_cands' :: [(EFix, EExpr)]
+        fix_cands' = concatMap toCands $ zip nzh fits
+          where
+            toCands ((loc, hole_expr), [fits])
+              | isGoodSrcSpan loc =
+                map ((\f -> (f, f `replaceExpr` hole_expr)) . Map.singleton loc) $ nubSort fits
+            -- We ignore the spans than are bad or unhelpful.
+            toCands ((loc, _), [_]) = []
+            toCands ((_, hole_expr), multi_fits) =
+              map (first Map.fromList) $ replacements hole_expr multi_fits
+        fix_cands :: [(EFix, EProgFix)]
+        fix_cands = map (second (replicate (length e_prog))) fix_cands'
+    liftIO $ logStr DEBUG "Fix candidates:"
+    liftIO $ mapM_ (logOut DEBUG) fix_cands
+    liftIO $ logStr DEBUG "Those were all of them!"
+    return fix_cands
+generateFixCandidates _ _ = error "External problems not supported"
 
 -- | Runs a given (changed) Program against the Test-Suite described in ProblemDescription.
 -- The Result is the Test-Suite-Result, where
@@ -582,7 +590,8 @@ describeProblem conf@Conf {compileConfig = cc} fp = do
             let inContext = noLoc . HsLet NoExtField e_ctxt
                 addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
                 addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
-            initialFixes' <- Just . map fst <$> repairAttempt desc'
+            nzh <- findEvaluatedHoles desc'
+            initialFixes' <- Just . map fst <$> runGhc' cc (generateFixCandidates desc' nzh)
             logStr DEBUG "Initial fixes:"
             logOut DEBUG initialFixes'
             return $ desc' {initialFixes = initialFixes'}
