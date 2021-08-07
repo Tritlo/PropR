@@ -9,6 +9,7 @@ on:
       - '**.cabal'
       - 'Dockerfile'
       - '**.project'
+      - '.github/workflows/*.yml'
     branches:
       - 'master'
   pull_request:
