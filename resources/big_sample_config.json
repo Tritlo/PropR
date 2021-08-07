@@ -9,6 +9,7 @@
                 "mod_base": [],
                 "additional_targets": [],
                 "hole_lvl": 0,
+                "hole_depth": 1,
                 "unfold_tasty_tests": true,
                 "temp_dir_base": "./temp_dir",
                 "par_checks": true,

@@ -45,7 +45,7 @@ tests =
 -- Helpers
 compileParsedCheck :: HasCallStack => CompileConfig -> EExpr -> IO Dynamic
 compileParsedCheck cc expr =
-  runGhc' (cc {hole_lvl = 0}) $
+  runGhc' (cc {holeLvl = 0}) $
     dynCompileParsedExpr `reportOnError` expr
 
 runJustParseExpr :: CompileConfig -> RExpr -> IO (LHsExpr GhcPs)
@@ -74,8 +74,7 @@ repairTests =
         testCase "Basic Repair `foldl (-) 0`" $ do
           let cc =
                 def
-                  { hole_lvl = 2,
-                    packages = ["base", "process", "QuickCheck"],
+                  { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
               ty = "[Int] -> Int"
@@ -195,8 +194,7 @@ failingPropsTests =
         testCase "Only one failing prop" $ do
           let cc =
                 def
-                  { hole_lvl = 2,
-                    packages = ["base", "process", "QuickCheck"],
+                  { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
               ty = "[Int] -> Int"
@@ -234,8 +232,7 @@ counterExampleTests =
         testCase "Only one counter example" $ do
           let cc =
                 def
-                  { hole_lvl = 2,
-                    packages = ["base", "process", "QuickCheck"],
+                  { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
               ty = "[Int] -> Int"
@@ -264,8 +261,7 @@ counterExampleTests =
         testCase "Multiple examples" $ do
           let cc =
                 def
-                  { hole_lvl = 2,
-                    packages = ["base", "process", "QuickCheck"],
+                  { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
               ty = "Int -> Int -> Int"

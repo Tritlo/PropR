@@ -132,7 +132,7 @@ initGhcCtxt' ::
 initGhcCtxt' use_cache CompConf {..} local_exprs = do
   liftIO $ logStr DEBUG "Initializing GHC..."
   -- First we have to add "base" to scope
-  flags <- config hole_lvl <$> getSessionDynFlags
+  flags <- config holeLvl <$> getSessionDynFlags
   --`dopt_set` Opt_D_dump_json
   plugRef <- liftIO $ newIORef initialHoleFitState
   let flags' =
@@ -200,7 +200,7 @@ getHoleFitsFromError plugRef err = do
   when (null res) (printException err)
   let gs = groupBy (sameHole `on` fst) res
       allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)
-      allFitsOfHole [] = error "no-fits!"
+      allFitsOfHole [] = error "no-holes!"
       valsAndRefs = map ((partition part . snd) . allFitsOfHole) gs
   return $ Left valsAndRefs
   where
