@@ -470,18 +470,18 @@ generateFixCandidates
             raw_wrapped_fits
         wrapped_holes = map (first head) wrapped_in_holes
 
-    let fix_cands' :: [(EFix, EExpr)]
+    let fix_cands' :: [EFix]
         fix_cands' = concatMap toCands $ zip (nzh ++ wrapped_holes) (hole_fits ++ with_wrappee)
           where
             toCands ((loc, hole_expr), [fits])
               | isGoodSrcSpan loc =
-                map ((\f -> (f, f `replaceExpr` hole_expr)) . Map.singleton loc) $ nubSort fits
+                map (Map.singleton loc) $ nubSort fits
             -- We ignore the spans than are bad or unhelpful.
             toCands ((loc, _), [_]) = []
             toCands ((_, hole_expr), multi_fits) =
-              map (first Map.fromList) $ replacements hole_expr multi_fits
+              map (Map.fromList . fst) $ replacements hole_expr multi_fits
         fix_cands :: [(EFix, EProgFix)]
-        fix_cands = map (second (replicate (length e_prog))) fix_cands'
+        fix_cands = map (\f -> (f,) $ map (\(_, _, prog) -> f `replaceExpr` prog) e_prog) fix_cands'
     liftIO $ logStr DEBUG "Fix candidates:"
     liftIO $ mapM_ (logOut DEBUG) fix_cands
     liftIO $ logStr DEBUG "Those were all of them!"
