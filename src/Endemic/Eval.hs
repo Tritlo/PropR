@@ -581,12 +581,12 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
     return (cc', tc_modul, int_prob)
 
 -- Create a fake base loc for a trace.
-fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> IO SrcSpan
+fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> Ghc SrcSpan
 fakeBaseLoc cc prob fix = getLoc . head <$> buildTraceCorrelExpr cc prob fix
 
 -- When we do the trace, we use a "fake_target" function. This build the
 -- corresponding expression,
-buildTraceCorrelExpr :: CompileConfig -> EProblem -> EProgFix -> IO [LHsExpr GhcPs]
+buildTraceCorrelExpr :: CompileConfig -> EProblem -> EProgFix -> Ghc [LHsExpr GhcPs]
 buildTraceCorrelExpr cc EProb {..} exprs = do
   let correl =
         zipWith
@@ -604,8 +604,7 @@ buildTraceCorrelExpr cc EProb {..} exprs = do
       correl_exprs :: [LHsExpr GhcPs]
       correl_exprs = map (\ctxt -> noLoc $ HsLet NoExtField ctxt (noLoc hole)) correl_ctxts
 
-  pcorrels <- runGhc' cc $ do
-    mapM (parseExprNoInit . showUnsafe) correl_exprs
+  pcorrels <- mapM (parseExprNoInit . showUnsafe) correl_exprs
   let getBod (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _))
         | [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] <- bagToList bg,
           [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] <- alts =
@@ -617,7 +616,7 @@ buildTraceCorrelExpr _ _ _ = error "External fixes not supported!"
 -- We build a Map from the traced expression and to the  original so we can
 -- correlate the trace information with the expression we're checking.
 -- This helps e.g. to find placements of changed elements (in our fixes) to the original position.
-buildTraceCorrel :: CompileConfig -> EProblem -> EProgFix -> IO [Map.Map SrcSpan SrcSpan]
+buildTraceCorrel :: CompileConfig -> EProblem -> EProgFix -> Ghc [Map.Map SrcSpan SrcSpan]
 buildTraceCorrel cc prob exprs = do
   expr_n_trac_exprs <- zip exprs <$> buildTraceCorrelExpr cc prob exprs
   return $
@@ -641,8 +640,9 @@ buildTraceCorrel cc prob exprs = do
 runGhcWithCleanup :: CompileConfig -> Ghc a -> IO a
 runGhcWithCleanup CompConf {..} act = do
   td_seed <- flip showHex "" . abs <$> newSeed
-  let tdBase = tempDirBase </> "run" </> td_seed
-      common = tempDirBase </> "common"
+  let tdBase' = tempDirBase </> "run" </> td_seed
+  tdBase <- makeAbsolute tdBase'
+  let common = tempDirBase </> "common"
       extra_dirs' = [common </> "build", common]
   extra_dirs <- mapM makeAbsolute extra_dirs'
   createDirectoryIfMissing True tdBase
@@ -691,7 +691,7 @@ traceTarget ::
   EProp ->
   [RExpr] ->
   IO (Maybe TraceRes)
-traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
+traceTarget cc tp e fp ce = head <$> (traceTargets cc tp e [(fp, ce)])
 
 toInvokes :: Trace -> Map.Map SrcSpan Integer
 toInvokes res = Map.fromList $ map only_max $ flatten res
@@ -706,23 +706,59 @@ traceTargets ::
   [(EProp, [RExpr])] ->
   IO [Maybe TraceRes]
 traceTargets _ _ _ [] = return []
-traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) : _) ps_w_ce = do
-  seed <- newSeed
-  let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)
-      tempDir = tempDirBase </> "trace" </> traceHash
-      the_f = tempDir </> ("FakeTraceTarget" ++ traceHash) <.> "hs"
-  createDirectoryIfMissing True tempDir
-  -- We generate the name of the module from the temporary file
-  let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-      modTxt = exprToTraceModule cc tp seed mname correl ps_w_ce
-      exeName = dropExtension the_f
-      mixFilePath = tempDir
-      timeoutVal = fromIntegral timeout
-
-  logStr DEBUG modTxt
-  writeFile the_f modTxt
-  _ <- liftIO $ mapM (logStr DEBUG) $ lines modTxt
+-- Note: we call runGhc' here directly, since we want every trace to be a
+-- new ghc thread (since we set the dynflags per module)
+traceTargets cc@CompConf {..} tp@EProb {..} exprs' ps_w_ce =
   runGhc' cc $ do
+    seed <- liftIO newSeed
+    let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs', ps_w_ce, seed)
+        tempDir = tempDirBase </> "trace" </> traceHash
+        the_f = tempDir </> ("FakeTraceTarget" ++ traceHash) <.> "hs"
+    liftIO $ createDirectoryIfMissing True tempDir
+    (exprs, realSpan) <- case exprs' of
+      ((L (RealSrcSpan realSpan) _) : _) -> return (exprs', realSpan)
+      _ -> do
+        ~tl@(RealSrcSpan rsp) <- fakeBaseLoc cc tp exprs'
+        let exprs = map (L tl . unLoc) exprs'
+        return (exprs, rsp)
+    let correl =
+          zipWith
+            ( \(nm, _, _) e ->
+                let ftn = "fake_target_" ++ rdrNamePrint nm
+                 in (ftn, nm, baseFun (mkVarUnqual $ fsLit ftn) e)
+            )
+            e_prog
+            exprs
+        fake_target_names = Set.fromList $ map (\(n, _, _) -> n) correl
+        toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
+        toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
+          createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
+        isTarget Node {rootLabel = (_, [(TopLevelBox [ftn], _)])} =
+          ftn `Set.member` fake_target_names
+        isTarget _ = False
+        -- We convert the HpcPos to the equivalent span we would get if we'd
+        -- parsed and compiled the expression directly.
+        toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
+        toFakeSpan the_f root sp = mkSrcSpan start end
+          where
+            fname = fsLit $ takeFileName the_f
+            (_, _, rel, rec) = fromHpcPos root
+            eloff = rel - srcSpanEndLine realSpan
+            ecoff = rec - srcSpanEndCol realSpan
+            (sl, sc, el, ec) = fromHpcPos sp
+            -- We add two spaces before every line in the source.
+            start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
+            -- GHC Srcs end one after the end
+            end = mkSrcLoc fname (el - eloff) (ec - ecoff)
+        mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
+        modTxt = exprToTraceModule cc tp seed mname correl ps_w_ce
+        exeName = dropExtension the_f
+        mixFilePath = tempDir
+        timeoutVal = fromIntegral timeout
+
+    liftIO $ logStr DEBUG modTxt
+    liftIO $ writeFile the_f modTxt
+    _ <- liftIO $ mapM (logStr DEBUG) $ lines modTxt
     -- We set the module as the main module, which makes GHC generate
     -- the executable.
     dynFlags <- getSessionDynFlags
@@ -817,40 +853,8 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs@((L (RealSrcSpan realSpan) _) 
     res <- liftIO $ mapM (runTrace . fst) $ zip [0 ..] ps_w_ce
     cleanupAfterLoads tempDir mname dynFlags
     return res
-  where
-    correl =
-      zipWith
-        ( \(nm, _, _) e ->
-            let ftn = "fake_target_" ++ rdrNamePrint nm
-             in (ftn, nm, baseFun (mkVarUnqual $ fsLit ftn) e)
-        )
-        e_prog
-        exprs
-    fake_target_names = Set.fromList $ map (\(n, _, _) -> n) correl
-    toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
-    toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
-      createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
-    isTarget Node {rootLabel = (_, [(TopLevelBox [ftn], _)])} =
-      ftn `Set.member` fake_target_names
-    isTarget _ = False
-    -- We convert the HpcPos to the equivalent span we would get if we'd
-    -- parsed and compiled the expression directly.
-    toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
-    toFakeSpan the_f root sp = mkSrcSpan start end
-      where
-        fname = fsLit $ takeFileName the_f
-        (_, _, rel, rec) = fromHpcPos root
-        eloff = rel - srcSpanEndLine realSpan
-        ecoff = rec - srcSpanEndCol realSpan
-        (sl, sc, el, ec) = fromHpcPos sp
-        -- We add two spaces before every line in the source.
-        start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
-        -- GHC Srcs end one after the end
-        end = mkSrcLoc fname (el - eloff) (ec - ecoff)
-traceTargets cc tp exprs@(e@(L _ xp) : _) ps_w_ce = do
-  tl <- fakeBaseLoc cc tp exprs
-  traceTargets cc tp (map (L tl . unLoc) exprs) ps_w_ce
 traceTargets _ _ [] _ = error "No fix!"
+traceTargets _ ExProb {} _ _ = error "Exprobs not supported!"
 
 cleanupAfterLoads :: FilePath -> String -> DynFlags -> Ghc ()
 cleanupAfterLoads tempDir mname dynFlags = do
