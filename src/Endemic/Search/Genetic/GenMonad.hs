@@ -118,7 +118,7 @@ instance Chromosome EFix where
             n_progs = map (applyFixToEProg e_prog) to_compute
         res <-
           zipWith (\e f -> (e, basicFitness e f)) to_compute
-            <$> liftIO (runGhc' compConf $ checkFixes desc $ map eProgToEProgFix n_progs)
+            <$> liftIO (checkFixes desc $ map eProgToEProgFix n_progs)
         putCache (Map.fromList res `Map.union` fc)
         return $
           map (snd . snd) $

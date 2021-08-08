@@ -259,23 +259,21 @@ detranslate _ = error "Cannot detranlsate external problem!"
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
 propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
-propCounterExample cc ep prop =
-  runGhc' cc $ head <$> propCounterExamples (fakeDesc [] cc ep) [prop]
+propCounterExample cc ep prop = head <$> propCounterExamples (fakeDesc [] cc ep) [prop]
 
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
-propCounterExamples :: ProblemDescription -> [EProp] -> Ghc [Maybe [RExpr]]
-propCounterExamples ProbDesc {..} props = do
-  let cc' = (compConf {importStmts = checkImports ++ importStmts compConf})
-      mk_bcc prop seed = buildCounterExampleCheck compConf seed prop progProblem
+propCounterExamples :: ProblemDescription -> [EProp] -> IO [Maybe [RExpr]]
+propCounterExamples ProbDesc {..} props = runGhc' cc' $ do
+  let mk_bcc prop seed = buildCounterExampleCheck compConf seed prop progProblem
       checkProp prop | isTastyProp prop = return $ Just []
       checkProp prop = do
         seed <- liftIO newSeed
         exec <- dynCompileParsedExpr `reportOnError` mk_bcc prop seed
         (map addPar <$>) <$> liftIO (fromDyn exec (return Nothing))
-  liftIO $
-    runGhc' cc' $ mapM checkProp props
+  mapM checkProp props
   where
+    cc' = (compConf {importStmts = checkImports ++ importStmts compConf})
     addPar arg = ('(' : arg) ++ ")"
     -- TODO: If we had the type here as well, we could do better.
     isTastyProp :: LHsBind GhcPs -> Bool
@@ -285,13 +283,12 @@ propCounterExamples ProbDesc {..} props = do
 
 -- | Returns the props that are failing given a problem description.
 failingProps' :: ProblemDescription -> Ghc [EProp]
-failingProps' desc@ProbDesc {progProblem = EProb {..}, ..} =
-  do
-    ~[res] <- checkFixes desc [eProgToEProgFixAtTy e_prog]
-    return $ case res of
-      Right True -> []
-      Right False -> e_props
-      Left results -> map fst $ filter (not . snd) $ zip e_props results
+failingProps' desc@ProbDesc {progProblem = EProb {..}, ..} = do
+  ~[res] <- liftIO $ checkFixes desc [eProgToEProgFixAtTy e_prog]
+  return $ case res of
+    Right True -> []
+    Right False -> e_props
+    Left results -> map fst $ filter (not . snd) $ zip e_props results
 failingProps' _ = error "External fixes not supported!"
 
 -- | Returns the props that fail for the given program, without having a
@@ -329,90 +326,89 @@ findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc,
       progProblem = tp@EProb {..}
-    } = collectStats $ do
-    logStr DEBUG "Finding evaluated holes..."
+    } = runGhc' cc $ do
+    liftIO $ logStr DEBUG "Finding evaluated holes..."
     -- We apply the fixes to all of the contexts, and all of the contexts
     -- contain the entire current program.
     -- TODO: Is this safe?
     let id_prog = eProgToEProgFixAtTy e_prog
 
-    logStr DEBUG "Building trace correlation..."
+    liftIO $ logStr DEBUG "Building trace correlation..."
     trace_correl <- buildTraceCorrel cc tp id_prog
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
-    logStr DEBUG "Finding failing props..."
-    runGhc' cc $ do
-      failing_props <- collectStats $ failingProps' desc
+    liftIO $ logStr DEBUG "Finding failing props..."
+    failing_props <- collectStats $ failingProps' desc
 
-      liftIO $ logStr DEBUG "Finding counter examples..."
-      counter_examples <- collectStats $ propCounterExamples desc failing_props
+    liftIO $ logStr DEBUG "Finding counter examples..."
+    counter_examples <- liftIO $ collectStats $ propCounterExamples desc failing_props
 
-      let hasCE (p, Just ce) = Just (p, ce)
-          hasCE _ = Nothing
-          -- ps_w_ce = Properties with CounterExamples -> The Failing Properties
-          ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
-      -- We compute the locations that are touched by the failing counter-examples
-      liftIO $ logStr DEBUG "Tracing program..."
-      -- This Method helps us to go resolve the traces per expressions touched by properties
-      -- To get the traces per properties touched by expressions.
-      -- If it were a matrix, this would be a classic matrix transpose.
-      -- We introduce the Ints before Properties and EExprs to have a trace-able ID for them,
-      -- As they do not provide Equality themselves.
-      -- However, (Toplevel) Expressions and Properties are unique, so we do not carry around duplicates.
-      -- It was just easier to use an Integer as a helper than to implement equality for Compiler-Objects.
-      let assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
-          assigToExprProp xs = resolve $ joinExprs mergeExprs
-            where
-              eprop_map :: Map Integer EProp
-              eprop_map = Map.fromList (map fst xs)
-              expr_map :: IntMap EExpr
-              expr_map = IntMap.fromList $ map fst $ concatMap snd xs
-              indsOnly :: [(Integer, [(Int, Trace)])]
-              indsOnly = map (Data.Bifunctor.bimap fst (map (first fst))) xs
-              dupProps :: [(Integer, (Int, Trace))]
-              dupProps = concatMap (\(p, ls) -> map (p,) ls) indsOnly
-              flipProps :: [(Int, (Integer, Trace))]
-              flipProps = map (\(p, (e, t)) -> (e, (p, t))) dupProps
-              mergeExprs :: [[(Int, (Integer, Trace))]]
-              mergeExprs = groupBy ((==) `on` fst) $ sortOn fst flipProps
-              joinExprs :: [[(Int, (Integer, Trace))]] -> [(Int, [(Integer, Trace)])]
-              joinExprs xs = map comb xs
-                where
-                  comb :: [(Int, (Integer, Trace))] -> (Int, [(Integer, Trace)])
-                  comb xs@((i, _) : _) = foldr f (i, []) xs
-                    where
-                      f :: (Int, (Integer, Trace)) -> (Int, [(Integer, Trace)]) -> (Int, [(Integer, Trace)])
-                      f (_, t) (i, ts) = (i, t : ts)
-                  comb [] = error "expr with no traces!"
-              resolve :: [(Int, [(Integer, Trace)])] -> [(EExpr, [(EProp, Trace)])]
-              resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map Map.!))
+    let hasCE (p, Just ce) = Just (p, ce)
+        hasCE _ = Nothing
+        -- ps_w_ce = Properties with CounterExamples -> The Failing Properties
+        ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
+    -- We compute the locations that are touched by the failing counter-examples
+    liftIO $ logStr DEBUG "Tracing program..."
+    -- This Method helps us to go resolve the traces per expressions touched by properties
+    -- To get the traces per properties touched by expressions.
+    -- If it were a matrix, this would be a classic matrix transpose.
+    -- We introduce the Ints before Properties and EExprs to have a trace-able ID for them,
+    -- As they do not provide Equality themselves.
+    -- However, (Toplevel) Expressions and Properties are unique, so we do not carry around duplicates.
+    -- It was just easier to use an Integer as a helper than to implement equality for Compiler-Objects.
+    let assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
+        assigToExprProp xs = resolve $ joinExprs mergeExprs
+          where
+            eprop_map :: Map Integer EProp
+            eprop_map = Map.fromList (map fst xs)
+            expr_map :: IntMap EExpr
+            expr_map = IntMap.fromList $ map fst $ concatMap snd xs
+            indsOnly :: [(Integer, [(Int, Trace)])]
+            indsOnly = map (Data.Bifunctor.bimap fst (map (first fst))) xs
+            dupProps :: [(Integer, (Int, Trace))]
+            dupProps = concatMap (\(p, ls) -> map (p,) ls) indsOnly
+            flipProps :: [(Int, (Integer, Trace))]
+            flipProps = map (\(p, (e, t)) -> (e, (p, t))) dupProps
+            mergeExprs :: [[(Int, (Integer, Trace))]]
+            mergeExprs = groupBy ((==) `on` fst) $ sortOn fst flipProps
+            joinExprs :: [[(Int, (Integer, Trace))]] -> [(Int, [(Integer, Trace)])]
+            joinExprs xs = map comb xs
+              where
+                comb :: [(Int, (Integer, Trace))] -> (Int, [(Integer, Trace)])
+                comb xs@((i, _) : _) = foldr f (i, []) xs
+                  where
+                    f :: (Int, (Integer, Trace)) -> (Int, [(Integer, Trace)]) -> (Int, [(Integer, Trace)])
+                    f (_, t) (i, ts) = (i, t : ts)
+                comb [] = error "expr with no traces!"
+            resolve :: [(Int, [(Integer, Trace)])] -> [(EExpr, [(EProp, Trace)])]
+            resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map Map.!))
 
-      -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
-      traces_that_worked <-
-        liftIO $
-          map (second (Map.unionsWith (+) . map (toInvokes . snd)))
-            -- The traces are per prop per expr, but we need a per expr per prop,
-            -- so we add indices and then use this custom transpose to get
-            -- the traces per expr. (See above)
-            . assigToExprProp
-            . map (zip (zip [0 :: Int ..] id_prog) <$>)
-            . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
-            . zip (zip [0 :: Integer ..] ps_w_ce)
-            <$> traceTargets cc tp id_prog ps_w_ce
+    -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
+    traces_that_worked <-
+      liftIO $
+        map (second (Map.unionsWith (+) . map (toInvokes . snd)))
+          -- The traces are per prop per expr, but we need a per expr per prop,
+          -- so we add indices and then use this custom transpose to get
+          -- the traces per expr. (See above)
+          . assigToExprProp
+          . map (zip (zip [0 :: Int ..] id_prog) <$>)
+          . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
+          . zip (zip [0 :: Integer ..] ps_w_ce)
+          <$> traceTargets cc tp id_prog ps_w_ce
 
-      -- We then remove suggested holes that are unlikely to help (naively for now
-      -- in the sense that we remove only holes which did not get evaluated at all,
-      -- so they are definitely not going to matter).
-      let fk trace_correl (expr, invokes) =
-            filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
-            where
-              non_zero = filter ((> 0) . snd) $ Map.toList invokes
-              non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-          non_zero_holes = zipWith fk trace_correl traces_that_worked
-          -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
-          nubOrd = Set.toList . Set.fromList
-      return $ nubOrd $ concat non_zero_holes
+    -- We then remove suggested holes that are unlikely to help (naively for now
+    -- in the sense that we remove only holes which did not get evaluated at all,
+    -- so they are definitely not going to matter).
+    let fk trace_correl (expr, invokes) =
+          filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
+          where
+            non_zero = filter ((> 0) . snd) $ Map.toList invokes
+            non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+        non_zero_holes = zipWith fk trace_correl traces_that_worked
+        -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
+        nubOrd = Set.toList . Set.fromList
+    return $ nubOrd $ concat non_zero_holes
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | This method tries to repair a given Problem.
@@ -423,24 +419,24 @@ findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems y
 repairAttempt ::
   ProblemDescription ->
   IO [(EFix, TestSuiteResult)]
-repairAttempt desc@ProbDesc {compConf = cc, ..} = liftIO $ do
-  nzh <- findEvaluatedHoles desc
-  runGhcWithCleanup cc $ do
-    (efixes, efixprogs) <- unzip <$> generateFixCandidates desc nzh
-    collectStats $ zip efixes <$> checkFixes desc {addConf = addConf {assumeNoLoops = False}} efixprogs
+repairAttempt desc@ProbDesc {compConf = cc, ..} = do
+  let desc' = desc {addConf = addConf {assumeNoLoops = False}}
+  nzh <- findEvaluatedHoles desc'
+  (efixes, efixprogs) <- unzip <$> generateFixCandidates desc nzh
+  zip efixes <$> liftIO (checkFixes desc' efixprogs)
 
 -- | Retrieves the candidates for the holes given in non-zero holes
 generateFixCandidates ::
   ProblemDescription ->
   [(SrcSpan, LHsExpr GhcPs)] ->
-  Ghc [(EFix, EProgFix)]
+  IO [(EFix, EProgFix)]
 generateFixCandidates
   desc@ProbDesc
     { compConf = cc,
       progProblem = tp@EProb {..},
       exprFitCands = efcs
     }
-  non_zero_holes = do
+  non_zero_holes = runGhcWithCleanup cc $ do
     -- We add the context by replacing a hole in a let.
     let nzh = non_zero_holes
         inContext = noLoc . HsLet NoExtField e_ctxt
@@ -504,7 +500,7 @@ generateFixCandidates _ _ = error "External problems not supported"
 checkFixes ::
   ProblemDescription ->
   [EProgFix] ->
-  Ghc [TestSuiteResult]
+  IO [TestSuiteResult]
 checkFixes _ [] = return []
 checkFixes
   ProbDesc
@@ -513,7 +509,9 @@ checkFixes
       addConf = AddConf {..},
       ..
     }
-  fixes = do
+  -- Because checkFixes sets the dynFlags, we need to run it in a separate
+  -- thread: hence the runGhc' here
+  fixes = runGhc' cc $ do
     liftIO $ logStr DEBUG "Checking fixes..."
     seed <- liftIO newSeed
     let checkHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes, seed)
@@ -673,18 +671,22 @@ describeProblem conf@Conf {compileConfig = ogcc} fp = do
         let probModule = Just modul
             initialFixes = Nothing
             addConf = AddConf {assumeNoLoops = True}
-            desc' = ProbDesc {..}
+            descBase = ProbDesc {..}
         if precomputeFixes
           then do
             logStr DEBUG "Pre-computing fixes..."
-            nzh <- findEvaluatedHoles desc'
+            let desc' =
+                  descBase
+                    { compConf = compConf {parChecks = False},
+                      addConf = addConf {assumeNoLoops = False}
+                    }
             initialFixes' <- do
               if keepLoopingFixes
-                then map fst <$> (findEvaluatedHoles desc' >>= runGhc' compConf . generateFixCandidates desc')
+                then map fst <$> (findEvaluatedHoles desc' >>= generateFixCandidates desc')
                 else
                   map fst . filter ((/= Right False) . snd)
-                    <$> repairAttempt desc' {compConf = compConf {parChecks = False}}
+                    <$> repairAttempt desc'
             logStr DEBUG "Initial fixes:"
             logOut DEBUG initialFixes'
-            return $ desc' {initialFixes = Just initialFixes'}
-          else return desc'
+            return $ descBase {initialFixes = Just initialFixes'}
+          else return descBase

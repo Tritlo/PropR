@@ -25,7 +25,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration
 import Endemic.Eval (getExprFitCands, runGhc')
-import Endemic.Repair (checkFixes, repairAttempt)
+import Endemic.Repair (checkFixes, findEvaluatedHoles, repairAttempt)
 import Endemic.Search.PseudoGenetic.Configuration
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types
@@ -115,19 +115,21 @@ pseudoGeneticRepair
     { compConf = cc,
       progProblem = prob@EProb {..},
       exprFitCands = efcs,
-      initialFixes = mb_initial_fixes
+      initialFixes = mb_initial_fixes,
+      ..
     } = do
     first_attempt <- case mb_initial_fixes of
       Just fixes ->
-        zip fixes <$> runGhc' cc (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) fixes))
+        zip fixes <$> checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) fixes)
       _ -> collectStats $ repairAttempt desc
     if not $ null $ successful first_attempt
       then return (Set.fromList $ map fst $ successful first_attempt)
       else do
-        let runGen (fix, _) = do
-              let n_prog = applyFixToEProg e_prog fix
-              map (\(f, r) -> (f `mergeFixes` fix, r))
-                <$> collectStats (repairAttempt (desc <~ n_prog))
+        let runGen (fix, _) =
+              do
+                let n_prog = applyFixToEProg e_prog fix
+                map (\(f, r) -> (f `mergeFixes` fix, r))
+                  <$> collectStats (repairAttempt (desc <~ n_prog))
             loop :: [(EFix, TestSuiteResult)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
@@ -148,7 +150,12 @@ pseudoGeneticRepair
               mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) gen
               logStr AUDIT "NEXT GEN"
               mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) new_gen
-              let mapGen = if genPar then mapConcurrently else mapM
+              --let mapGen = if genPar then mapConcurrently else mapM
+              -- Concurrency at this level isn't safe: we can't share the
+              -- ghc state safely between threads without weird issues.
+              -- TODO: figure out how to run a totally separate GHC with
+              -- no shared state (i.e. NO SHARED LINKER STATE EITHER)
+              let mapGen = mapM
               (t, new_attempt) <- collectStats $ time $ concat <$> mapGen runGen new_gen
               logStr INFO $ "ROUND TIME: " ++ showTime t
               loop new_attempt (rounds + 1)

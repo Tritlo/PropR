@@ -84,7 +84,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                   . map fst
                   . filter (isFixed . snd)
                   . zip check_list
-                  <$> runGhc' compConf (checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list))
+                  <$> checkFixes desc (map (eProgToEProgFix . applyFixToEProg e_prog) check_list)
             if Set.null fixes
               then loop checked' (rest' : lvls) n
               else do

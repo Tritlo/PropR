@@ -43,7 +43,7 @@ import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 --      Check fix
 --      Add Fix either to Results or Seen-Fixes
 --    Update Timer
--- 
+--
 -- The patches are growing randomly to a certain max-size, from which a new random one is created.
 randomRepair :: RandomConf -> ProblemDescription -> IO (Set EFix)
 randomRepair r@RandConf {..} desc@ProbDesc {..} = do
@@ -52,11 +52,15 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
   seed <- newSeed
   randomRepair' start (mkSMGen $ fromIntegral seed) Map.empty
   where
-    randomRepair' :: 
-      Integer           -- ^ Currently passed time in pico-seconds 
-      -> SMGen          -- ^ A premade Split-Mix Generator, to help with randomness
-      -> EFix           -- ^ Running Fix, to be changed randomly 
-      -> IO (Set EFix)  -- ^ Set of found fixes
+    randomRepair' ::
+      -- | Currently passed time in pico-seconds
+      Integer ->
+      -- | A premade Split-Mix Generator, to help with randomness
+      SMGen ->
+      -- | Running Fix, to be changed randomly
+      EFix ->
+      -- | Set of found fixes
+      IO (Set EFix)
     randomRepair' start gen fix_so_far = do
       logOut AUDIT fix_so_far
       cur_time <- getCPUTime
@@ -89,7 +93,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
                 -- We have to make sure that the chosen_fix takes precedence.
                 complete_fix = mergeFixes chosen_fix fix_so_far
             -- TODO: Does this even work?
-            ~[check_res] <- collectStats $ checkFixes desc [fixed_prog]
+            ~[check_res] <- liftIO $ collectStats $ checkFixes desc [fixed_prog]
 
             let keep_going = randomRepair' start gen'' complete_fix
                 done = do
