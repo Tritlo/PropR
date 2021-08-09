@@ -54,11 +54,11 @@ jobs:
     - name: Build
       run: cabal build --enable-tests --enable-benchmarks all
     - name: Run tests
-      run: cabal test test
+      run: cabal run test
     - name: Run slow-test
-      run: cabal test slow-test
+      run: cabal run slow-test
     - name: Run very-slow-test
-      run: cabal test very-slow-test
+      run: cabal run very-slow-test
 
   deploy:
     runs-on: ubuntu-latest
