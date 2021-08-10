@@ -5,9 +5,12 @@
 
 module TestUtils where
 
+import Control.Monad (when)
 import Data.Default
+import Data.Functor (($>))
 import Data.List (sort)
 import qualified Data.Map as Map
+import Data.Maybe (isJust)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic
@@ -36,7 +39,8 @@ tESTGENCONF = def {crossoverRate = 0.4, mutationRate = 0.1, dropRate = 0.25, ite
 data TestConf = TestConf
   { mb_expected :: Maybe [String],
     indices :: Maybe [Int],
-    allowMix :: Bool
+    allowMix :: Bool,
+    reportTestStats :: Bool
   }
   deriving (Show, Eq)
 
@@ -45,7 +49,8 @@ instance Default TestConf where
     TestConf
       { mb_expected = Nothing,
         indices = Nothing,
-        allowMix = False
+        allowMix = False,
+        reportTestStats = False
       }
 
 mkSimpleModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> TestTree
@@ -116,13 +121,14 @@ mkRepairTest' conf how timeout tag file TestConf {..} =
             _ -> expected'
 
       setSeedGenSeed (tESTSEED + 5)
-      describeProblem conf file
-        >>= \case
+      resetStats
+      desc <- collectStats (describeProblem conf file)
+      ( \case
           Just desc -> do
-            fixes <- how desc
+            fixes <- collectStats $ how desc
 
-            let diffs = fixesToDiffs desc fixes
-                check' = sort diffs == sort expected || (null expected && all Map.null fixes)
+            diffs <- collectStats $ return (fixesToDiffs desc fixes)
+            let check' = sort diffs == sort expected || (null expected && all Map.null fixes)
                 check = check' || (allowMix && not (Set.null (Set.fromList diffs `Set.intersection` Set.fromList expected)))
                 msg =
                   unlines
@@ -136,8 +142,13 @@ mkRepairTest' conf how timeout tag file TestConf {..} =
                       "Number of fixes:",
                       show (Set.size fixes)
                     ]
+            when reportTestStats (putStrLn "" >> putStrLn "Stats:" >> getStats >>= mapM_ putStrLn)
             assertBool msg check
-          Nothing -> [] @?= expected
+          Nothing -> do
+            when reportTestStats (putStrLn "" >> putStrLn "Stats:" >> getStats >>= mapM_ putStrLn)
+            [] @?= expected
+        )
+        desc
 
 readExpected :: FilePath -> IO [String]
 readExpected fp = do

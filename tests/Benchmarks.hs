@@ -21,6 +21,8 @@ import Endemic.Search.Exhaustive
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
+import Endemic.Util (collectStats, getStats, logOut, reportStats, reportStats', resetStats, showTime, time)
+import GhcPlugins (Outputable (ppr), showSDocUnsafe)
 import Test.Tasty
 import TestUtils
 
@@ -36,10 +38,12 @@ tests =
     ]
 
 runGenRepair :: ProblemDescription -> IO (Set EFix)
-runGenRepair desc = runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing
+runGenRepair desc = do
+  runGenMonad tESTGENCONF desc tESTSEED geneticSearchPlusPostprocessing
 
 mkGenConfTestEx :: Configuration -> Integer -> TestName -> FilePath -> TestTree
-mkGenConfTestEx conf = mkRepairTest conf runGenRepair
+mkGenConfTestEx conf timeout tag file =
+  mkRepairTest' conf runGenRepair timeout tag file def {reportTestStats = True}
 
 defaultTests :: TestTree
 defaultTests =
@@ -85,12 +89,13 @@ specialTests :: TestTree
 specialTests =
   testGroup
     "Special"
-    [ mkRepairTest
+    [ mkRepairTest'
         def {compileConfig = def {useInterpreted = False}}
         runGenRepair
         120_000_000
         "Non-interpreted with loop"
         "tests/cases/LoopBreaker.hs"
+        def {reportTestStats = True}
     ]
 
 main :: IO ()

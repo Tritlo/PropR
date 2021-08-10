@@ -193,15 +193,22 @@ collectStats a = do
   withFrozenCallStack $ liftIO $ logStr TIMINGS (showTime t)
   return r
 
+resetStats :: MonadIO m => m ()
+resetStats = liftIO $ writeIORef statsRef Map.empty
+
 reportStats :: MonadIO m => m ()
 reportStats = reportStats' TIMINGS
+
+getStats :: MonadIO m => m [String]
+getStats =
+  liftIO $
+    let pp ((f, l), t) = f ++ ":" ++ show l ++ " " ++ showTime t
+     in map pp . Map.toList <$> readIORef statsRef
 
 reportStats' :: MonadIO m => LogLevel -> m ()
 reportStats' lvl = liftIO $ do
   logStr lvl "SUMMARY"
-  res <- Map.toList <$> readIORef statsRef
-  let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
-  mapM_ (logStr lvl . pp) res
+  getStats >>= mapM_ (logStr lvl)
 
 -- | Helper to save all given patches to the corresponding files.
 -- Files will start as fix1.patch in the given base-folder.
