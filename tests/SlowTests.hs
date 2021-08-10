@@ -137,7 +137,8 @@ specialTests =
         240_000_000
         "Interpreted Par"
         "tests/cases/LoopBreaker.hs",
-      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs"
+      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs",
+      mkGenConfTestEx 60_000_000 "Ambiguous fits" "tests/cases/AmbiguousTypeVariables.hs"
     ]
 
 refinementTests :: TestTree

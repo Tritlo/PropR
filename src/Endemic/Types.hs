@@ -104,6 +104,7 @@ type EProgFix = [EExpr]
 data EProblem
   = EProb
       { e_props :: [EProp],
+        e_prop_sigs :: [LSig GhcPs],
         e_ctxt :: EContext,
         e_prog :: EProg,
         e_module :: Maybe ModuleName

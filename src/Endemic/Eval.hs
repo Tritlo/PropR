@@ -27,7 +27,7 @@ module Endemic.Eval where
 import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag, mapMaybeBag, unitBag)
 import Constraint
 import Control.Applicative (Const)
-import Control.Arrow ((***))
+import Control.Arrow (second, (***))
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Lens (Getting, to, universeOf, universeOn, universeOnOf)
@@ -61,6 +61,7 @@ import Endemic.Util
 import ErrUtils (pprErrMsgBagWithLoc)
 import FV (fvVarSet)
 import GHC
+import GHC.LanguageExtensions (Extension (PartialTypeSignatures))
 import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
@@ -98,16 +99,20 @@ holeFlags =
 setFlags :: [GeneralFlag]
 setFlags = [Opt_Hpc]
 
+exts :: [Extension]
+exts = [PartialTypeSignatures]
+
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =
   -- turn-off all warnings
   flip (foldl wopt_unset) [toEnum 0 ..] $
-    flip (foldl gopt_set) setFlags $
-      (foldl gopt_unset sflags (Opt_OmitYields : holeFlags))
-        { maxValidHoleFits = Nothing,
-          maxRefHoleFits = Nothing,
-          refLevelHoleFits = Just lvl
-        }
+    flip (foldl xopt_set) exts $
+      flip (foldl gopt_set) setFlags $
+        (foldl gopt_unset sflags (Opt_OmitYields : holeFlags))
+          { maxValidHoleFits = Nothing,
+            maxRefHoleFits = Nothing,
+            refLevelHoleFits = Just lvl
+          }
 
 ----
 
@@ -353,10 +358,9 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
             fromSigD (L l (SigD _ s)) = Just (L l s)
             fromSigD _ = Nothing
 
-        toCtxt :: [LHsBind GhcPs] -> LHsLocalBinds GhcPs
-        toCtxt vals = noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag vals) sigmaDeclarations)
-        ctxt :: LHsLocalBinds GhcPs
-        ctxt = toCtxt valueDeclarations
+        toCtxt :: [LHsBind GhcPs] -> [LSig GhcPs] -> LHsLocalBinds GhcPs
+        toCtxt vals sigs =
+          noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag vals) (sigmaDeclarations ++ sigs))
 
         tests :: Set OccName
         tests = tastyTests `Set.union` qcProps
@@ -431,7 +435,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
             prop_vars :: Set RdrName
             prop_vars =
               Set.fromList $
-                mapMaybe mbVar (universeOnOf tinplate uniplate (toCtxt props) :: [LHsExpr GhcPs])
+                mapMaybe mbVar (universeOnOf tinplate uniplate (toCtxt props []) :: [LHsExpr GhcPs])
             mbVar (L _ (HsVar _ v)) = Just $ unLoc v
             mbVar _ = Nothing
 
@@ -454,10 +458,11 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
                 tys <- map prog_ty sigs ->
                 Just $
                   EProb
-                    { e_ctxt = ctxt,
-                      e_props = wrapped_props,
+                    { e_ctxt = toCtxt valueDeclarations [],
                       e_prog = zip3 targets tys exprs,
-                      e_module = Just mname
+                      e_module = Just mname,
+                      e_props = wrapped_props,
+                      e_prop_sigs = prop_sigs
                     }
             _ -> Nothing
           where
@@ -482,7 +487,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
             mkFid nocc (L l' (Qual m occ)) = L l' (Qual m (nocc occ))
             mkFid _ b = b
 
-            nmatches vars nfid mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
+            nmatches vars nfid mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' nalts}
               where
                 nalt (L l'' m@Match {..}) = L l'' m {m_pats = nvpats ++ m_pats, m_ctxt = n_ctxt}
                   where
@@ -492,6 +497,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
                           fh {mc_fun = L l''' $ unLoc nfid}
                         o -> o
                 nalt alt = alt
+                nalts = map nalt alts
                 nvpat t_name =
                   noLoc $
                     ParPat NoExtField $
@@ -499,17 +505,19 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
                 nvpats = map nvpat $ filter (`Set.member` vars) targets
             nmatches _ _ mg = mg
 
-            wrapProp :: LHsBind GhcPs -> [LHsBind GhcPs]
+            wrapProp :: LHsBind GhcPs -> [(LHsBind GhcPs, [Sig GhcPs])]
             wrapProp prop@(L l fb@FunBind {..})
               | Just num_cases <- unfoldedTasty Map.!? rdr_occ =
-                map toBind [0 .. (num_cases -1)]
+                concatMap toBind [0 .. (num_cases -1)]
               where
                 prop_vars = propVars prop
                 rdr_occ = rdrNameOcc (unLoc fun_id)
                 nocc :: Int -> OccName -> OccName
                 nocc i o = mkOccName (occNameSpace o) $ occNameString o ++ "__test_" ++ show i
-                toBind i = L l fb {fun_id = nfid, fun_matches = run_i_only change_target}
+                toBind i =
+                  [(L l fb {fun_id = nfid, fun_matches = run_i_only change_target}, sig)]
                   where
+                    sig = mkPropSig prop_vars nfid fun_id
                     nfid = mkFid (nocc i) fun_id
                     change_target = nmatches prop_vars nfid fun_matches
                     run_i_only :: MatchGroup GhcPs (LHsExpr GhcPs) -> MatchGroup GhcPs (LHsExpr GhcPs)
@@ -527,13 +535,36 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
                         nGRHSS xg = xg
                     run_i_only mg = mg
             wrapProp prop@(L l fb@FunBind {..}) =
-              [L l fb {fun_id = nfid, fun_matches = nmatches prop_vars nfid fun_matches}]
+              [(L l fb {fun_id = nfid, fun_matches = nmatches prop_vars nfid fun_matches}, sig)]
               where
+                sig = mkPropSig prop_vars nfid fun_id
                 prop_vars = propVars prop
                 nfid = mkFid nocc fun_id
                 nocc o = mkOccName (occNameSpace o) $ insertAt 4 '\'' $ occNameString o
-            wrapProp e = [e]
-            wrapped_props = concatMap wrapProp props
+            wrapProp e = [(e, [])]
+
+            -- We make a binding that uses PartialTypeSignatures
+            mkPropSig :: Set RdrName -> Located RdrName -> Located (IdP GhcPs) -> [Sig GhcPs]
+            mkPropSig vars nfid ofid = prop_sig
+              where
+                prop_sig = case snd <$> prog_sig (unLoc ofid) of
+                  Just (TypeSig e _ wt) ->
+                    [ TypeSig e [nfid] $ toWrapSig wt
+                    ]
+                  _ -> []
+                toWrapSig :: LHsSigWcType GhcPs -> LHsSigWcType GhcPs
+                toWrapSig (HsWC e (HsIB ix t)) = HsWC e (HsIB ix $ tyApps wtys)
+                  where
+                    t' = t
+                    wtys :: [HsType GhcPs]
+                    wtys = replicate (length $ filter (`Set.member` vars) targets) (HsWildCardTy NoExtField)
+                    tyApps [] = t
+                    tyApps (ty : tys) = noLoc $ HsFunTy NoExtField (noLoc ty) (tyApps tys)
+                toWrapSig e = e
+
+            (wrapped_props, prop_sigs) =
+              second (concatMap (noLoc <$>)) $ unzip $ concatMap wrapProp props
+
             prog_binds :: LHsBindsLR GhcPs GhcPs
             prog_binds = listToBag $ mapMaybe f $ filter isTDef hsmodDecls
               where
