@@ -116,6 +116,7 @@ specialTests =
       mkGenConfTestEx 30_000_000 "Repair Operators" "tests/cases/Operators.hs",
       mkGenConfTestEx 30_000_000 "Repair Data" "tests/cases/Data.hs",
       mkGenConfTestEx 180_000_000 "Repair Multi" "tests/cases/Multi.hs",
+      mkGenConfTestEx 30_000_000 "Repair DoubleDecl" "tests/cases/DoubleDecl.hs",
       mkGenConfTestEx 60_000_000 "All props pass" "tests/cases/AllPropsPass.hs",
       mkGenConfTestEx 60_000_000 "No props" "tests/cases/NoProps.hs",
       mkRepairTest
