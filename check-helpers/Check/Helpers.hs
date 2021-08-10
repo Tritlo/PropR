@@ -1,6 +1,10 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Check.Helpers where
+module Check.Helpers
+  ( module Check.Helpers,
+    module QuickCheck,
+  )
+where
 
 import Control.Concurrent
 import Control.Concurrent.STM
@@ -9,6 +13,7 @@ import qualified Data.IntMap as IntMap
 import System.Environment (getArgs, withArgs)
 import System.Exit (ExitCode (ExitSuccess))
 import Test.QuickCheck
+import qualified Test.QuickCheck as QuickCheck (Property)
 import Test.QuickCheck.Random
 import Test.Tasty
 import Test.Tasty (defaultMain, localOption, mkTimeout)

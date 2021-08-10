@@ -81,7 +81,7 @@ tf = noLoc . HsVar NoExtField . noLoc . mkVarUnqual . fsLit
 
 -- | Runs tf in a given specified namespace
 tfn ::
-  -- | A namespace to look for a function ("Variable Scope", for non Haskellers)
+  -- | A namespace to look for a function (datatype or function)
   NameSpace ->
   -- | The name to look up
   String ->
@@ -119,7 +119,11 @@ buildFixCheck cc seed EProb {..} prog_fixes =
           unitBag qcb,
           if isJust e_module then emptyBag else vbs
         ]
-    ctxt = L bl (HsValBinds be (ValBinds vbe nvbs $ if (isJust e_module) then [] else vsigs))
+    ctxt =
+      L bl $
+        HsValBinds be $
+          ValBinds vbe nvbs $
+            if isJust e_module then e_prop_sigs else vsigs ++ e_prop_sigs
 
     testsToCheck = mapMaybe (testCheckExpr e_prog cc (tf "qcSuccess", tf "id")) e_props
 
@@ -253,7 +257,8 @@ buildCounterExampleCheck
   prop@( L
            loc
            fb@FunBind
-             { fun_matches = fm@MG {mg_alts = (L lm malts)}
+             { fun_matches = fm@MG {mg_alts = (L lm malts)},
+               ..
              }
          )
   EProb {..} = noLoc $ HsLet NoExtField ctxt check_prog
@@ -261,7 +266,9 @@ buildCounterExampleCheck
       (L bl (HsValBinds be vb)) = e_ctxt
       (ValBinds vbe vbs vsigs) = vb
       qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed Nothing)
-      nvb = ValBinds vbe nvbs vsigs
+      isForProp (L _ (TypeSig _ [L _ r] _)) | r == unLoc fun_id = True
+      isForProp _ = False
+      nvb = ValBinds vbe nvbs $ vsigs ++ nty
       nvbs =
         unionManyBags
           [ unitBag qcb,
@@ -269,6 +276,16 @@ buildCounterExampleCheck
             unitBag propWithin,
             listToBag expr_bs
           ]
+      -- We add a within to the alternatives, so the type changes from Bool
+      -- or whatever to Property
+      replLast :: LHsType GhcPs -> LHsType GhcPs -> LHsType GhcPs
+      replLast t (L l (HsFunTy NoExtField k r)) =
+        L l $ HsFunTy NoExtField k $ replLast t r
+      replLast t _ = t
+      nty = case filter isForProp e_prop_sigs of
+        [L l (TypeSig e n (HsWC x (HsIB xb t)))] ->
+          [L l (TypeSig e n $ HsWC x $ HsIB xb $ replLast (tt "Property") t)]
+        _ -> []
 
       expr_bs =
         map

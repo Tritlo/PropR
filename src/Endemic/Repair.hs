@@ -83,14 +83,18 @@ import Text.Read (readMaybe)
 
 -- | Provides a GHC without a ic_default set.
 -- IC is short for Interactive-Context (ic_default is set to empty list).
-setNoDefaulting :: Ghc ()
-setNoDefaulting = do
+withNoDefaulting :: Ghc a -> Ghc a
+withNoDefaulting act = do
   -- Make sure we don't do too much defaulting by setting `default ()`
   -- Note: I think this only applies to the error we would be generating,
   -- I think if we replace the UnboundVar with a suitable var of the right
   -- it would work... it just makes the in-between output a bit confusing.
   env <- getSession
+  let prev = ic_default (hsc_IC env)
   setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
+  r <- act
+  setSession (env {hsc_IC = (hsc_IC env) {ic_default = prev}})
+  return r
 
 -- | Runs the whole compiler chain to get the fits for a hole, i.e. possible
 -- replacement-elements for the holes
@@ -113,8 +117,7 @@ getHoleFits' ::
 getHoleFits' _ _ [] = return []
 getHoleFits' cc@CompConf {..} plugRef exprs = do
   -- Then we can actually run the program!
-  setNoDefaulting
-  res <- getHoleFits' plugRef (if holeLvl == 0 then 0 else holeDepth) exprs
+  res <- withNoDefaulting $ getHoleFits' plugRef (if holeLvl == 0 then 0 else holeDepth) exprs
   return $ map (map (map snd . snd) . snd) res
   where
     exprFits plugRef expr =
@@ -243,6 +246,7 @@ translate cc RProb {..} = runGhc' cc $ do
       e_target = mkVarUnqual $ fsLit r_target
       e_prog = [(e_target, e_ty, e_prog')]
       e_module = Nothing
+      e_prop_sigs = []
   return (EProb {..})
 
 detranslate :: HasCallStack => EProblem -> RProblem
