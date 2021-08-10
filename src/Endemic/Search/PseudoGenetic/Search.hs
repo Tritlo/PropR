@@ -162,12 +162,6 @@ pseudoGeneticRepair
         loop first_attempt 1
 pseudoGeneticRepair _ _ = error "External fixes not supported"
 
--- |
--- Computes the average value of an array of integrals.
--- It is used to compute the average fitness of a generation.
-avg :: Fractional a => [a] -> a
-avg as = sum as / fromIntegral (length as)
-
 deDupOn :: (Eq b, Ord b) => (a -> b) -> [a] -> [a]
 deDupOn f as = map snd $ filter ((`Set.member` grouped) . fst) zas
   where
