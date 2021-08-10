@@ -59,7 +59,7 @@ mkSimpleModuleTest timeout tag toFix repair_target =
     testCase tag $ do
       expected <- readExpected toFix
       setSeedGenSeed tESTSEED
-      (cc', mod, mb_prob) <- moduleToProb def toFix repair_target
+      (cc', (mod, _), mb_prob) <- moduleToProb def toFix repair_target
       case mb_prob of
         Nothing -> [] @?= expected
         Just ExProb {..} -> error "not supported yet!"
@@ -70,7 +70,7 @@ mkSimpleModuleTest timeout tag toFix repair_target =
                 map
                   ( concatMap ppDiff
                       . snd
-                      . applyFixes (tm_parsed_module mod)
+                      . applyFixes mod
                       . getFixBinds
                       . head
                   )

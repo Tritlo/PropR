@@ -4,9 +4,6 @@ prop_is5 = x == 5
 x :: Int
 x = 4
 
-main :: IO ()
-main = putStrLn "hello, world"
-
 ---- EXPECTED ----
 -- diff --git a/tests/cases/unnamed.hs b/tests/cases/unnamed.hs
 -- --- a/tests/cases/unnamed.hs

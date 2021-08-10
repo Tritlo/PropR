@@ -148,8 +148,8 @@ ppDiffs diffs = intercalate "\n" $ map sameFDiffs byLoc
     toLoc (UnhelpfulSpan s) = unpackFS s
 
 fixesToDiffs :: ProblemDescription -> Set EFix -> [String]
-fixesToDiffs desc@ProbDesc {probModule = Just TypecheckedModule {..}} fixes =
-  map (ppDiffs . snd . applyFixes tm_parsed_module . getFixBinds) fixProgs
+fixesToDiffs desc@ProbDesc {probModuleParsed = Just parsed} fixes =
+  map (ppDiffs . snd . applyFixes parsed . getFixBinds) fixProgs
   where
     ProbDesc {..} = desc
     EProb {..} = progProblem

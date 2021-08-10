@@ -229,7 +229,7 @@ moduleToProb ::
   -- | The Path under which the module is located
   Maybe String ->
   -- | "mb_target" whether to target a specific type (?)
-  IO (CompileConfig, TypecheckedModule, Maybe EProblem)
+  IO (CompileConfig, (ParsedModule, TypecheckedModule), Maybe EProblem)
 moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
   modHash <- flip showHex "" . abs . hashString <$> readFile mod_path
 
@@ -243,6 +243,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
   runGhc' cc {importStmts = importStmts ++ checkImports, randomizeHiDir = False} $ do
     dflags <- getSessionDynFlags
     liftIO $ logStr DEBUG "Loading module targets..."
+    liftIO $ logStr DEBUG "Adding target..."
 
     mname <- addTargetGetModName target
     let no_ext = dropExtension mod_path
@@ -251,15 +252,12 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
           _ -> dropFileName no_ext
         orig_mname = mname
         local_paths = thisModBase : modBase
-    dflags <- getSessionDynFlags
     setSessionDynFlags dflags {importPaths = importPaths dflags ++ local_paths}
-    mnames_after_local <- depanal [] False
-    _ <- load LoadAllTargets
-    -- Retrieve the parsed module
     liftIO $ logStr DEBUG "Parsing module..."
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
-    liftIO $ logStr DEBUG "Type checking module..."
-    tc_modul@TypecheckedModule {..} <- typecheckModule modul
+    let ParsedModule {pm_parsed_source = L _ HsModule {hsmodDecls = prem_decls}} = modul
+        isMain (L _ (ValD _ FunBind {fun_id = L _ var})) | rdrNamePrint var == "main" = True
+        isMain _ = False
 
     -- Due to an issue with the GHC linker, we have to give modules a name
     -- so we can import them. So we create a "FakeMain" module to represent
@@ -301,7 +299,10 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
                     take (srcSpanStartLine rsp - 1) contents
                       ++ [mhead]
                       ++ drop (srcSpanEndLine rsp) contents
-          liftIO $ writeFile fakeMainLoc $ unlines filtered
+              fakeMainFun = ["", "fakeMain__ :: IO ()", "fakeMain__ = return ()"]
+          liftIO $ createDirectoryIfMissing True $ takeDirectory fakeMainBase
+          liftIO $ logStr DEBUG $ "Writing fake main module to " ++ fakeMainLoc ++ "..."
+          liftIO $ writeFile fakeMainLoc $ unlines $ filtered ++ fakeMainFun
           let fake_target_id = TargetFile fakeMainLoc Nothing
               fake_target = Target fake_target_id True Nothing
 
@@ -310,11 +311,22 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
 
           setSessionDynFlags
             dflags
-              { mainModIs = mkModule mainUnitId fake_mname
+              { mainModIs = mkModule mainUnitId fake_mname,
+                mainFunIs = Just "fakeMain__"
               }
           _ <- load LoadAllTargets
           return (fakeMainLoc, unwords ["import", fakeMname], fake_mname)
         else return ([], [], mname)
+
+    liftIO $ logStr DEBUG "Type checking module..."
+    tc_modul@TypecheckedModule {..} <-
+      if not (any isMain prem_decls)
+        then getModSummary mname >>= parseModule >>= typecheckModule
+        else typecheckModule modul
+
+    liftIO $ logStr DEBUG "Loading all targets..."
+    _ <- load LoadAllTargets
+    mnames_after_local <- depanal [] False
 
     let (L _ HsModule {..}) = pm_parsed_source
         cc' =
@@ -578,7 +590,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
     --     let prob = case int_prob of
     --           Nothing -> Just $ ExProb local_prop_var_names
     --           _ -> int_prob
-    return (cc', tc_modul, int_prob)
+    return (cc', (modul, tc_modul), int_prob)
 
 -- Create a fake base loc for a trace.
 fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> Ghc SrcSpan

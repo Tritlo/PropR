@@ -303,7 +303,8 @@ fakeDesc efcs cc prob =
     { progProblem = prob,
       exprFitCands = efcs,
       compConf = cc,
-      probModule = Nothing,
+      probModuleParsed = Nothing,
+      probModuleTypechecked = Nothing,
       initialFixes = Nothing,
       addConf = def {assumeNoLoops = True}
     }
@@ -703,14 +704,15 @@ checkFixes
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
 describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
   logStr DEBUG "Describing problem..."
-  (compConf@CompConf {..}, modul, problem) <- moduleToProb ogcc fp Nothing
+  (compConf@CompConf {..}, (parsed_modul, tcd_modul), problem) <- moduleToProb ogcc fp Nothing
   case problem of
     Just ExProb {} -> error "External targets not supported!"
     Nothing -> return Nothing
     Just progProblem@EProb {..} ->
       Just <$> do
-        exprFitCands <- runGhc' compConf $ getExprFitCands $ Right modul
-        let probModule = Just modul
+        exprFitCands <- runGhc' compConf $ getExprFitCands $ Right tcd_modul
+        let probModuleParsed = Just parsed_modul
+            probModuleTypechecked = Just tcd_modul
             initialFixes = Nothing
             addConf = AddConf {assumeNoLoops = True}
             descBase = ProbDesc {..}

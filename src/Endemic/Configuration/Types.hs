@@ -405,8 +405,9 @@ data ProblemDescription = ProbDesc
     exprFitCands :: [ExprFitCand],
     compConf :: CompileConfig,
     addConf :: AdditionalConf,
-    -- | The typechecked module, if available
-    probModule :: Maybe TypecheckedModule,
+    probModuleParsed :: Maybe ParsedModule,
+    -- | The typechecked module. Possibly faked in case of unnamed modules
+    probModuleTypechecked :: Maybe TypecheckedModule,
     -- | Fix candidates, if available
     initialFixes :: Maybe [EFix]
   }
