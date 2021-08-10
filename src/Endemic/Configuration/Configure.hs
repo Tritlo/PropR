@@ -26,6 +26,7 @@ import Endemic.Configuration.Types
 import Endemic.Types
 import GHC.Generics (Generic)
 import System.Directory (doesFileExist)
+import System.FilePath (takeExtension)
 import System.IO.Unsafe (unsafePerformIO)
 import System.Random.SplitMix
 
@@ -67,6 +68,14 @@ readConf fp = do
       then eitherDecodeFileStrict' fp
       else return $ eitherDecodeStrict' (BS.pack fp)
   case res of
+    Left err | ('/' `elem` fp) || ".json" == takeExtension fp -> do
+      if fileExists
+        then error err
+        else error $ "Could not find " ++ fp ++ "!"
+    Left err | '{' `elem` fp -> do
+      putStrLn $ "Could not decode " ++ fp ++ " as JSON"
+      putStrLn "Decode failed with:"
+      error err
     Left err -> error err
     Right um_conf -> return um_conf
 
