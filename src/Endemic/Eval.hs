@@ -542,7 +542,12 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
 
             prog_sig :: RdrName -> Maybe (RdrName, Sig GhcPs)
             prog_sig t_name = case mapMaybe (getTType t_name) hsmodDecls of
-              (pt : _) -> Just (t_name, pt)
+              (pt : _) ->
+                let sig = case pt of
+                      TypeSig e sgs wt ->
+                        TypeSig e (filter ((t_name ==) . unLoc) sgs) wt
+                      _ -> pt
+                 in Just (t_name, sig)
               _ -> Nothing
 
             targets_n_sigs = mapMaybe prog_sig t_names
