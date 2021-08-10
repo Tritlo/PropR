@@ -164,34 +164,30 @@ insertAt 0 a as = a : as
 insertAt n a (x : xs) = x : insertAt (n -1) a xs
 
 -- | Transforms time given in ns (as measured by "time") into a string
-showTime :: (Integer, Int) -> String
+showTime :: (Integer, Integer) -> String
 showTime (cpu_time, wall_time) =
-  ("CPU " ++ showCPUTime cpu_time) ++ " WALL " ++ showWallTime wall_time
+  ("CPU " ++ showTime cpu_time) ++ " WALL " ++ showTime wall_time
   where
     msOrS res =
       if res > 1000
         then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
         else show res ++ "ms"
-    showWallTime time_w = msOrS res
+    showTime time_w = msOrS res
       where
         res :: Integer
         res = floor $ fromIntegral time_w * (1e-9 :: Double)
-    showCPUTime time_i = msOrS res
-      where
-        res :: Integer
-        res = floor $ fromIntegral time_i * (1e-9 :: Double)
 
 -- | Stopwatch for a given function, measures the time taken by a given act.
-time :: MonadIO m => m a -> m ((Integer, Int), a)
+time :: MonadIO m => m a -> m ((Integer, Integer), a)
 time act = do
   wallTimeStart <- liftIO getCurrentTime
   start <- liftIO getCPUTime
   r <- act
   done <- liftIO getCPUTime
   wallTimeEnd <- liftIO getCurrentTime
-  return ((done - start, round $ ((diffUTCTime wallTimeEnd wallTimeStart) * 1e12)), r)
+  return ((done - start, round (diffUTCTime wallTimeEnd wallTimeStart * 1e12)), r)
 
-statsRef :: IORef (Map.Map (String, Int) (Integer, Int))
+statsRef :: IORef (Map.Map (String, Int) (Integer, Integer))
 {-# NOINLINE statsRef #-}
 statsRef = unsafePerformIO $ newIORef Map.empty
 
