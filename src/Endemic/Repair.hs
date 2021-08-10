@@ -41,6 +41,7 @@ import Data.Default
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts)
 import Data.Function (on)
+import Data.Functor (($>))
 import qualified Data.Functor
 import Data.IORef (IORef, modifyIORef', writeIORef)
 import Data.IntMap (IntMap)
@@ -716,11 +717,29 @@ describeProblem conf@Conf {compileConfig = ogcc} fp = do
           then do
             logStr DEBUG "Pre-computing fixes..."
             let desc' = descBase {addConf = addConf {assumeNoLoops = False}}
-            initialFixes' <- do
-              if keepLoopingFixes
-                then map fst <$> (findEvaluatedHoles desc' >>= generateFixCandidates desc')
-                else map fst . filter ((/= Right False) . snd) <$> repairAttempt desc'
-            logStr DEBUG "Initial fixes:"
-            logOut DEBUG initialFixes'
+                fix_str_length :: EFix -> Int
+                fix_str_length = sum . map (length . showSDocUnsafe . ppr) . Map.elems
+                fitness :: TestSuiteResult -> Float
+                fitness (Right True) = 0
+                fitness (Right False) = 1
+                fitness (Left r) = 1 - avg (map (realToFrac . fromEnum) r)
+            (t, initialFixes') <- time $
+              -- We sort the initialFixes by a very basic estimation of
+              -- how far from the result they are
+              collectStats $ do
+                if keepLoopingFixes
+                  then
+                    sortOn fix_str_length
+                      . map fst
+                      <$> (findEvaluatedHoles desc' >>= generateFixCandidates desc')
+                  else do
+                    concatMap (sortOn fix_str_length . map snd)
+                      . groupBy ((==) `on` fst)
+                      . sortOn fst
+                      . map (\(f, r) -> (fitness r, f))
+                      . filter ((/= Right False) . snd)
+                      <$> repairAttempt desc'
+            logStr DEBUG $ "Found  " ++ show (length initialFixes) ++ " initial fixes:"
+            mapM_ (logOut DEBUG) initialFixes'
             return $ descBase {initialFixes = Just initialFixes'}
           else return descBase

@@ -190,15 +190,11 @@ collectStats a = do
   (t, r) <- time a
   let ((_, GHS.SrcLoc {..}) : _) = getCallStack callStack
   liftIO $ modifyIORef' statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
-  withFrozenCallStack $ liftIO $ logStr AUDIT (showTime t)
+  withFrozenCallStack $ liftIO $ logStr TIMINGS (showTime t)
   return r
 
 reportStats :: MonadIO m => m ()
-reportStats = liftIO $ do
-  logStr AUDIT "SUMMARY"
-  res <- Map.toList <$> readIORef statsRef
-  let pp ((f, l), t) = "<" ++ f ++ ":" ++ show l ++ "> " ++ showTime t
-  mapM_ (logStr AUDIT . pp) res
+reportStats = reportStats' TIMINGS
 
 reportStats' :: MonadIO m => LogLevel -> m ()
 reportStats' lvl = liftIO $ do
@@ -306,7 +302,7 @@ propVars prop = Set.fromList $ mapMaybe mbVar exprs
     exprs :: [LHsExpr GhcPs]
     exprs = universeOnOf tinplate uniplate prop
 
--- We need all this to workaround GHC issue #20209
+-- We need all this to workaround GHC issue #367
 runInProc ::
   -- | The timeout to use
   Int ->
@@ -352,3 +348,9 @@ runInProc timeout encode decode act = do
         BSC.hGet res_h msg_len >>= (<$ hClose res_h) . decode
       _ -> Nothing <$ logStr DEBUG "No result!"
     >>= (<$ hClose write_h)
+
+-- |
+-- Computes the average value of an array of integrals.
+-- It is used to compute the average fitness of a generation.
+avg :: Fractional a => [a] -> a
+avg as = sum as / fromIntegral (length as)

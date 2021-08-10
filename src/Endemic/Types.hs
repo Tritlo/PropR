@@ -139,6 +139,7 @@ data LogLevel
   = TRACE
   | DEBUG
   | AUDIT
+  | TIMINGS
   | VERBOSE
   | INFO
   | WARN

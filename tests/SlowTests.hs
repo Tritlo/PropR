@@ -6,6 +6,7 @@
 module Main where
 
 import Data.Default
+import Data.Functor (($>))
 import Data.IORef (readIORef, writeIORef)
 import Data.List (sort)
 import qualified Data.Map as Map
@@ -21,6 +22,7 @@ import Endemic.Search.Exhaustive
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
+import Endemic.Util (logStr, withLogLevel)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
@@ -142,10 +144,11 @@ refinementTests =
     "Refinments"
     [ mkRepairTest'
         ( def
-            { compileConfig = def {holeLvl = 2, timeout = 500_000}
+            { compileConfig = def {holeLvl = 2},
+              logConfig = def {logLoc = True}
             }
         )
-        (runGenRepair' (tESTGENCONF {populationSize = 128}))
+        (runGenRepair' (tESTGENCONF {populationSize = 64}))
         240_000_000
         "Refinement test"
         "tests/cases/SimpleRefinement.hs"
