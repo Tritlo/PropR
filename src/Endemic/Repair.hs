@@ -642,7 +642,7 @@ checkFixes
           where
             (f, r) = break isRorL xs
     batchSize <- liftIO getNumCapabilities
-    let interpretLoop checks = do
+    let interpretLoop checks = collectStats $ do
           logStr DEBUG "Running checks..."
           res <-
             if parChecks
@@ -676,14 +676,15 @@ checkFixes
                 then (Just <$>)
                 else runInProc ((1 + length checks) * timeoutVal) encode decode
         nonInterpretLoop inds =
-          if parChecks
-            then do
-              -- By starting all the processes and then waiting on them, we get more
-              -- mode parallelism.
-              liftIO $ logStr DEBUG "Running checks..."
-              procs <- collectStats $ mapM startCheck inds
-              collectStats $ mapM waitOnCheck procs
-            else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+          collectStats $
+            if parChecks
+              then do
+                -- By starting all the processes and then waiting on them, we get more
+                -- mode parallelism.
+                liftIO $ logStr DEBUG "Running checks..."
+                procs <- collectStats $ mapM startCheck inds
+                collectStats $ mapM waitOnCheck procs
+              else collectStats $ mapM (startCheck >=> waitOnCheck) inds
     res <-
       concat
         <$> if shouldInterpret
@@ -700,7 +701,7 @@ checkFixes
     return res
 
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
-describeProblem conf@Conf {compileConfig = ogcc} fp = do
+describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
   logStr DEBUG "Describing problem..."
   (compConf@CompConf {..}, modul, problem) <- moduleToProb ogcc fp Nothing
   case problem of

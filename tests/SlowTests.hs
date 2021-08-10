@@ -82,7 +82,7 @@ exhaustiveTests =
   testGroup
     "Exhaustive search tests"
     [ let conf = Exhaustive def {exhStopOnResults = True}
-       in mkSearchTestExPartial conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs" (Just [1]),
+       in mkSearchTestEx conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs",
       let conf = Exhaustive def {exhStopOnResults = True}
        in mkSearchTestEx conf 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs"
     ]
@@ -94,7 +94,8 @@ properGenTests =
     [ mkGenConfTestEx 180_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
       mkGenConfTestEx 180_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs",
       -- With all the new fixes, we need to bump the population size
-      mkRepairTest def (runGenRepair' tESTGENCONF {populationSize = 92}) 240_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs"
+      mkGenConfTestEx 180_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs"
+      --mkRepairTest def (runGenRepair' tESTGENCONF {populationSize = 92}) 240_000_000 "Repair FourFixes" "tests/cases/FourFixes.hs"
     ]
 
 genTests :: TestTree
@@ -148,7 +149,7 @@ refinementTests =
               logConfig = def {logLoc = True}
             }
         )
-        (runGenRepair' (tESTGENCONF {populationSize = 64}))
+        runGenRepair
         240_000_000
         "Refinement test"
         "tests/cases/SimpleRefinement.hs"
