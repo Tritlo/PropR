@@ -204,4 +204,4 @@ main = do
 
       mapM_ (putStrLn . colorizeDiff) diffs
       reportStats' TIMINGS
-      logStr INFO $ "Done! Genetic search took (" ++ showTime t ++ ") in CPU Time"
+      logStr INFO $ "Done! Repair search took (" ++ showTime t ++ ")"

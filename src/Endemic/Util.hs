@@ -29,7 +29,7 @@ import qualified Data.Map as Map
 import Data.Maybe (fromJust, isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Time.Clock (getCurrentTime)
+import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Endemic.Configuration
 import Endemic.Traversals (replaceExpr)
@@ -164,24 +164,34 @@ insertAt 0 a as = a : as
 insertAt n a (x : xs) = x : insertAt (n -1) a xs
 
 -- | Transforms time given in ns (as measured by "time") into a string
-showTime :: Integer -> String
-showTime time_i =
-  if res > 1000
-    then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
-    else show res ++ "ms"
+showTime :: (Integer, Int) -> String
+showTime (cpu_time, wall_time) =
+  ("CPU " ++ showCPUTime cpu_time) ++ " WALL " ++ showWallTime wall_time
   where
-    res :: Integer
-    res = floor $ fromIntegral time_i * (1e-9 :: Double)
+    msOrS res =
+      if res > 1000
+        then printf "%.2f" ((fromIntegral res * 1e-3) :: Double) ++ "s"
+        else show res ++ "ms"
+    showWallTime time_w = msOrS res
+      where
+        res :: Integer
+        res = floor $ fromIntegral time_w * (1e-9 :: Double)
+    showCPUTime time_i = msOrS res
+      where
+        res :: Integer
+        res = floor $ fromIntegral time_i * (1e-9 :: Double)
 
 -- | Stopwatch for a given function, measures the time taken by a given act.
-time :: MonadIO m => m a -> m (Integer, a)
+time :: MonadIO m => m a -> m ((Integer, Int), a)
 time act = do
+  wallTimeStart <- liftIO getCurrentTime
   start <- liftIO getCPUTime
   r <- act
   done <- liftIO getCPUTime
-  return (done - start, r)
+  wallTimeEnd <- liftIO getCurrentTime
+  return ((done - start, round $ ((diffUTCTime wallTimeEnd wallTimeStart) * 1e12)), r)
 
-statsRef :: IORef (Map.Map (String, Int) Integer)
+statsRef :: IORef (Map.Map (String, Int) (Integer, Int))
 {-# NOINLINE statsRef #-}
 statsRef = unsafePerformIO $ newIORef Map.empty
 
@@ -189,7 +199,8 @@ collectStats :: (MonadIO m, HasCallStack) => m a -> m a
 collectStats a = do
   (t, r) <- time a
   let ((_, GHS.SrcLoc {..}) : _) = getCallStack callStack
-  liftIO $ modifyIORef' statsRef (Map.insertWith (+) (srcLocFile, srcLocStartLine) t)
+  let inF (a1, b1) (a2, b2) = (a1 + a2, b1 + b2)
+  liftIO $ modifyIORef' statsRef (Map.insertWith inF (srcLocFile, srcLocStartLine) t)
   withFrozenCallStack $ liftIO $ logStr TIMINGS (showTime t)
   return r
 
