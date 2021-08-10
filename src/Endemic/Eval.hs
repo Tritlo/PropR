@@ -808,14 +808,13 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs' ps_w_ce =
                 -- "WHY WON'T YOU DIE?" -- Freddy Kruger
                 getPid ph >>= \case
                   Just pid ->
-                    let kill3 0 = return ()
-                        kill3 n = do
+                    let term3 0 = return ()
+                        term3 n = do
                           terminateProcess ph
-                          signalProcess sigKILL pid
                           threadDelay timeoutVal
                           c <- isJust <$> getPid ph
-                          when c $ kill3 (n -1)
-                     in kill3 3
+                          when c $ term3 (n -1)
+                     in term3 3
                   _ -> terminateProcess ph
               loop Nothing n = do
                 -- If it's taking too long, it's probably stuck in a loop.

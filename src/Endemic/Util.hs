@@ -1,4 +1,7 @@
+{-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeApplications #-}
 
 -- |
 -- Module      : Endemic.Util
@@ -11,11 +14,13 @@
 -- This is a pure module.
 module Endemic.Util where
 
+import Control.Concurrent (threadWaitRead)
 import Control.Exception (assert)
 import Control.Lens (universeOnOf)
 import Control.Monad (when)
 import Control.Monad.IO.Class (MonadIO (..))
 import Data.Bits
+import qualified Data.ByteString.Char8 as BSC
 import Data.Char (digitToInt, isAlphaNum, isSpace, ord, toLower, toUpper)
 import Data.Data.Lens (tinplate, uniplate)
 import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef, writeIORef)
@@ -37,7 +42,10 @@ import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, occName, 
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
-import System.IO (appendFile, hFlush, stdout)
+import System.IO (appendFile, hClose, hFlush, stdout)
+import System.Posix (fdToHandle, forkProcess, handleToFd, scheduleAlarm)
+import System.Process (createPipe)
+import qualified System.Timeout
 import Text.Printf (printf)
 
 progAtTy :: EExpr -> EType -> EExpr
@@ -297,3 +305,50 @@ propVars prop = Set.fromList $ mapMaybe mbVar exprs
     mbVar _ = Nothing
     exprs :: [LHsExpr GhcPs]
     exprs = universeOnOf tinplate uniplate prop
+
+-- We need all this to workaround GHC issue #20209
+runInProc ::
+  -- | The timeout to use
+  Int ->
+  -- | How to encode the result as a ByteString
+  (a -> BSC.ByteString) ->
+  -- | How to decode a result from a ByteString
+  (BSC.ByteString -> Maybe a) ->
+  -- | The action to run
+  IO a ->
+  -- | Just the result if we finished before the timeout, otherwise false.
+  IO (Maybe a)
+runInProc timeout encode decode act = do
+  let header_size = 10
+  (read_h, write_h) <- createPipe
+  read_fd <- handleToFd read_h
+  eval_pid <- forkProcess $ do
+    -- Ensure that the process gets killed by the
+    -- unhandled alarm signal
+    scheduleAlarm (floor (fromIntegral timeout / 1_000_000) + 1)
+    to_write <- encode <$> act
+    scheduleAlarm 0
+    let twl = BSC.length to_write
+        twll = length (show twl)
+        header =
+          BSC.concat
+            [ BSC.replicate (header_size - twll) ' ',
+              BSC.pack (show twl)
+            ]
+    BSC.hPut write_h header >> hFlush write_h
+    BSC.hPut write_h to_write >> hFlush write_h
+  logStr DEBUG "Waiting for output ..."
+  System.Timeout.timeout timeout (threadWaitRead read_fd)
+    >>= \case
+      Just _ -> do
+        logStr DEBUG "Got result!"
+        res_h <- fdToHandle read_fd
+        msg_len <-
+          read @Int
+            . BSC.unpack
+            . BSC.dropSpace
+            <$> BSC.hGet res_h header_size
+        -- We want to block until the whole message is available
+        BSC.hGet res_h msg_len >>= (<$ hClose res_h) . decode
+      _ -> Nothing <$ logStr DEBUG "No result!"
+    >>= (<$ hClose write_h)
