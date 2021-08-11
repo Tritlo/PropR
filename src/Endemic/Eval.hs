@@ -235,7 +235,7 @@ moduleToProb ::
   Maybe String ->
   -- | "mb_target" whether to target a specific type (?)
   IO (CompileConfig, TypecheckedModule, Maybe EProblem)
-moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
+moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target = do
   modHash <- flip showHex "" . abs . hashString <$> readFile mod_path
 
   let tdBase = baseTempDir </> modHash </> dropExtensions mod_path
@@ -440,12 +440,18 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir} mod_path mb_target = do
             mbVar _ = Nothing
 
         fix_targets :: [RdrName]
-        fix_targets = Set.toList $ Set.filter ((`Set.member` name_occs) . occName) fun_ids
+        fix_targets =
+          Set.toList $
+            Set.filter (not . (`Set.member` excludeSet) . rdrNameToStr) $
+              Set.filter ((`Set.member` name_occs) . occName) fun_ids
           where
             name_occs = Set.map occName $ Set.fromList local_prop_var_names
             funId (L _ (ValD _ FunBind {..})) = Just $ unLoc fun_id
             funId _ = Nothing
             fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
+            excludeSet = Set.fromList excludeTargets
+            rdrNameToStr :: RdrName -> String
+            rdrNameToStr = occNameString . rdrNameOcc
 
         getTarget :: [RdrName] -> Maybe EProblem
         getTarget t_names =

@@ -231,7 +231,8 @@ instance Materializeable CompileConfig where
       umTimeout :: Maybe Integer,
       umPrecomputeFixes :: Maybe Bool,
       umKeepLoopingFixes :: Maybe Bool,
-      umAllowFunctionFits :: Maybe Bool
+      umAllowFunctionFits :: Maybe Bool,
+      umExcludeTargets :: Maybe [String]
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -240,6 +241,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -275,7 +277,8 @@ instance Materializeable CompileConfig where
         timeout = fromMaybe timeout umTimeout,
         precomputeFixes = fromMaybe precomputeFixes umPrecomputeFixes,
         keepLoopingFixes = fromMaybe keepLoopingFixes umKeepLoopingFixes,
-        allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits
+        allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits,
+        excludeTargets = fromMaybe excludeTargets umExcludeTargets
       }
 
 -- | Configuration for the compilation itself
@@ -332,9 +335,12 @@ data CompileConfig = CompConf
     -- | Whether or not we keep looping fits in the precomputed fixes. Defaults
     -- to off, but maybe it's needed in conjunction with something else.
     keepLoopingFixes :: Bool,
-    -- Whether to allow fits of the type `(_ x)` where x is some identifier
+    -- | Whether to allow fits of the type `(_ x)` where x is some identifier
     -- in the code. Makes the search space bigger, but finds more fits.
-    allowFunctionFits :: Bool
+    allowFunctionFits :: Bool,
+    -- | Targets to exclude from repairing. Could be things like examples or
+    -- test helpers that we don't want to change.
+    excludeTargets :: [String]
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -359,7 +365,8 @@ instance Default CompileConfig where
         timeout = 1_000_000,
         precomputeFixes = True,
         keepLoopingFixes = False,
-        allowFunctionFits = True
+        allowFunctionFits = True,
+        excludeTargets = []
       }
 
 instance Default LogConfig where

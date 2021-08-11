@@ -1,52 +1,53 @@
 {
-        "compile_config": {
-                "import_stmts": [
-                        "import Prelude"
-                ],
-                "packages": [
-                        "base"
-                ],
-                "mod_base": [],
-                "additional_targets": [],
-                "hole_lvl": 0,
-                "hole_depth": 1,
-                "unfold_tasty_tests": true,
-                "temp_dir_base": "./fake_targets",
-                "par_checks": true,
-                "randomize_hpc_dir": true,
-                "randomize_hi_dir": true,
-                "use_interpreted": true,
-                "timeout": 1000000,
-                "precompute_fixes": true,
-                "keep_looping_fixes": false,
-                "allow_function_fits": true
-        },
-        "output_config": {
-                "locale": null,
-                "directory": "./output-patches-",
-                "overwrite": false,
-                "save_patches": true
-        },
-        "search_algorithm": {
-                "tag": "Genetic",
-                "contents": {
-                        "mutation_rate": 0.05,
-                        "crossover_rate": 0.95,
-                        "iterations": 50,
-                        "population_size": 64,
-                        "timeout_in_seconds": 300,
-                        "stop_on_results": true,
-                        "drop_rate": 0.05,
-                        "try_minimize_fixes": false,
-                        "replace_winners": true,
-                        "use_parallel_map": true
-                }
-        },
-        "log_config": {
-                "log_loc": false,
-                "log_level": "WARN",
-                "log_timestamp": true,
-                "log_file": null
-        },
-        "random_seed": 703039777
+  "compile_config": {
+    "import_stmts": [
+      "import Prelude"
+    ],
+    "packages": [
+      "base"
+    ],
+    "mod_base": [],
+    "additional_targets": [],
+    "hole_lvl": 0,
+    "hole_depth": 1,
+    "unfold_tasty_tests": true,
+    "temp_dir_base": "./fake_targets",
+    "par_checks": true,
+    "randomize_hpc_dir": true,
+    "randomize_hi_dir": true,
+    "use_interpreted": true,
+    "timeout": 1000000,
+    "precompute_fixes": true,
+    "keep_looping_fixes": false,
+    "allow_function_fits": true,
+    "exclude_targets": []
+  },
+  "output_config": {
+    "locale": null,
+    "directory": "./output-patches-",
+    "overwrite": false,
+    "save_patches": true
+  },
+  "search_algorithm": {
+    "tag": "Genetic",
+    "contents": {
+      "mutation_rate": 0.05,
+      "crossover_rate": 0.95,
+      "iterations": 50,
+      "population_size": 64,
+      "timeout_in_seconds": 300,
+      "stop_on_results": true,
+      "drop_rate": 0.05,
+      "try_minimize_fixes": false,
+      "replace_winners": true,
+      "use_parallel_map": true
+    }
+  },
+  "log_config": {
+    "log_loc": false,
+    "log_level": "WARN",
+    "log_timestamp": true,
+    "log_file": null
+  },
+  "random_seed": 703039777
 }

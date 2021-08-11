@@ -138,7 +138,14 @@ specialTests =
         "Interpreted Par"
         "tests/cases/LoopBreaker.hs",
       mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs",
-      mkGenConfTestEx 60_000_000 "Ambiguous fits" "tests/cases/AmbiguousTypeVariables.hs"
+      mkGenConfTestEx 60_000_000 "Ambiguous fits" "tests/cases/AmbiguousTypeVariables.hs",
+      mkRepairTest'
+        def {compileConfig = def {excludeTargets = ["brokenPair"]}}
+        runGenRepair
+        5_000_000
+        "Exclude targets"
+        "tests/cases/ThreeFixes.hs"
+        def {mb_expected = Just []}
     ]
 
 refinementTests :: TestTree
