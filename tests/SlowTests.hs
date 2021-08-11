@@ -145,7 +145,8 @@ specialTests =
         5_000_000
         "Exclude targets"
         "tests/cases/ThreeFixes.hs"
-        def {mb_expected = Just []}
+        def {mb_expected = Just []},
+      mkGenConfTestEx 60_000_000 "ExprWhere fits" "tests/cases/ExprWhere.hs"
     ]
 
 refinementTests :: TestTree
