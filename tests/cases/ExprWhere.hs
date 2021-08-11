@@ -18,6 +18,19 @@ propIsAllBlank = example == allBlankEx
 -- @@ -4,4 +4,4 @@ example
 --  example
 -- -  = [n]
+-- +  = (mempty ([n]))
+--    where
+--        n = Nothing
+-- @@ -9,1 +9,1 @@ allBlankEx = [Just 1]
+-- -allBlankEx = [Just 1]
+-- +allBlankEx = (tail ([Just 1]))
+--
+-- diff --git a/tests/cases/ExprWhere.hs b/tests/cases/ExprWhere.hs
+-- --- a/tests/cases/ExprWhere.hs
+-- +++ b/tests/cases/ExprWhere.hs
+-- @@ -4,4 +4,4 @@ example
+--  example
+-- -  = [n]
 -- +  = [Just 1]
 --    where
 --        n = Nothing

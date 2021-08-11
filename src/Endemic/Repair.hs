@@ -39,9 +39,9 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Char (isAlphaNum)
 import Data.Default
 import Data.Dynamic (fromDyn)
-import Data.Either (lefts)
+import Data.Either (lefts, rights)
 import Data.Function (on)
-import Data.Functor (($>))
+import Data.Functor (($>), (<&>))
 import qualified Data.Functor
 import Data.IORef (IORef, modifyIORef', writeIORef)
 import Data.IntMap (IntMap)
@@ -81,21 +81,6 @@ import TcHoleErrors (HoleFit (..))
 import TcSimplify (captureTopConstraints)
 import Text.Read (readMaybe)
 
--- | Provides a GHC without a ic_default set.
--- IC is short for Interactive-Context (ic_default is set to empty list).
-withNoDefaulting :: Ghc a -> Ghc a
-withNoDefaulting act = do
-  -- Make sure we don't do too much defaulting by setting `default ()`
-  -- Note: I think this only applies to the error we would be generating,
-  -- I think if we replace the UnboundVar with a suitable var of the right
-  -- it would work... it just makes the in-between output a bit confusing.
-  env <- getSession
-  let prev = ic_default (hsc_IC env)
-  setSession (env {hsc_IC = (hsc_IC env) {ic_default = Just []}})
-  r <- act
-  setSession (env {hsc_IC = (hsc_IC env) {ic_default = prev}})
-  return r
-
 -- | Runs the whole compiler chain to get the fits for a hole, i.e. possible
 -- replacement-elements for the holes
 getHoleFits ::
@@ -117,14 +102,52 @@ getHoleFits' ::
 getHoleFits' _ _ [] = return []
 getHoleFits' cc@CompConf {..} plugRef exprs = do
   -- Then we can actually run the program!
-  res <- withNoDefaulting $ getHoleFits' plugRef (if holeLvl == 0 then 0 else holeDepth) exprs
+  res <- getHoleFits' plugRef (if holeLvl == 0 then 0 else holeDepth) exprs
   return $ map (map (map snd . snd) . snd) res
   where
-    exprFits plugRef expr =
-      liftIO (modifyIORef' plugRef resetHoleFitList)
-        >> handleSourceError
-          (getHoleFitsFromError plugRef)
-          (Right <$> compileParsedExpr expr)
+    exprFits ::
+      IORef HoleFitState ->
+      [SrcSpan] ->
+      LHsExpr GhcPs ->
+      Ghc (Either [ValsAndRefs] HValue)
+    exprFits plugRef l expr = do
+      let act =
+            liftIO (modifyIORef' plugRef resetHoleFitList)
+              >> handleSourceError
+                (getHoleFitsFromError plugRef l)
+                (Right <$> compileParsedExpr expr)
+      -- We need to try twice here, since defaulting can have a weird effect,
+      -- and we might be missing out on some fits
+      withDefaulting (Just []) act >>= \case
+        -- It wasn't an error at all:
+        Right a -> return $ Right a
+        -- We got something, and no addtional errors:
+        Left (Right x) -> return $ Left x
+        -- We got a result, but we had additional errors:
+        Left (Left (ovnd, oerrs)) -> do
+          liftIO $ logStr DEBUG "Got result with errors:"
+          liftIO $ logOut DEBUG ovnd
+          liftIO $ mapM_ (logStr DEBUG . show) oerrs
+          cur_defaults <- ic_default . hsc_IC <$> getSession
+          -- We try a few defaults:
+          let different_defaults =
+                [ cur_defaults, -- The default, defaults to integerTy and doubleTy
+                  Just [unitTy, intTy, floatTy] -- default to unit, ints and floats
+                ]
+
+              joinFits :: [ValsAndRefs] -> ValsAndRefs
+              joinFits =
+                (nubBy nf *** nubBy nf)
+                  . foldr (\(vs, rfs) (vss, rfss) -> (vs ++ vss, rfs ++ rfss)) ([], [])
+              nf hfa@HoleFit {} hfb@HoleFit {} = hfId hfa == hfId hfb
+              nf (RawHoleFit a) (RawHoleFit b) = showSDocUnsafe a == showSDocUnsafe b
+              nf _ _ = False
+          -- Get all the results from all the defaults and then we join them.
+          -- Note that the transpose is safe here, since the amount of holes
+          -- is always the same.
+          Left . map joinFits . transpose . rights . lefts
+            <$> mapM (`withDefaulting` act) different_defaults
+
     getHoleFits' ::
       IORef HoleFitState ->
       Int ->
@@ -138,13 +161,13 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
       dflags <- getSessionDynFlags
       setSessionDynFlags dflags {refLevelHoleFits = Just 0}
       res <-
-        mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef e) exprs
+        mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
           >>= processFits . map (second (map (second fst))) . lefts
       dflags <- getSessionDynFlags
       setSessionDynFlags dflags {refLevelHoleFits = Just 0}
       return res
     getHoleFits' plugRef n exprs = do
-      fits <- lefts <$> mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef e) exprs
+      fits <- lefts <$> mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
       procs <- processFits $ map (second $ map (second (uncurry (++)))) fits
       --       pprPanic "ppr" $ ppr procs
       let f :: LHsExpr GhcPs -> SrcSpan -> [(Int, HsExpr GhcPs)] -> Ghc (SrcSpan, [(Int, HsExpr GhcPs)])
@@ -533,8 +556,6 @@ checkFixes
         modTxt = exprToCheckModule cc seed mname tp fixes
         exeName = dropExtension the_f
         timeoutVal = fromIntegral timeout
-
-    liftIO $ logStr DEBUG modTxt
     -- Note: we do not need to dump the text of the module into the file, it
     -- only needs to exist. Otherwise we would have to write something like
     -- `hPutStr handle modTxt`
