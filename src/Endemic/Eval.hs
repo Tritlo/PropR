@@ -1125,9 +1125,10 @@ getExprFitCands expr_or_mod = do
             esAndNames
       return $ zipWith finalize esAndNames mb_tys
   where
-    toEsAnNames wc = map (\e -> (e, bagToList $ wc_simple wc, mapMaybe e_ids $ flattenExpr e))
-    e_ids (L _ (HsVar _ v)) = Just $ unLoc v
-    e_ids _ = Nothing
+    toEsAnNames wc = map (\e -> (e, bagToList $ wc_simple wc, concatMap e_ids $ flattenExpr e))
+    e_ids (L _ (HsVar _ v)) = [unLoc v]
+    e_ids (L _ (HsWrap _ w v)) = concatMap e_ids $ flattenExpr $ noLoc v
+    e_ids _ = []
     -- Vars are already in scope
     nonTriv :: LHsExpr GhcTc -> Bool
     nonTriv (L _ HsVar {}) = False

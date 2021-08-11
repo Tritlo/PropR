@@ -95,16 +95,17 @@ synthPlug useCache local_exprs plugRef =
                               gbl_env <- getGlobalRdrEnv
                               let lcl_env = tcl_rdr $ ctLocEnv (ctEvLoc (ctEvidence ct))
                                   -- A name is in scope if it's in the local or global environment
-                                  inScope nm = nm `inLocalRdrEnvScope` lcl_env || isJust (lookupGRE_Name gbl_env nm)
-                                  in_scope_exprs = filter (all (inScope . getName) . efc_ids) local_exprs
+                                  inScope e_id =
+                                    getName e_id `inLocalRdrEnvScope` lcl_env
+                                      || not (null (gbl_env `lookupGlobalRdrEnv` occName e_id))
+                                  in_scope_exprs = filter (all inScope . efc_ids) local_exprs
                                   hole_ty = ctPred ct
                                   -- An expression candidate fits if its type matches and there are no unsolved
                                   -- wanted constraints afterwards.
                                   checkExprCand :: ExprFitCand -> TcM Bool
                                   checkExprCand EFC {efc_ty = Nothing} = return False
                                   checkExprCand EFC {efc_ty = Just e_ty, efc_wc = rcts} =
-                                    fst
-                                      <$> withoutUnification fvs (tcCheckHoleFit h {tyHRelevantCts = cts} hole_ty e_ty)
+                                    fst <$> withoutUnification fvs (tcCheckHoleFit h {tyHRelevantCts = cts} hole_ty e_ty)
                                     where
                                       fvs = tyCoFVsOfTypes [hole_ty, e_ty]
                                       cts = tyHRelevantCts h `unionBags` rcts

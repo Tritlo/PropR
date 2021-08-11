@@ -33,6 +33,8 @@ import Data.Map (Map, member, (!))
 import GHC
 import GhcPlugins
 
+-- TODO: This doesn't recurse into (L _ (HsWrap _ _ v)), because there's no located expressions in v!
+
 -- | Get this expression and all subexpressions
 flattenExpr :: Data (HsExpr id) => LHsExpr id -> [LHsExpr id]
 flattenExpr = universeOf uniplate
