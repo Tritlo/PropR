@@ -372,3 +372,8 @@ avg as = sum as / fromIntegral (length as)
 -- Turns a reader name to a string for comparisons
 rdrNameToStr :: RdrName -> String
 rdrNameToStr = occNameString . rdrNameOcc
+
+-- Gives the name of the property
+propToName :: EProp -> String
+propToName (L _ FunBind {..}) = rdrNameToStr $ unLoc fun_id
+propToName _ = error "Non-prop passed to propToName!"

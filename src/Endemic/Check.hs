@@ -252,10 +252,11 @@ sigForProp e_prop_sigs trans e_prop@(L _ FunBind {..}) =
     isForProp (L _ (TypeSig _ [L _ r] _)) | r == unLoc fun_id = True
     isForProp _ = False
     -- We add a within to the alternatives, so the type changes from Bool
-    -- or whatever to Property
+    -- We make sure that we don't replace wildcard types.
     replLast :: LHsType GhcPs -> LHsType GhcPs
     replLast (L l (HsFunTy NoExtField k r)) =
       L l $ HsFunTy NoExtField k $ replLast r
+    replLast t@(L _ (HsWildCardTy _)) = t
     replLast t = trans t
 sigForProp _ _ _ = []
 

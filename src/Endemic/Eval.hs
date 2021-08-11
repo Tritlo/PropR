@@ -420,7 +420,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             fromPropD (L l (ValD _ b@FunBind {..}))
               | rdrNameOcc (unLoc fun_id) `elem` tests = Just (L l b)
             fromPropD _ = Nothing
-
         local_prop_var_names :: [Name]
         local_prop_var_names = filter fromLocalPackage prop_var_names
           where
@@ -450,9 +449,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             funId _ = Nothing
             fun_ids = Set.fromList $ mapMaybe funId hsmodDecls
             excludeSet = Set.fromList excludeTargets
-            rdrNameToStr :: RdrName -> String
-            rdrNameToStr = occNameString . rdrNameOcc
-
         getTarget :: [RdrName] -> Maybe EProblem
         getTarget t_names =
           case targets of
@@ -470,7 +466,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                       e_props = wrapped_props,
                       e_prop_sigs = prop_sigs
                     }
-            _ -> Nothing
+            _ | len <- length targets -> Nothing
           where
             t_names_set = Set.fromList t_names
             isTDef (L _ (SigD _ (TypeSig _ ids _))) =
@@ -554,20 +550,23 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             mkPropSig vars nfid ofid = prop_sig
               where
                 prop_sig = case snd <$> prog_sig (unLoc ofid) of
+                  -- We don't want to wrap wildcardTys any further
                   Just (TypeSig e _ wt) ->
-                    [ TypeSig e [nfid] $ toWrapSig wt
+                    [ TypeSig e [nfid] $ case wt of
+                        HsWC _ (HsIB _ (L _ (HsWildCardTy _))) -> wt
+                        _ -> toWrapSig wt
                     ]
                   _ -> []
                 toWrapSig :: LHsSigWcType GhcPs -> LHsSigWcType GhcPs
                 toWrapSig (HsWC e (HsIB ix t)) = HsWC e (HsIB ix $ tyApps wtys)
                   where
-                    t' = t
                     wtys :: [HsType GhcPs]
                     wtys = replicate (length $ filter (`Set.member` vars) targets) (HsWildCardTy NoExtField)
                     tyApps [] = t
                     tyApps (ty : tys) = noLoc $ HsFunTy NoExtField (noLoc ty) (tyApps tys)
                 toWrapSig e = e
-
+            wrapped_props :: [EProp]
+            prop_sigs :: [LSig GhcPs]
             (wrapped_props, prop_sigs) =
               second (concatMap (noLoc <$>)) $ unzip $ concatMap wrapProp props
 
@@ -585,7 +584,16 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                         TypeSig e (filter ((t_name ==) . unLoc) sgs) wt
                       _ -> pt
                  in Just (t_name, sig)
-              _ -> Nothing
+              _ ->
+                Just
+                  ( t_name,
+                    -- If we don't have a type, we just make a
+                    -- partial one.
+                    TypeSig NoExtField [noLoc t_name] $
+                      HsWC NoExtField $
+                        HsIB NoExtField $
+                          noLoc $ HsWildCardTy NoExtField
+                  )
 
             targets_n_sigs = mapMaybe prog_sig t_names
             (targets, sigs) = unzip targets_n_sigs
