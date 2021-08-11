@@ -274,8 +274,13 @@ propCounterExamples ProbDesc {..} props = runGhc' cc' $ do
       checkProp prop | isTastyProp prop = return $ Just []
       checkProp prop = do
         seed <- liftIO newSeed
-        exec <- dynCompileParsedExpr `reportOnError` mk_bcc prop seed
-        (map addPar <$>) <$> liftIO (fromDyn exec (return Nothing))
+        let (num_args, bcc) = mk_bcc prop seed
+        liftIO $ logOut DEBUG bcc
+        exec <- dynCompileParsedExpr `reportOnError` bcc
+        -- If the properties have additional choices, quickcheck reports those
+        -- as well, so we must take care to remove these with the take.
+        (take num_args . map addPar <$>) <$> liftIO (fromDyn exec (return Nothing))
+
   mapM checkProp props
   where
     cc' = (compConf {importStmts = checkImports ++ importStmts compConf})

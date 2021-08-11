@@ -932,6 +932,7 @@ exprToTraceModule CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
       -- otherwise it's already provided by the imports.
       ++ (if isJust e_module then [] else lines $ showUnsafe e_ctxt)
       ++ concatMap (lines . showUnsafe) failing_props
+      ++ concatMap (lines . showUnsafe) prop_sigs
       ++ map (showUnsafe . (\(_, _, b) -> b)) fake_targets
       ++ [concat ["checks = [", checks, "]"]]
       ++ [ "",
@@ -942,6 +943,7 @@ exprToTraceModule CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
          ]
   where
     (failing_props, failing_argss) = unzip ps_w_ce
+    prop_sigs = concatMap (sigForProp e_prop_sigs id) failing_props
     toName :: LHsBind GhcPs -> String
     toName (L _ FunBind {fun_id = fid}) = showUnsafe fid
     toName (L _ VarBind {var_id = vid}) = showUnsafe vid

@@ -23,7 +23,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Endemic.Configuration (CompileConfig (..))
 import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
-import Endemic.Util (progAtTy, propVars, rdrNamePrint)
+import Endemic.Util (progAtTy, propVars, rdrNamePrint, rdrNameToStr)
 import FastString (fsLit)
 import GHC
 import GhcPlugins (occName, ppr, showSDocUnsafe)
@@ -164,8 +164,8 @@ buildFixCheck cc seed EProb {..} prog_fixes =
               (noLoc $ HsListTy NoExtField $ tt "Bool")
 buildFixCheck _ _ _ _ = error "External not supported!"
 
--- | Runs the check with QuickCheck. Takes in the name of the function to use for
--- extracting the result
+-- | Creates the QuickCheck expresssion to be run. Takes in the name of the
+-- function to use for extracting the result
 testCheckExpr ::
   -- | The program we're checking
   EProg ->
@@ -240,6 +240,25 @@ testCheckExpr e_prog CompConf {..} extractors prop
               app
 testCheckExpr _ _ _ _ = Nothing
 
+-- Gives the signature for the given prop,  with the end of the type modified by
+-- trans (e.g. const (tt "Property"))
+sigForProp :: [LSig GhcPs] -> (LHsType GhcPs -> LHsType GhcPs) -> EProp -> [LSig GhcPs]
+sigForProp e_prop_sigs trans e_prop@(L _ FunBind {..}) =
+  case filter isForProp e_prop_sigs of
+    [L l (TypeSig e n (HsWC x (HsIB xb t)))] ->
+      [L l (TypeSig e n $ HsWC x $ HsIB xb $ replLast t)]
+    _ -> []
+  where
+    isForProp (L _ (TypeSig _ [L _ r] _)) | r == unLoc fun_id = True
+    isForProp _ = False
+    -- We add a within to the alternatives, so the type changes from Bool
+    -- or whatever to Property
+    replLast :: LHsType GhcPs -> LHsType GhcPs
+    replLast (L l (HsFunTy NoExtField k r)) =
+      L l $ HsFunTy NoExtField k $ replLast r
+    replLast t = trans t
+sigForProp _ _ _ = []
+
 -- | The `buildCounterExampleExpr` functions creates an expression which when
 -- evaluated returns an (Maybe [String]), where the result is a shrunk argument
 -- to the given prop if it fails for the given program, and nothing otherwise.
@@ -250,24 +269,22 @@ buildCounterExampleCheck ::
   Int ->
   EProp ->
   EProblem ->
-  LHsExpr GhcPs
+  (Int, LHsExpr GhcPs)
 buildCounterExampleCheck
   cc@CompConf {..}
   seed
   prop@( L
            loc
            fb@FunBind
-             { fun_matches = fm@MG {mg_alts = (L lm malts)},
+             { fun_matches = fm@MG {mg_alts = (L lm malts@(L _ Match {..} : _))},
                ..
              }
          )
-  EProb {..} = noLoc $ HsLet NoExtField ctxt check_prog
+  EProb {..} = (num_args, noLoc $ HsLet NoExtField ctxt check_prog)
     where
       (L bl (HsValBinds be vb)) = e_ctxt
       (ValBinds vbe vbs vsigs) = vb
       qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed Nothing)
-      isForProp (L _ (TypeSig _ [L _ r] _)) | r == unLoc fun_id = True
-      isForProp _ = False
       nvb = ValBinds vbe nvbs $ vsigs ++ nty
       nvbs =
         unionManyBags
@@ -276,24 +293,20 @@ buildCounterExampleCheck
             unitBag propWithin,
             listToBag expr_bs
           ]
-      -- We add a within to the alternatives, so the type changes from Bool
-      -- or whatever to Property
-      replLast :: LHsType GhcPs -> LHsType GhcPs -> LHsType GhcPs
-      replLast t (L l (HsFunTy NoExtField k r)) =
-        L l $ HsFunTy NoExtField k $ replLast t r
-      replLast t _ = t
-      nty = case filter isForProp e_prop_sigs of
-        [L l (TypeSig e n (HsWC x (HsIB xb t)))] ->
-          [L l (TypeSig e n $ HsWC x $ HsIB xb $ replLast (tt "Property") t)]
-        _ -> []
-
+      pvs = propVars prop
+      num_args = length m_pats - length expr_bs
+      nty = sigForProp e_prop_sigs (const $ tt "Property") prop
       expr_bs =
         map
           ( \(nm, e_ty, e_prog) ->
               baseFun (mkVarUnqual $ fsLit $ "expr__" ++ rdrNamePrint nm) $
                 progAtTy e_prog e_ty
           )
-          e_prog
+          $ filter
+            -- We don't want to clog the file with exprs that aren't being used
+            -- We need the empty case for non-module fixes.
+            (\(nm, _, _) -> nm `Set.member` pvs || rdrNameToStr nm == "")
+            e_prog
       ctxt = L bl (HsValBinds be nvb)
       propWithin = L loc fb {fun_matches = fm {mg_alts = L lm malts'}}
 

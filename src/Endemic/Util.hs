@@ -38,7 +38,7 @@ import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
-import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, occName, occNameString, showSDocUnsafe)
+import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, showSDocUnsafe)
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
@@ -368,3 +368,7 @@ runInProc timeout encode decode act = do
 -- It is used to compute the average fitness of a generation.
 avg :: Fractional a => [a] -> a
 avg as = sum as / fromIntegral (length as)
+
+-- Turns a reader name to a string for comparisons
+rdrNameToStr :: RdrName -> String
+rdrNameToStr = occNameString . rdrNameOcc
