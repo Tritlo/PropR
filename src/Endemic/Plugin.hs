@@ -100,8 +100,9 @@ synthPlug useCache local_exprs plugRef =
                               let lcl_env = tcl_rdr $ ctLocEnv (ctEvLoc (ctEvidence ct))
                                   -- A name is in scope if it's in the local or global environment
                                   inScope e_id =
-                                    getName e_id `inLocalRdrEnvScope` lcl_env
-                                      || not (null (gbl_env `lookupGlobalRdrEnv` occName e_id))
+                                    if isLocalId e_id
+                                      then inLocalRdrEnvScope (getName e_id) lcl_env
+                                      else not (null (gbl_env `lookupGlobalRdrEnv` occName e_id))
                                   in_scope_exprs = filter (all inScope . efc_ids) local_exprs
                                   hole_ty = ctPred ct
                                   -- An expression candidate fits if its type matches and there are no unsolved

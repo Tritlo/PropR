@@ -147,7 +147,8 @@ specialTests =
         "tests/cases/ThreeFixes.hs"
         def {mb_expected = Just []},
       mkGenConfTestEx 60_000_000 "ExprWhere fits" "tests/cases/ExprWhere.hs",
-      mkGenConfTestEx 60_000_000 "DefaultingFixes" "tests/cases/DefaultingFixes.hs"
+      mkGenConfTestEx 60_000_000 "DefaultingFixes" "tests/cases/DefaultingFixes.hs",
+      mkGenConfTestEx 60_000_000 "Issue 88" "tests/cases/Issue88.hs"
     ]
 
 refinementTests :: TestTree

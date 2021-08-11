@@ -31,6 +31,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
+import Debug.Trace (trace)
 import Endemic.Configuration
 import Endemic.Traversals (replaceExpr)
 import Endemic.Types (EExpr, EFix, EProg, EProgFix, EProp, EType, LogLevel (..))
@@ -377,3 +378,9 @@ rdrNameToStr = occNameString . rdrNameOcc
 propToName :: EProp -> String
 propToName (L _ FunBind {..}) = rdrNameToStr $ unLoc fun_id
 propToName _ = error "Non-prop passed to propToName!"
+
+traceOutMsg :: Outputable p => String -> p -> p
+traceOutMsg msg a = trace (msg ++ " { " ++ showSDocUnsafe (ppr a) ++ " } ") a
+
+traceOut :: Outputable p => String -> p -> a -> a
+traceOut msg a = trace (msg ++ " { " ++ showSDocUnsafe (ppr a) ++ " } ")

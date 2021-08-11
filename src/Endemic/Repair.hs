@@ -125,12 +125,13 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
         Left (Right x) -> return $ Left x
         -- We got a result, but we had additional errors:
         Left (Left (ovnd, oerrs)) -> do
-          liftIO $ logStr DEBUG "While getting fits for:"
-          liftIO $ logOut DEBUG expr
-          liftIO $ logStr DEBUG "Got result with errors:"
-          liftIO $ logOut DEBUG ovnd
-          liftIO $ logStr DEBUG "The errors were:"
-          liftIO $ mapM_ (logStr DEBUG . show) oerrs
+          let ll = DEBUG
+          liftIO $ logStr ll "While getting fits for:"
+          liftIO $ logOut ll expr
+          liftIO $ logStr ll "Got result with errors:"
+          liftIO $ logOut ll ovnd
+          liftIO $ logStr ll "The errors were:"
+          liftIO $ mapM_ (logStr ll . show) oerrs
           cur_defaults <- ic_default . hsc_IC <$> getSession
           -- We try the default defaults and some other defaults
           let listTy = mkTyConApp listTyCon []
