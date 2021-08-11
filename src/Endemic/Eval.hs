@@ -61,7 +61,7 @@ import Endemic.Util
 import ErrUtils (ErrMsg (errMsgSeverity), errMsgSpan, pprErrMsgBagWithLoc)
 import FV (fvVarSet)
 import GHC
-import GHC.LanguageExtensions (Extension (PartialTypeSignatures))
+import GHC.LanguageExtensions (Extension (ExtendedDefaultRules, PartialTypeSignatures))
 import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
@@ -100,7 +100,7 @@ setFlags :: [GeneralFlag]
 setFlags = [Opt_Hpc]
 
 exts :: [Extension]
-exts = [PartialTypeSignatures]
+exts = [PartialTypeSignatures, ExtendedDefaultRules]
 
 config :: Int -> DynFlags -> DynFlags
 config lvl sflags =

@@ -125,14 +125,18 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
         Left (Right x) -> return $ Left x
         -- We got a result, but we had additional errors:
         Left (Left (ovnd, oerrs)) -> do
+          liftIO $ logStr DEBUG "While getting fits for:"
+          liftIO $ logOut DEBUG expr
           liftIO $ logStr DEBUG "Got result with errors:"
           liftIO $ logOut DEBUG ovnd
+          liftIO $ logStr DEBUG "The errors were:"
           liftIO $ mapM_ (logStr DEBUG . show) oerrs
           cur_defaults <- ic_default . hsc_IC <$> getSession
-          -- We try a few defaults:
-          let different_defaults =
+          -- We try the default defaults and some other defaults
+          let listTy = mkTyConApp listTyCon []
+              different_defaults =
                 [ cur_defaults, -- The default, defaults to integerTy and doubleTy
-                  Just [unitTy, intTy, floatTy] -- default to unit, ints and floats
+                  Just [unitTy, listTy, intTy, floatTy] -- default to ints and floats
                 ]
 
               joinFits :: [ValsAndRefs] -> ValsAndRefs
@@ -477,10 +481,10 @@ generateFixCandidates
         addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
         holed_exprs = map (\(l, he) -> ([l], addContext l he)) nzh
         wrapInHole loc hsexpr = HsPar NoExtField (noLoc $ HsApp NoExtField (L loc hole) (noLoc hsexpr))
-        ((_, _, one_prog) : _) = e_prog
+        ((_, one_ty, one_prog) : _) = e_prog
         wrapped_in_holes =
           if allowFunctionFits cc
-            then map ((\l -> ([l], wrapExpr l (wrapInHole l) one_prog)) . fst) nzh
+            then map ((\l -> ([l], wrapExpr l (wrapInHole l) $ progAtTy one_prog one_ty)) . fst) nzh
             else []
     plugRef <- initGhcCtxt' True cc efcs
     hole_fits <- collectStats $ getHoleFits' cc plugRef holed_exprs
