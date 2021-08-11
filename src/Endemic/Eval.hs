@@ -58,7 +58,7 @@ import Endemic.Plugin
 import Endemic.Traversals (flattenExpr)
 import Endemic.Types
 import Endemic.Util
-import ErrUtils (pprErrMsgBagWithLoc)
+import ErrUtils (ErrMsg (errMsgSeverity), errMsgSpan, pprErrMsgBagWithLoc)
 import FV (fvVarSet)
 import GHC
 import GHC.LanguageExtensions (Extension (PartialTypeSignatures))
@@ -197,18 +197,37 @@ type CompileRes = Either [ValsAndRefs] Dynamic
 -- message)
 getHoleFitsFromError ::
   IORef HoleFitState ->
+  [SrcSpan] ->
   SourceError ->
-  Ghc (Either [ValsAndRefs] b)
-getHoleFitsFromError plugRef err = do
-  liftIO $ logOut DEBUG $ pprErrMsgBagWithLoc $ srcErrorMessages err
-  res <- liftIO $ snd <$> readIORef plugRef
-  when (null res) (printException err)
-  let gs = groupBy (sameHole `on` fst) res
-      allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)
-      allFitsOfHole [] = error "no-holes!"
-      valsAndRefs = map ((partition part . snd) . allFitsOfHole) gs
-  return $ Left valsAndRefs
+  Ghc (Either (Either ([ValsAndRefs], [ErrMsg]) [ValsAndRefs]) b)
+getHoleFitsFromError plugRef holeSpanList err =
+  do
+    liftIO $ logOut DEBUG $ pprErrMsgBagWithLoc $ srcErrorMessages err
+    res <- liftIO $ snd <$> readIORef plugRef
+    when (null res) (printException err)
+    let gs = groupBy (sameHole `on` fst) res
+        allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)
+        allFitsOfHole [] = error "no-holes!"
+        valsAndRefs = map ((partition part . snd) . allFitsOfHole) gs
+    let msgs = srcErrorMessages err
+        errSpans =
+          Set.fromList $
+            map errMsgSpan $ filter ((==) "SevError" . show . errMsgSeverity) $ bagToList msgs
+        -- There might be other erros present, which means that
+        -- the hole was not sound (probably due to defaulting).
+        -- We want to filter these out.
+        otherErrorSpans = errSpans Set.\\ holeSpans
+        otherErrors = filter ((`Set.member` otherErrorSpans) . errMsgSpan) $ bagToList msgs
+
+    if not (null otherErrorSpans)
+      then do
+        liftIO $ logStr DEBUG "Additional errors detected, discarding"
+        liftIO $ mapM_ (logOut DEBUG) valsAndRefs
+        return $ Left $ Left $ (valsAndRefs, otherErrors)
+      else return $ Left $ Right valsAndRefs
   where
+    noRes = ([], [])
+    holeSpans = Set.fromList holeSpanList
     part (RawHoleFit _) = True
     part HoleFit {..} = hfRefLvl <= 0
     sameHole :: TypedHole -> TypedHole -> Bool
@@ -1168,3 +1187,18 @@ getExprFitCands expr_or_mod = do
           not (isEmptyVarSet (ctFreeVarSet ct))
             && anyFVMentioned ct
             && not (isHoleCt ct)
+
+-- | Provides a GHC without a ic_default set.
+-- IC is short for Interactive-Context (ic_default is set to empty list).
+withDefaulting :: Maybe [Type] -> Ghc a -> Ghc a
+withDefaulting tys act = do
+  -- Make sure we don't do too much defaulting by setting `default ()`
+  -- Note: I think this only applies to the error we would be generating,
+  -- I think if we replace the UnboundVar with a suitable var of the right
+  -- it would work... it just makes the in-between output a bit confusing.
+  env <- getSession
+  let prev = ic_default (hsc_IC env)
+  setSession (env {hsc_IC = (hsc_IC env) {ic_default = tys}})
+  r <- act
+  setSession (env {hsc_IC = (hsc_IC env) {ic_default = prev}})
+  return r

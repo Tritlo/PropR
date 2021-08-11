@@ -47,10 +47,10 @@ initialHoleFitState :: HoleFitState
 initialHoleFitState = (Map.empty, [])
 
 -- | Provides a heuristic Hash for the Typed holes, used for lookup in Caching.
-holeHash :: DynFlags -> TypedHole -> Maybe HoleHash
-holeHash df TyH {tyHCt = Just ct} =
-  Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr $ ctPred ct)
-holeHash _ _ = Nothing
+holeHash :: DynFlags -> Maybe [Type] -> TypedHole -> Maybe HoleHash
+holeHash df defaults TyH {tyHCt = Just ct} =
+  Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr (defaults, ctPred ct))
+holeHash _ _ _ = Nothing
 
 synthPlug :: Bool -> [ExprFitCand] -> IORef HoleFitState -> Plugin
 synthPlug useCache local_exprs plugRef =
@@ -67,10 +67,13 @@ synthPlug useCache local_exprs plugRef =
                         cache <- liftIO $ fst <$> readIORef plugRef
                         dflags <- getDynFlags
                         num_calls <- readTcRef iref
-                        case holeHash dflags h >>= (cache Map.!?) . (num_calls,) of
+                        -- We change the defaults, so they must be included
+                        -- in the hash.
+                        defaults <- tcg_default <$> getGblEnv
+                        case holeHash dflags defaults h >>= (cache Map.!?) . (num_calls,) of
                           Just r | useCache -> liftIO $ do
                             logStr DEBUG "CACHE HIT"
-                            logOut DEBUG $ holeHash dflags h
+                            logOut DEBUG $ holeHash dflags defaults h
                             logOut DEBUG (num_calls, h)
                             logOut DEBUG r
                             return []
@@ -78,9 +81,10 @@ synthPlug useCache local_exprs plugRef =
                     fitPlugin = \h f -> do
                       cache <- liftIO $ fst <$> readIORef plugRef
                       dflags <- getDynFlags
+                      defaults <- tcg_default <$> getGblEnv
                       num_calls <- readTcRef iref
                       writeTcRef iref (num_calls + 1)
-                      case holeHash dflags h >>= (cache Map.!?) . (num_calls,) of
+                      case holeHash dflags defaults h >>= (cache Map.!?) . (num_calls,) of
                         Just cached | useCache -> liftIO $ do
                           modifyIORef' plugRef (fmap (cached :))
                           return []
@@ -115,7 +119,7 @@ synthPlug useCache local_exprs plugRef =
                           liftIO $ do
                             let packed = (h, fits)
                             modifyIORef' plugRef (fmap (packed :))
-                            case holeHash dflags h of
+                            case holeHash dflags defaults h of
                               Just hash | useCache -> do
                                 logStr DEBUG "CACHING"
                                 logOut DEBUG (num_calls, hash)
