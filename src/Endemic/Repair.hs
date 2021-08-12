@@ -132,13 +132,12 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
           liftIO $ logOut ll ovnd
           liftIO $ logStr ll "The errors were:"
           liftIO $ mapM_ (logStr ll . show) oerrs
-          cur_defaults <- ic_default . hsc_IC <$> getSession
           -- We try the default defaults and some other defaults
-          let listTy = mkTyConApp listTyCon []
-              different_defaults =
-                [ cur_defaults, -- The default, defaults to integerTy and doubleTy
-                  Just [unitTy, listTy, intTy, floatTy] -- default to ints and floats
-                ]
+          let different_defaults =
+                Nothing : -- The default, defaults to integerTy and doubleTy
+                if extendDefaults
+                  then [extraDefaults] -- default to ints and floats
+                  else []
 
               joinFits :: [ValsAndRefs] -> ValsAndRefs
               joinFits =
@@ -195,6 +194,11 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
     mapLeft :: (a -> c) -> Either a b -> Either c b
     mapLeft f (Left a) = Left (f a)
     mapLeft _ (Right r) = Right r
+
+extraDefaults :: Maybe [Type]
+extraDefaults = Just [unitTy, listTy, intTy, floatTy] -- default to ints and floats
+  where
+    listTy = mkTyConApp listTyCon []
 
 -- | Takes a list of list of list of hole fits and processes each fit so that
 -- it becomes a proper HsExpr
@@ -603,13 +607,12 @@ checkFixes
           }
     liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
     sf2 <- load (LoadUpTo target_name)
-    when (failed sf2) $
-      liftIO $ do
+    when (failed sf2) $ do
+      liftIO $
         logStr ERROR $
           "Error while loading: " ++ moduleNameString target_name
             ++ " see error message for more information"
-
-        exitFailure
+      liftIO $ exitFailure
     mg <- depanal [] True
     liftIO $ logStr DEBUG "New graph:"
     liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg

@@ -232,7 +232,8 @@ instance Materializeable CompileConfig where
       umPrecomputeFixes :: Maybe Bool,
       umKeepLoopingFixes :: Maybe Bool,
       umAllowFunctionFits :: Maybe Bool,
-      umExcludeTargets :: Maybe [String]
+      umExcludeTargets :: Maybe [String],
+      umExtendDefaults :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -241,6 +242,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -278,7 +280,8 @@ instance Materializeable CompileConfig where
         precomputeFixes = fromMaybe precomputeFixes umPrecomputeFixes,
         keepLoopingFixes = fromMaybe keepLoopingFixes umKeepLoopingFixes,
         allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits,
-        excludeTargets = fromMaybe excludeTargets umExcludeTargets
+        excludeTargets = fromMaybe excludeTargets umExcludeTargets,
+        extendDefaults = fromMaybe extendDefaults umExtendDefaults
       }
 
 -- | Configuration for the compilation itself
@@ -340,7 +343,11 @@ data CompileConfig = CompConf
     allowFunctionFits :: Bool,
     -- | Targets to exclude from repairing. Could be things like examples or
     -- test helpers that we don't want to change.
-    excludeTargets :: [String]
+    excludeTargets :: [String],
+    -- Extend defaults allows us to use GHC's extended defaulting during
+    -- hole-fit generation. Only works if we're not relying too much on
+    -- type-defaulting, since the types will not be defaulted during checking.
+    extendDefaults :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -365,8 +372,9 @@ instance Default CompileConfig where
         timeout = 1_000_000,
         precomputeFixes = True,
         keepLoopingFixes = False,
-        allowFunctionFits = True,
-        excludeTargets = []
+        allowFunctionFits = False,
+        excludeTargets = [],
+        extendDefaults = False
       }
 
 instance Default LogConfig where

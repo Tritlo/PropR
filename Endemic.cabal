@@ -110,6 +110,7 @@ test-suite test
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,
                  data-default >= 0.7 && < 0.8,
+                 directory >= 1.3 && < 1.4,
                  Endemic,
                  -- packages used in repair:
                  QuickCheck
@@ -130,6 +131,7 @@ test-suite slow-test
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,
                  data-default >= 0.7 && < 0.8,
+                 directory >= 1.3 && < 1.4,
                  Endemic,
                  -- packages used in repair:
                  QuickCheck
@@ -150,6 +152,7 @@ benchmark benchmark
                  ghc >= 8 && < 9,
                  hpc >= 0.6 && < 0.7,
                  data-default >= 0.7 && < 0.8,
+                 directory >= 1.3 && < 1.4,
                  Endemic,
                  -- packages used in repair:
                  QuickCheck

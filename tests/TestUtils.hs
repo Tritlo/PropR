@@ -26,6 +26,8 @@ import Endemic.Types
 import Endemic.Util
 import GHC (tm_parsed_module)
 import GhcPlugins (ppr, showSDocUnsafe)
+import System.Directory
+import System.IO
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -36,11 +38,16 @@ tESTSEED = 703_039_772
 tESTGENCONF :: GeneticConfiguration
 tESTGENCONF = def {crossoverRate = 0.4, mutationRate = 0.1, dropRate = 0.25, iterations = 1_000}
 
+tESTCONF :: Configuration
+-- We want to try all the fancy features in the tests:
+tESTCONF = def {compileConfig = def {allowFunctionFits = True, extendDefaults = True}}
+
 data TestConf = TestConf
   { mb_expected :: Maybe [String],
     indices :: Maybe [Int],
     allowMix :: Bool,
-    reportTestStats :: Bool
+    reportTestStats :: Bool,
+    acceptNew :: Bool
   }
   deriving (Show, Eq)
 
@@ -50,7 +57,8 @@ instance Default TestConf where
       { mb_expected = Nothing,
         indices = Nothing,
         allowMix = False,
-        reportTestStats = False
+        reportTestStats = False,
+        acceptNew = False
       }
 
 mkSimpleModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> TestTree
@@ -59,7 +67,7 @@ mkSimpleModuleTest timeout tag toFix repair_target =
     testCase tag $ do
       expected <- readExpected toFix
       setSeedGenSeed tESTSEED
-      (cc', mod, mb_prob) <- moduleToProb def toFix repair_target
+      (cc', mod, mb_prob) <- moduleToProb (compileConfig tESTCONF) toFix repair_target
       case mb_prob of
         Nothing -> [] @?= expected
         Just ExProb {..} -> error "not supported yet!"
@@ -86,6 +94,7 @@ mkSimpleModuleTest timeout tag toFix repair_target =
                     "Actual fixes were:",
                     unlines (map (showSDocUnsafe . ppr) fixes)
                   ]
+          when (not check && acceptNew def) $ writeExpected toFix (unlines diffs)
           assertBool msg check
 
 mkRepairTest ::
@@ -143,6 +152,7 @@ mkRepairTest' conf how timeout tag file TestConf {..} =
                       show (Set.size fixes)
                     ]
             when reportTestStats (putStrLn "" >> putStrLn "Stats:" >> getStats >>= mapM_ putStrLn)
+            when (not check && acceptNew) $ writeExpected file (unlines diffs)
             assertBool msg check
           Nothing -> do
             when reportTestStats (putStrLn "" >> putStrLn "Stats:" >> getStats >>= mapM_ putStrLn)
@@ -160,3 +170,16 @@ readExpected fp = do
       ex'' = map (drop 3) ex'
       diffs = split "" ex''
   return $ map unlines diffs
+
+writeExpected :: FilePath -> String -> IO ()
+writeExpected fp to_write = do
+  putStrLn "Accepting new output!"
+  ls <- lines <$> readFile fp
+  print (length ls)
+  let new =
+        ("---- EXPECTED ----" : map ("-- " ++) (init $ lines to_write))
+          ++ ["---- END EXPECTED ----"]
+  let beg = takeWhile (/= "---- EXPECTED ----") ls
+      newo = (unlines $ beg ++ new) ++ "\n"
+  writeFile (fp ++ ".tmp") newo
+  renameFile (fp ++ ".tmp") fp

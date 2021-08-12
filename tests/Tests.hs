@@ -73,7 +73,7 @@ repairTests =
       localOption (mkTimeout 30_000_000) $
         testCase "Basic Repair `foldl (-) 0`" $ do
           let cc =
-                def
+                (compileConfig tESTCONF)
                   { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
@@ -128,7 +128,7 @@ repairTests =
                   "EFC {gcd' a}",
                   "EFC {b - a}"
                 ]
-          expr_cands <- runJustParseExpr def wrong_prog >>= (runGhc' def . getExprFitCands . Left)
+          expr_cands <- runJustParseExpr (compileConfig tESTCONF) wrong_prog >>= (runGhc' (compileConfig tESTCONF) . getExprFitCands . Left)
           map showUnsafe expr_cands @?= expected,
       localOption (mkTimeout 60_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
@@ -154,7 +154,7 @@ repairTests =
                     r_props = props
                   }
           setSeedGenSeed tESTSEED
-          fixes <- map (trim . showUnsafe) <$> (translate def rp >>= repair def)
+          fixes <- map (trim . showUnsafe) <$> (translate (compileConfig tESTCONF) rp >>= repair (compileConfig tESTCONF))
           not (null fixes) @? "No fix found"
     ]
 
@@ -186,14 +186,14 @@ failingPropsTests =
                     r_props = props
                   }
           setSeedGenSeed tESTSEED
-          tp <- translate def rp
-          failed_props <- failingProps def tp
+          tp <- translate (compileConfig tESTCONF) rp
+          failed_props <- failingProps (compileConfig tESTCONF) tp
           -- Only the first prop should be failing (due to an infinite loop)
           map showUnsafe failed_props @?= [head props],
       localOption (mkTimeout 10_000_000) $
         testCase "Only one failing prop" $ do
           let cc =
-                def
+                (compileConfig tESTCONF)
                   { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
@@ -220,7 +220,7 @@ failingPropsTests =
           map showUnsafe failed_props @?= props,
       localOption (mkTimeout 30_000_000) $
         testCase "Two failing TastyProps" $ do
-          Just desc@ProbDesc {..} <- describeProblem def "tests/cases/TastyTwoFix.hs"
+          Just desc@ProbDesc {..} <- describeProblem tESTCONF "tests/cases/TastyTwoFix.hs"
           failed_props <- failingProps compConf progProblem
           length failed_props @?= 2
     ]
@@ -231,7 +231,7 @@ counterExampleTests =
     [ localOption (mkTimeout 10_000_000) $
         testCase "Only one counter example" $ do
           let cc =
-                def
+                (compileConfig tESTCONF)
                   { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
@@ -260,7 +260,7 @@ counterExampleTests =
       localOption (mkTimeout 10_000_000) $
         testCase "Multiple examples" $ do
           let cc =
-                def
+                (compileConfig tESTCONF)
                   { packages = ["base", "process", "QuickCheck"],
                     importStmts = ["import Prelude hiding (id, ($), ($!), asTypeOf)"]
                   }
@@ -288,7 +288,7 @@ counterExampleTests =
             Nothing -> error "Incorrect type!!",
       localOption (mkTimeout 15_000_000) $
         testCase "No args loop fail" $ do
-          let cc = def
+          let cc = (compileConfig tESTCONF)
               props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -325,7 +325,7 @@ traceTests =
     "Trace tests"
     [ localOption (mkTimeout 10_000_000) $
         testCase "Trace foldl" $ do
-          let cc = def
+          let cc = (compileConfig tESTCONF)
               ty = "[Int] -> Int"
               wrong_prog = "(foldl (-) 0)"
               props = ["prop_isSum f xs = f xs == sum xs"]
@@ -351,7 +351,7 @@ traceTests =
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
       localOption (mkTimeout 30_000_000) $
         testCase "Trace finds loop" $ do
-          let cc = def
+          let cc = (compileConfig tESTCONF)
               props :: [String]
               props =
                 [ "prop_1 f = f 0 55 == 55",
@@ -407,7 +407,7 @@ sanctifyTests =
     "Sanctify tests"
     [ localOption (mkTimeout 1_000_000) $
         testCase "Sanctify foldl program" $ do
-          let cc = def
+          let cc = (compileConfig tESTCONF)
               toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
@@ -417,7 +417,7 @@ sanctifyTests =
           length (sanctifyExpr e_prog') @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
-          let cc = def
+          let cc = compileConfig tESTCONF
               toFix = "tests/cases/BrokenModule.hs"
               repair_target = Just "broken"
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
@@ -435,7 +435,7 @@ moduleTests =
     [ localOption (mkTimeout 30_000_000) $
         testCase "Repair BrokenModule finds correct target" $ do
           let toFix = "tests/cases/BrokenModule.hs"
-          (_, _, Just EProb {..}) <- moduleToProb def toFix Nothing
+          (_, _, Just EProb {..}) <- moduleToProb (compileConfig tESTCONF) toFix Nothing
           let [(e_target, _, _)] = e_prog
           showUnsafe e_target @?= "broken",
       mkSimpleModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken"),

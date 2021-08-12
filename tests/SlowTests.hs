@@ -48,17 +48,17 @@ runGenRepair' :: GeneticConfiguration -> ProblemDescription -> IO (Set EFix)
 runGenRepair' gen_conf desc = runGenMonad gen_conf desc tESTSEED geneticSearchPlusPostprocessing
 
 mkGenConfTestEx :: Integer -> TestName -> FilePath -> TestTree
-mkGenConfTestEx = mkRepairTest def runGenRepair
+mkGenConfTestEx = mkRepairTest tESTCONF runGenRepair
 
-mkSearchTestExPartial :: SearchAlgorithm -> Integer -> TestName -> FilePath -> Maybe [Int] -> TestTree
-mkSearchTestExPartial search_conf timeout tag file indices =
-  mkRepairTest' def (runRepair search_conf) timeout tag file def {indices = indices}
+mkSearchTestExPartial :: SearchAlgorithm -> Integer -> TestName -> FilePath -> TestTree
+mkSearchTestExPartial search_conf timeout tag file =
+  mkRepairTest' tESTCONF (runRepair search_conf) timeout tag file def {allowMix = True}
 
 mkSearchTestEx :: SearchAlgorithm -> Integer -> TestName -> FilePath -> TestTree
-mkSearchTestEx search_conf = mkRepairTest def (runRepair search_conf)
+mkSearchTestEx search_conf = mkRepairTest tESTCONF (runRepair search_conf)
 
 mkPseudoGenTestEx :: Integer -> TestName -> FilePath -> TestTree
-mkPseudoGenTestEx = mkRepairTest def (pseudoGeneticRepair def)
+mkPseudoGenTestEx = mkRepairTest tESTCONF (pseudoGeneticRepair def)
 
 tastyFixTests :: TestTree
 tastyFixTests =
@@ -74,7 +74,7 @@ randTests =
   testGroup
     "Random search tests"
     [ let conf = Random def {randStopOnResults = True, randIgnoreFailing = True}
-       in mkSearchTestExPartial conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs" (Just [1])
+       in mkSearchTestExPartial conf 180_000_000 "Repair TastyFix" "tests/cases/TastyFix.hs"
     ]
 
 exhaustiveTests :: TestTree
@@ -120,33 +120,32 @@ specialTests =
       mkGenConfTestEx 60_000_000 "All props pass" "tests/cases/AllPropsPass.hs",
       mkGenConfTestEx 60_000_000 "No props" "tests/cases/NoProps.hs",
       mkRepairTest
-        def {compileConfig = def {useInterpreted = False}}
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {useInterpreted = False}}
         runGenRepair
         60_000_000
         "Non-Interpreted"
         "tests/cases/LoopBreaker.hs",
       mkRepairTest
-        def {compileConfig = def {useInterpreted = True, parChecks = False}}
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {useInterpreted = True, parChecks = False}}
         runGenRepair
         120_000_000
         "Interpreted Non-Par"
         "tests/cases/LoopBreaker.hs",
       mkRepairTest
-        def {compileConfig = def {useInterpreted = True, parChecks = True}}
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {useInterpreted = True, parChecks = True}}
         runGenRepair
         240_000_000
         "Interpreted Par"
         "tests/cases/LoopBreaker.hs",
-      mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs",
       mkRepairTest
-        def {compileConfig = def {allowFunctionFits = True}}
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {allowFunctionFits = True}}
         runGenRepair
         60_000_000
         "Wrap fits"
         "tests/cases/Wrap.hs",
       mkGenConfTestEx 60_000_000 "Ambiguous fits" "tests/cases/AmbiguousTypeVariables.hs",
       mkRepairTest'
-        def {compileConfig = def {excludeTargets = ["brokenPair"]}}
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {excludeTargets = ["brokenPair"]}}
         runGenRepair
         5_000_000
         "Exclude targets"
@@ -157,13 +156,13 @@ specialTests =
       mkGenConfTestEx 60_000_000 "Issue 88" "tests/cases/Issue88.hs",
       expectFail $
         mkRepairTest
-          def {compileConfig = def {allowFunctionFits = True}}
+          tESTCONF {compileConfig = (compileConfig tESTCONF) {allowFunctionFits = True}}
           runGenRepair
           60_000_000
           "Issue 87 with function fits"
           "tests/cases/Issue87.hs",
       mkRepairTest
-        def {compileConfig = def {allowFunctionFits = False}}
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {allowFunctionFits = False}}
         runGenRepair
         60_000_000
         "Issue 87 w/o function fits"
@@ -175,9 +174,9 @@ refinementTests =
   testGroup
     "Refinments"
     [ mkRepairTest'
-        ( def
-            { compileConfig = def {holeLvl = 2},
-              logConfig = def {logLoc = True}
+        ( tESTCONF
+            { compileConfig = (compileConfig tESTCONF) {holeLvl = 2},
+              logConfig = (logConfig tESTCONF) {logLoc = True}
             }
         )
         runGenRepair

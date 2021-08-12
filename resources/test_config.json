@@ -20,7 +20,8 @@
     "precompute_fixes": true,
     "keep_looping_fixes": false,
     "allow_function_fits": true,
-    "exclude_targets": []
+    "exclude_targets": [],
+    "extend_defaults": false
   },
   "output_config": {
     "locale": null,
