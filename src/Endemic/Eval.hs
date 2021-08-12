@@ -651,23 +651,15 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
 
 -- Create a fake base loc for a trace.
 fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> Ghc SrcSpan
-fakeBaseLoc cc prob fix = getLoc . head <$> buildTraceCorrelExpr cc prob fix
+fakeBaseLoc cc prob (fix : _) = getLoc . head <$> buildTraceCorrelExpr cc prob fix
+fakeBaseLoc cc prob [] = error "Cannot construct base loc for empty prog!"
 
 -- When we do the trace, we use a "fake_target" function. This build the
 -- corresponding expression,
-buildTraceCorrelExpr :: CompileConfig -> EProblem -> EProgFix -> Ghc [LHsExpr GhcPs]
-buildTraceCorrelExpr cc EProb {..} exprs = do
+buildTraceCorrelExpr :: CompileConfig -> EProblem -> EExpr -> Ghc [LHsExpr GhcPs]
+buildTraceCorrelExpr cc EProb {..} expr = do
   let correl =
-        zipWith
-          ( \(nm, _, _) e ->
-              baseFun
-                ( mkVarUnqual $
-                    fsLit $ "fake_target_" ++ rdrNamePrint nm
-                )
-                e
-          )
-          e_prog
-          exprs
+        map (\(nm, _, _) -> baseFun (mkVarUnqual $ fsLit $ "fake_target_" ++ rdrNamePrint nm) expr) e_prog
       correl_ctxts :: [LHsLocalBinds GhcPs]
       correl_ctxts = map (\c -> noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag c) [])) correl
       correl_exprs :: [LHsExpr GhcPs]
@@ -685,18 +677,15 @@ buildTraceCorrelExpr _ _ _ = error "External fixes not supported!"
 -- We build a Map from the traced expression and to the  original so we can
 -- correlate the trace information with the expression we're checking.
 -- This helps e.g. to find placements of changed elements (in our fixes) to the original position.
-buildTraceCorrel :: CompileConfig -> EProblem -> EProgFix -> Ghc [Map.Map SrcSpan SrcSpan]
-buildTraceCorrel cc prob exprs = do
-  expr_n_trac_exprs <- zip exprs <$> buildTraceCorrelExpr cc prob exprs
-  return $
-    map
-      ( \(expr, trace_correl_expr) ->
-          let expr_exprs = flattenExpr expr
-              trace_exprs = flattenExpr trace_correl_expr
-              locPairs = zipWith (\t e -> (getLoc t, getLoc e)) trace_exprs expr_exprs
-           in Map.fromList $ filter (\(e, b) -> isGoodSrcSpan e && isGoodSrcSpan b) locPairs
-      )
-      expr_n_trac_exprs
+buildTraceCorrel :: CompileConfig -> EProblem -> EExpr -> Ghc [Map.Map SrcSpan SrcSpan]
+buildTraceCorrel cc prob expr = do
+  map toCorrel <$> buildTraceCorrelExpr cc prob expr
+  where
+    expr_exprs = flattenExpr expr
+    toCorrel trace_expr = Map.fromList $ filter (\(e, b) -> isGoodSrcSpan e && isGoodSrcSpan b) locPairs
+      where
+        trace_exprs = flattenExpr trace_expr
+        locPairs = zipWith (\t e -> (getLoc t, getLoc e)) trace_exprs expr_exprs
 
 -- | Runs a GHC action and cleans up any hpc-directories that might have been
 -- created as a side-effect.

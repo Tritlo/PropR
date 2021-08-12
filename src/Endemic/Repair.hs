@@ -375,16 +375,15 @@ findEvaluatedHoles
     -- TODO: Is this safe?
     let id_prog = eProgToEProgFixAtTy e_prog
 
-    liftIO $ logStr DEBUG "Building trace correlation..."
-    trace_correl <- buildTraceCorrel cc tp id_prog
-
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
     liftIO $ logStr DEBUG "Finding failing props..."
     failing_props <- collectStats $ failingProps' desc
+    liftIO $ logStr DEBUG $ "Found " ++ show (length failing_props) ++ " failing props"
 
     liftIO $ logStr DEBUG "Finding counter examples..."
     counter_examples <- liftIO $ collectStats $ propCounterExamples desc failing_props
+    liftIO $ logStr DEBUG $ "Found " ++ show (length counter_examples) ++ " counter examples"
 
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
@@ -439,18 +438,26 @@ findEvaluatedHoles
           . zip (zip [0 :: Integer ..] ps_w_ce)
           <$> traceTargets cc tp id_prog ps_w_ce
 
+    liftIO $ logStr DEBUG $ "Got " ++ show (length traces_that_worked) ++ " traces that worked"
+    liftIO $ mapM_ (logOut DEBUG . second (Map.filter (> 0))) traces_that_worked
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
-    let fk trace_correl (expr, invokes) =
-          filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
-          where
-            non_zero = filter ((> 0) . snd) $ Map.toList invokes
-            non_zero_src = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-        non_zero_holes = zipWith fk trace_correl traces_that_worked
-        -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
+    let fk (expr, invokes) | non_zero <- filter ((> 0) . snd) (Map.toList invokes),
+                             not (null non_zero) = do
+          liftIO $ logStr DEBUG "Building trace correlation..."
+          trace_correls_per_target <- buildTraceCorrel cc tp expr
+
+          let tceToSet trace_correl = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
+              non_zero_src = Set.unions $ map tceToSet trace_correls_per_target
+          return $ filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
+        fk _ = return []
         nubOrd = Set.toList . Set.fromList
-    return $ nubOrd $ concat non_zero_holes
+    non_zero_holes <- mapM fk traces_that_worked
+    -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
+    let nzh = nubOrd $ concat non_zero_holes
+    liftIO $ logStr DEBUG $ "Found " ++ show (length nzh) ++ " evaluated holes"
+    return nzh
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | This method tries to repair a given Problem.
@@ -472,6 +479,7 @@ generateFixCandidates ::
   ProblemDescription ->
   [(SrcSpan, LHsExpr GhcPs)] ->
   IO [(EFix, EProgFix)]
+generateFixCandidates _ [] = return []
 generateFixCandidates
   desc@ProbDesc
     { compConf = cc,

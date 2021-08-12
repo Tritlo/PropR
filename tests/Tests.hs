@@ -382,7 +382,7 @@ traceTests =
           let [(_, e_ty, e_prog')] = e_prog
               prog_at_ty = progAtTy e_prog' e_ty
               eprog_fix = eProgToEProgFix $ applyFixToEProg e_prog mempty
-          [tcorrel] <- runGhc' cc $ buildTraceCorrel cc tp eprog_fix
+          [tcorrel] <- runGhc' cc $ buildTraceCorrel cc tp prog_at_ty
           Just [res] <- traceTarget cc tp eprog_fix failed_prop counter_example_args
           let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
               chain l = tcorrel Map.!? l >>= (eMap Map.!?)

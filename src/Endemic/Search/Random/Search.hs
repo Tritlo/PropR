@@ -76,7 +76,7 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
               randomRepair' start gen Map.empty
         else do
           let prog' = applyFixToEProg e_prog fix_so_far
-          hole_cands <- collectStats $ findEvaluatedHoles (desc <~ prog')
+          hole_cands <- collectStats $ findEvaluatedHoles ((desc <~ prog') {addConf = addConf {assumeNoLoops = False}})
           if null hole_cands
             then
               liftIO $
