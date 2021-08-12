@@ -52,7 +52,7 @@ mkGenConfTestEx = mkRepairTest tESTCONF runGenRepair
 
 mkSearchTestExPartial :: SearchAlgorithm -> Integer -> TestName -> FilePath -> TestTree
 mkSearchTestExPartial search_conf timeout tag file =
-  mkRepairTest' tESTCONF (runRepair search_conf) timeout tag file def {allowMix = True}
+  mkRepairTest' tESTCONF (runRepair search_conf) timeout tag file def {allowMix = True, acceptNew = False}
 
 mkSearchTestEx :: SearchAlgorithm -> Integer -> TestName -> FilePath -> TestTree
 mkSearchTestEx search_conf = mkRepairTest tESTCONF (runRepair search_conf)
