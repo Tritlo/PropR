@@ -16,9 +16,10 @@ import Control.Arrow (first, second)
 import Control.Monad (filterM)
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, isNothing)
+import Endemic.Configuration (CompileConfig (CompConf))
 import Endemic.Types (ExprFitCand (..), LogLevel (..))
-import Endemic.Util (logOut, logStr)
+import Endemic.Util (logOut, logStr, traceOut)
 import GhcPlugins
 import TcHoleErrors
 import TcRnMonad
@@ -52,8 +53,8 @@ holeHash df defaults TyH {tyHCt = Just ct} =
   Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr (defaults, ctPred ct))
 holeHash _ _ _ = Nothing
 
-synthPlug :: Bool -> [ExprFitCand] -> IORef HoleFitState -> Plugin
-synthPlug useCache local_exprs plugRef =
+synthPlug :: CompileConfig -> Bool -> [ExprFitCand] -> IORef HoleFitState -> Plugin
+synthPlug CompConf {..} useCache local_exprs plugRef =
   defaultPlugin
     { holeFitPlugin = \_ ->
         Just $
@@ -84,6 +85,20 @@ synthPlug useCache local_exprs plugRef =
                       defaults <- tcg_default <$> getGblEnv
                       num_calls <- readTcRef iref
                       writeTcRef iref (num_calls + 1)
+                      gbl_env <- getGlobalRdrEnv
+                      let lcl_env =
+                            case tyHCt h of
+                              Just ct -> tcl_rdr $ ctLocEnv (ctEvLoc (ctEvidence ct))
+                              _ -> emptyLocalRdrEnv
+                          -- A name is in scope if it's in the local or global environment
+                          inScope e_id =
+                            if isLocalId e_id
+                              then -- A local variable is in scope if it's in the environment
+                                inLocalRdrEnvScope (getName e_id) lcl_env
+                              else -- A global variable is in scope if it's not shadowed by a local:
+
+                                isSingleton (lookupGlobalRdrEnv gbl_env (occName e_id))
+                                  && isNothing (lookupLocalRdrOcc lcl_env (occName e_id))
                       case holeHash dflags defaults h >>= (cache Map.!?) . (num_calls,) of
                         Just cached | useCache -> liftIO $ do
                           modifyIORef' plugRef (fmap (cached :))
@@ -96,14 +111,7 @@ synthPlug useCache local_exprs plugRef =
                             Just ct | num_calls == 0 -> do
                               -- Since ExprFitCands are not supported in GHC yet  we manually implement them here by
                               -- checking that all the variables in the expression are in scope and that the type matches.
-                              gbl_env <- getGlobalRdrEnv
-                              let lcl_env = tcl_rdr $ ctLocEnv (ctEvLoc (ctEvidence ct))
-                                  -- A name is in scope if it's in the local or global environment
-                                  inScope e_id =
-                                    if isLocalId e_id
-                                      then inLocalRdrEnvScope (getName e_id) lcl_env
-                                      else not (null (gbl_env `lookupGlobalRdrEnv` occName e_id))
-                                  in_scope_exprs = filter (all inScope . efc_ids) local_exprs
+                              let in_scope_exprs = filter (all inScope . efc_ids) local_exprs
                                   hole_ty = ctPred ct
                                   -- An expression candidate fits if its type matches and there are no unsolved
                                   -- wanted constraints afterwards.
@@ -116,7 +124,7 @@ synthPlug useCache local_exprs plugRef =
                                       cts = tyHRelevantCts h `unionBags` rcts
                               map efc_cand <$> filterM checkExprCand in_scope_exprs
                             _ -> return []
-                          let fits = map (RawHoleFit . ppr) exprs ++ f
+                          let fits = map (RawHoleFit . ppr) exprs ++ filter (inScope . hfId) f
                           liftIO $ do
                             let packed = (h, fits)
                             modifyIORef' plugRef (fmap (packed :))

@@ -154,13 +154,12 @@ specialTests =
       mkGenConfTestEx 60_000_000 "ExprWhere fits" "tests/cases/ExprWhere.hs",
       mkGenConfTestEx 60_000_000 "DefaultingFixes" "tests/cases/DefaultingFixes.hs",
       mkGenConfTestEx 60_000_000 "Issue 88" "tests/cases/Issue88.hs",
-      expectFail $
-        mkRepairTest
-          tESTCONF {compileConfig = (compileConfig tESTCONF) {allowFunctionFits = True}}
-          runGenRepair
-          60_000_000
-          "Issue 87 with function fits"
-          "tests/cases/Issue87.hs",
+      mkRepairTest
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {allowFunctionFits = True}}
+        runGenRepair
+        60_000_000
+        "Issue 87 with function fits"
+        "tests/cases/Issue87.hs",
       mkRepairTest
         tESTCONF {compileConfig = (compileConfig tESTCONF) {allowFunctionFits = False}}
         runGenRepair

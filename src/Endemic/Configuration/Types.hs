@@ -372,7 +372,7 @@ instance Default CompileConfig where
         timeout = 1_000_000,
         precomputeFixes = True,
         keepLoopingFixes = False,
-        allowFunctionFits = False,
+        allowFunctionFits = True,
         excludeTargets = [],
         extendDefaults = False
       }

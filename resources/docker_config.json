@@ -22,7 +22,7 @@
     "timeout": 1000000,
     "precompute_fixes": true,
     "keep_looping_fixes": false,
-    "allow_function_fits": false,
+    "allow_function_fits": true,
     "exclude_targets": [],
     "extend_defaults": false
   },
