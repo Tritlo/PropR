@@ -134,7 +134,7 @@ initGhcCtxt' ::
   -- | The experiment configuration
   [ExprFitCand] ->
   Ghc (IORef HoleFitState)
-initGhcCtxt' use_cache CompConf {..} local_exprs = do
+initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
   liftIO $ logStr DEBUG "Initializing GHC..."
   -- First we have to add "base" to scope
   flags <- config holeLvl <$> getSessionDynFlags
@@ -151,7 +151,7 @@ initGhcCtxt' use_cache CompConf {..} local_exprs = do
         StaticPlugin $
           PluginWithArgs
             { paArguments = [],
-              paPlugin = synthPlug use_cache local_exprs plugRef
+              paPlugin = synthPlug cc use_cache local_exprs plugRef
             }
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
   liftIO $ logStr DEBUG "Setting DynFlags..."
