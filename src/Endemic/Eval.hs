@@ -731,13 +731,29 @@ runGhcWithCleanup CompConf {..} act = do
                   ( if randomizeHiDir
                       then tdBase </> "build"
                       else common </> "build"
-                  )
+                  ),
+              log_action = logOutLogAction
             }
     setSessionDynFlags dflags'
-    act
+    defaultErrorHandler ((logStr GHCERR "ghc error: " >>) . logStr GHCERR) (FlushOut (return ())) act
   check <- doesDirectoryExist tdBase
   when check $ removeDirectoryRecursive tdBase
   return res
+
+debugOutputOnly :: LogAction
+debugOutputOnly _ _ _ _ _ = logOut DEBUG
+
+logOutLogAction :: LogAction
+logOutLogAction dflags _ severity _ _ msgdoc = do
+  logStr GHCERR "GHC ERROR:"
+  case severity of
+    SevOutput -> logOut TRACE msgdoc
+    SevDump -> logOut TRACE msgdoc
+    SevInteractive -> logOut INFO msgdoc
+    SevInfo -> logOut INFO msgdoc
+    SevWarning -> logOut INFO msgdoc
+    SevFatal -> logOut GHCERR msgdoc
+    SevError -> logOut GHCERR msgdoc
 
 runGhc' :: CompileConfig -> Ghc a -> IO a
 runGhc' cc = runGhcWithCleanup cc . (initGhcCtxt cc >>)

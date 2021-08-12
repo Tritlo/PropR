@@ -143,6 +143,7 @@ data LogLevel
   | TIMINGS
   | VERBOSE
   | INFO
+  | GHCERR
   | WARN
   | ERROR
   | FATAL
