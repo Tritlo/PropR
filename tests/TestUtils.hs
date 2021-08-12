@@ -177,9 +177,11 @@ writeExpected fp to_write = do
   ls <- lines <$> readFile fp
   print (length ls)
   let new =
-        ("---- EXPECTED ----" : map ("-- " ++) (init $ lines to_write))
+        ("---- EXPECTED ----" : map addDashes (init $ lines to_write))
           ++ ["---- END EXPECTED ----"]
+      addDashes [] = "--"
+      addDashes xs = "-- " ++ xs
   let beg = takeWhile (/= "---- EXPECTED ----") ls
-      newo = (unlines $ beg ++ new) ++ "\n"
+      newo = unlines $ beg ++ new
   writeFile (fp ++ ".tmp") newo
   renameFile (fp ++ ".tmp") fp
