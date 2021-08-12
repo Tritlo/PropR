@@ -91,14 +91,18 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                               Just ct -> tcl_rdr $ ctLocEnv (ctEvLoc (ctEvidence ct))
                               _ -> emptyLocalRdrEnv
                           -- A name is in scope if it's in the local or global environment
-                          inScope e_id =
-                            if isLocalId e_id
-                              then -- A local variable is in scope if it's in the environment
-                                inLocalRdrEnvScope (getName e_id) lcl_env
-                              else -- A global variable is in scope if it's not shadowed by a local:
+                          inScope e_id
+                            | e_name <- getName e_id,
+                              e_occ <- occName e_id =
+                              isWiredInName e_name
+                                || if isLocalId e_id
+                                  then -- A local variable is in scope if it's in the environment
+                                    inLocalRdrEnvScope e_name lcl_env
+                                  else -- A global variable is in scope if it's not shadowed by a local:
+                                  -- or if it's wired in.
 
-                                isSingleton (lookupGlobalRdrEnv gbl_env (occName e_id))
-                                  && isNothing (lookupLocalRdrOcc lcl_env (occName e_id))
+                                    not (null (lookupGlobalRdrEnv gbl_env e_occ))
+                                      && isNothing (lookupLocalRdrOcc lcl_env e_occ)
                       case holeHash dflags defaults h >>= (cache Map.!?) . (num_calls,) of
                         Just cached | useCache -> liftIO $ do
                           modifyIORef' plugRef (fmap (cached :))
