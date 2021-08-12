@@ -49,11 +49,12 @@ defaultTests :: TestTree
 defaultTests =
   testGroup
     "Interpreted and Paralell tests"
-    [ mkGenConfTestEx def 360_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
-      mkGenConfTestEx def 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
+    [ mkGenConfTestEx conf 360_000_000 "Repair TwoFixes" "tests/cases/TwoFixes.hs",
+      mkGenConfTestEx conf 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
-    conf = def {compileConfig = def {useInterpreted = True, parChecks = True}}
+    conf = tESTCONF {compileConfig = cc {useInterpreted = True, parChecks = True}}
+    cc = compileConfig tESTCONF
 
 nonInterpreted :: TestTree
 nonInterpreted =
@@ -63,7 +64,8 @@ nonInterpreted =
       mkGenConfTestEx conf 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
-    conf = def {compileConfig = def {useInterpreted = False, parChecks = True}}
+    conf = tESTCONF {compileConfig = cc {useInterpreted = False, parChecks = True}}
+    cc = compileConfig tESTCONF
 
 nonPar :: TestTree
 nonPar =
@@ -73,7 +75,8 @@ nonPar =
       mkGenConfTestEx conf 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
-    conf = def {compileConfig = def {parChecks = False, useInterpreted = True}}
+    conf = tESTCONF {compileConfig = cc {parChecks = False, useInterpreted = True}}
+    cc = compileConfig tESTCONF
 
 neitherParNorIntepreted :: TestTree
 neitherParNorIntepreted =
@@ -83,14 +86,15 @@ neitherParNorIntepreted =
       mkGenConfTestEx conf 360_000_000 "Repair ThreeFixes" "tests/cases/ThreeFixes.hs"
     ]
   where
-    conf = def {compileConfig = def {parChecks = False, useInterpreted = False}}
+    conf = tESTCONF {compileConfig = cc {parChecks = False, useInterpreted = False}}
+    cc = compileConfig tESTCONF
 
 specialTests :: TestTree
 specialTests =
   testGroup
     "Special"
     [ mkRepairTest'
-        def {compileConfig = def {useInterpreted = False}}
+        tESTCONF {compileConfig = (compileConfig tESTCONF) {useInterpreted = False}}
         runGenRepair
         120_000_000
         "Non-interpreted with loop"
