@@ -443,13 +443,17 @@ findEvaluatedHoles
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
-    let fk (expr, invokes) | non_zero <- filter ((> 0) . snd) (Map.toList invokes),
+    let fk (expr, invokes) | non_zero <- Map.keysSet (Map.filter (> 0) invokes),
                              not (null non_zero) = do
           liftIO $ logStr DEBUG "Building trace correlation..."
           trace_correls_per_target <- buildTraceCorrel cc tp expr
 
-          let tceToSet trace_correl = Set.fromList $ mapMaybe ((trace_correl Map.!?) . fst) non_zero
-              non_zero_src = Set.unions $ map tceToSet trace_correls_per_target
+          let non_zero_src = Set.unions $ Set.map lookupInCorrel non_zero
+              lookupInCorrel el =
+                case mapMaybe (Map.lookup el) trace_correls_per_target of
+                  -- TODO: This should never happen
+                  [] -> Set.empty
+                  xs -> Set.fromList xs
           return $ filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
         fk _ = return []
         nubOrd = Set.toList . Set.fromList
