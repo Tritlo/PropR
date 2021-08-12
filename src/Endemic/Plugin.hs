@@ -128,7 +128,23 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                                       cts = tyHRelevantCts h `unionBags` rcts
                               map efc_cand <$> filterM checkExprCand in_scope_exprs
                             _ -> return []
-                          let fits = map (RawHoleFit . ppr) exprs ++ filter (inScope . hfId) f
+
+                          let fits = map (RawHoleFit . ppr) exprs ++ filter isOk f
+                              isOk HoleFit {..}
+                                | GreHFCand elt <- hfCand,
+                                  occ <- greOccName elt,
+                                  [_] <- lookupGlobalRdrEnv gbl_env occ,
+                                  Nothing <- lookupLocalRdrOcc lcl_env occ =
+                                  True
+                              isOk HoleFit {..}
+                                | GreHFCand elt <- hfCand,
+                                  occ <- greOccName elt,
+                                  [GRE {..}] <- lookupGlobalRdrEnv gbl_env occ,
+                                  Just n <- lookupLocalRdrOcc lcl_env occ =
+                                  getLoc n == getLoc gre_name
+                              isOk HoleFit {..} | inScope hfId = True
+                              isOk RawHoleFit {} = True
+                              isOk x = False
                           liftIO $ do
                             let packed = (h, fits)
                             modifyIORef' plugRef (fmap (packed :))
