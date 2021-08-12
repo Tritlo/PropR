@@ -138,6 +138,12 @@ specialTests =
         "Interpreted Par"
         "tests/cases/LoopBreaker.hs",
       mkGenConfTestEx 60_000_000 "Wrapped fits" "tests/cases/Wrap.hs",
+      mkRepairTest
+        def {compileConfig = def {allowFunctionFits = True}}
+        runGenRepair
+        60_000_000
+        "Wrap fits"
+        "tests/cases/Wrap.hs",
       mkGenConfTestEx 60_000_000 "Ambiguous fits" "tests/cases/AmbiguousTypeVariables.hs",
       mkRepairTest'
         def {compileConfig = def {excludeTargets = ["brokenPair"]}}
@@ -148,7 +154,20 @@ specialTests =
         def {mb_expected = Just []},
       mkGenConfTestEx 60_000_000 "ExprWhere fits" "tests/cases/ExprWhere.hs",
       mkGenConfTestEx 60_000_000 "DefaultingFixes" "tests/cases/DefaultingFixes.hs",
-      mkGenConfTestEx 60_000_000 "Issue 88" "tests/cases/Issue88.hs"
+      mkGenConfTestEx 60_000_000 "Issue 88" "tests/cases/Issue88.hs",
+      expectFail $
+        mkRepairTest
+          def {compileConfig = def {allowFunctionFits = True}}
+          runGenRepair
+          60_000_000
+          "Issue 87 with function fits"
+          "tests/cases/Issue87.hs",
+      mkRepairTest
+        def {compileConfig = def {allowFunctionFits = False}}
+        runGenRepair
+        60_000_000
+        "Issue 87 w/o function fits"
+        "tests/cases/Issue87.hs"
     ]
 
 refinementTests :: TestTree
