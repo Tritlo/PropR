@@ -77,41 +77,53 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
         else do
           let prog' = applyFixToEProg e_prog fix_so_far
           hole_cands <- collectStats $ findEvaluatedHoles (desc <~ prog')
-          let (r_hole_ind, gen') = nextInteger 0 (fromIntegral (length hole_cands - 1)) gen
-              chosen_hole = hole_cands !! fromIntegral r_hole_ind
-          -- We get a  list of list of fits. However, we assume that there are
-          -- no other holes in the program
-          -- TODO: Where are the "<interactive>" coming from?
+          if null hole_cands
+            then
+              liftIO $
+                if null fix_so_far
+                  then do
+                    logStr INFO "No evaluated holes with the empty fix, no repair possible"
+                    return Set.empty
+                  else do
+                    logStr INFO "No evaluated holes with current fix, starting over"
+                    let (_, new_gen) = nextInteger 0 0 gen
+                    randomRepair' start new_gen Map.empty
+            else do
+              let (r_hole_ind, gen') = nextInteger 0 (fromIntegral (length hole_cands - 1)) gen
+                  chosen_hole = hole_cands !! fromIntegral r_hole_ind
+              runGhcWithCleanup compConf $ do
+                ~[fits] <- collectStats $ getHoleFits compConf exprFitCands [first (: []) chosen_hole]
+                let fix_cands' :: [(EFix, EExpr)]
+                    fix_cands' = map (first Map.fromList) $ replacements (snd chosen_hole) fits
+                    fix_cands = map (second (replicate (length e_prog))) fix_cands'
+                    (r_fix_ind, gen'') = nextInteger 0 (fromIntegral (length fix_cands - 1)) gen'
+                    try_again = randomRepair' start gen'' fix_so_far
+                if null fix_cands
+                  then liftIO try_again
+                  else do
+                    let (chosen_fix, fixed_prog) = fix_cands !! fromIntegral r_fix_ind
 
-          runGhcWithCleanup compConf $ do
-            ~[fits] <- collectStats $ getHoleFits compConf exprFitCands [first (: []) chosen_hole]
-            let fix_cands' :: [(EFix, EExpr)]
-                fix_cands' = map (first Map.fromList) $ replacements (snd chosen_hole) fits
-                fix_cands = map (second (replicate (length e_prog))) fix_cands'
-                (r_fix_ind, gen'') = nextInteger 0 (fromIntegral (length fix_cands - 1)) gen'
-                (chosen_fix, fixed_prog) = fix_cands !! fromIntegral r_fix_ind
-                -- We have to make sure that the chosen_fix takes precedence.
-                complete_fix = mergeFixes chosen_fix fix_so_far
-            -- TODO: Does this even work?
-            ~[check_res] <- liftIO $ collectStats $ checkFixes desc [fixed_prog]
+                        -- We have to make sure that the chosen_fix takes precedence.
+                        complete_fix = mergeFixes chosen_fix fix_so_far
+                    -- TODO: Does this even work?
+                    ~[check_res] <- liftIO $ collectStats $ checkFixes desc [fixed_prog]
 
-            let keep_going = randomRepair' start gen'' complete_fix
-                done = do
-                  logStr INFO "Fix found in Random Search!"
-                  logOut INFO complete_fix
-                  if randStopOnResults
-                    then return $ Set.singleton complete_fix
-                    else Set.insert complete_fix <$> randomRepair' start gen'' Map.empty
-                try_again = randomRepair' start gen'' fix_so_far
+                    let keep_going = randomRepair' start gen'' complete_fix
+                        done = do
+                          logStr INFO "Fix found in Random Search!"
+                          logOut INFO complete_fix
+                          if randStopOnResults
+                            then return $ Set.singleton complete_fix
+                            else Set.insert complete_fix <$> randomRepair' start gen'' Map.empty
 
-            liftIO $ case check_res of
-              -- We might want to avoid programs that timeout or fail for some reason.
-              -- Default is to keep them in, as we may want to repair programs that don't terminate (GCD Example)
-              Right False ->
-                if randIgnoreFailing
-                  then try_again
-                  else keep_going
-              res -> if isFixed res then done else keep_going
+                    liftIO $ case check_res of
+                      -- We might want to avoid programs that timeout or fail for some reason.
+                      -- Default is to keep them in, as we may want to repair programs that don't terminate (GCD Example)
+                      Right False ->
+                        if randIgnoreFailing
+                          then try_again
+                          else keep_going
+                      res -> if isFixed res then done else keep_going
 
     efcs = Just exprFitCands
     EProb {..} = progProblem
