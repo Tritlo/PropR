@@ -57,10 +57,23 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
         Int ->
         IO (Set EFix) -- The results found within a certain time-budget
       loop _ [] _ = return Set.empty -- Initial Case on creation, the first set of changes is the empty list. Also invoked if we exhaust the exhaustive search.
-      loop checked ([] : lvls) n = loop checked lvls (n + 1) -- This case happens when we exhausted one level of changes
+      loop checked ([] : lvls) n = do
+        -- This case happens when we exhausted one level of changes
+        let msg =
+              unwords
+                [ "No fix of length <=",
+                  show n,
+                  "found",
+                  '(' : show (Set.size checked),
+                  "fixes checked).",
+                  "Checking fixes of length",
+                  show (n + 1) ++ "."
+                ]
+        logStr INFO msg
+        loop checked lvls (n + 1)
       loop checked (lvl : lvls) n = do
         -- Normal case where we have checks left in the current level
-        logStr VERBOSE ("Remaining Fixes of length " ++ (show n) ++ " : " ++ show (length lvl))
+        logStr VERBOSE ("Remaining Fixes of length " ++ show n ++ " : " ++ show (length lvl))
         cur_time <- getCPUTime
         let diff = cur_time - start
             budget_over = diff >= budgetInPicoSeconds
@@ -75,7 +88,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
                 checked' = not_checked `Set.union` checked
                 check_list = Set.toList not_checked
                 rest' = dropWhile (`Set.member` checked') rest
-            logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ (show $ length check_list))
+            logStr VERBOSE ("  ... thereof un-cached & unseen in last batch: " ++ show (length check_list))
             mapM_ (logOut AUDIT) check_list
             fixes <- case check_list of
               [] -> return Set.empty
@@ -88,7 +101,7 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
             if Set.null fixes
               then loop checked' (rest' : lvls) n
               else do
-                logStr INFO $ "Found fixes after " ++ show (Set.size checked') ++ " checks!"
+                logStr INFO $ unwords ["Fix found in", show (Set.size checked'), "checks!"]
                 mapM_ (logOut INFO) $ Set.toList fixes
                 if exhStopOnResults
                   then return fixes
