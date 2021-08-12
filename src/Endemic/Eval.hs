@@ -1205,5 +1205,6 @@ withDefaulting tys act = do
   let prev = ic_default (hsc_IC env)
   setSession (env {hsc_IC = (hsc_IC env) {ic_default = tys}})
   r <- act
-  setSession (env {hsc_IC = (hsc_IC env) {ic_default = prev}})
+  env' <- getSession
+  setSession (env' {hsc_IC = (hsc_IC env') {ic_default = prev}})
   return r
