@@ -451,12 +451,15 @@ findEvaluatedHoles
         fk (expr, invokes)
           | non_zero <- Map.keysSet (Map.filter (> 0) invokes),
             not (null non_zero) =
-            Set.map toExprHole non_zero
+            Set.fromList $ mapMaybe toExprHole $ Set.toList non_zero
           where
             sfe = sanctifyExpr expr
-            toExprHole (iv_expr, iv_loc) = fst r
+            toExprHole (iv_expr, iv_loc) =
+               -- We can get a Nothing here if e.g. the evaluated part is with
+               -- an operator with precedence, e.g. a ++ b ++ c, because GHC
+               -- doesn't do precedence until it renames.
+               fst <$> find is_iv (zip sfe sfi)
               where
-                Just r = find is_iv (zip sfe sfi)
                 sfi = sanctifyExpr iv_expr
                 is_iv = (== iv_loc) . fst . snd
         fk _ = Set.empty
