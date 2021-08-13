@@ -379,8 +379,8 @@ propToName :: EProp -> String
 propToName (L _ FunBind {..}) = rdrNameToStr $ unLoc fun_id
 propToName _ = error "Non-prop passed to propToName!"
 
-traceOutMsg :: Outputable p => String -> p -> p
-traceOutMsg msg a = trace (msg ++ " { " ++ showSDocUnsafe (ppr a) ++ " } ") a
+traceOutId :: Outputable p => String -> p -> p
+traceOutId msg a = trace (msg ++ " { " ++ showSDocUnsafe (ppr a) ++ " } ") a
 
 traceOut :: Outputable p => String -> p -> a -> a
 traceOut msg a = trace (msg ++ " { " ++ showSDocUnsafe (ppr a) ++ " } ")

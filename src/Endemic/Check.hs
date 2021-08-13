@@ -69,6 +69,11 @@ baseFun nm val =
     elb :: LHsLocalBinds GhcPs
     elb = noLoc $ EmptyLocalBinds NoExtField
 
+-- | Unpacks a function defined by baseFun
+unFun :: HsBind GhcPs -> Maybe (LHsExpr GhcPs)
+unFun (FunBind _ _ (MG _ ((L _ [L _ (Match _ _ _ (GRHSs _ [L _ (GRHS _ _ ex)] _))])) _) _ _) = Just ex
+unFun _ = Nothing
+
 -- Shorthands for common constructs
 
 -- | Short for "the function"

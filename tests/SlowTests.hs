@@ -22,7 +22,8 @@ import Endemic.Search.Exhaustive
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
-import Endemic.Util (logStr, withLogLevel)
+import Endemic.Util (logStr, traceOut, traceOutId, withLogLevel)
+import GhcPlugins (text)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
@@ -166,13 +167,12 @@ specialTests =
         60_000_000
         "Issue 87 w/o function fits"
         "tests/cases/Issue87.hs",
-      expectFail $
-        mkRepairTest
-          tESTCONF
-          (runGenRepair . \desc -> desc {addConf = (addConf desc) {allowUnfoundHoles = False}})
-          60_000_000
-          "Issue 92"
-          "tests/cases/BrokenModule.hs"
+      mkRepairTest
+        tESTCONF
+        runGenRepair
+        60_000_000
+        "Issue 92"
+        "tests/cases/BrokenModule.hs"
     ]
 
 refinementTests :: TestTree

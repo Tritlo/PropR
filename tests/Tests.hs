@@ -344,10 +344,10 @@ traceTests =
           [failed_prop] <- failingProps cc tp
           Just counter_example <- propCounterExample cc tp failed_prop
           let eprog_fix = eProgToEProgFix e_prog
-          Just [Node {subForest = [tree@Node {rootLabel = (tl, tname)}]}] <-
+          Just [(texp, Node {subForest = [tree@Node {rootLabel = (tl, tname)}]})] <-
             traceTarget cc tp eprog_fix failed_prop counter_example
           expr <- runJustParseExpr cc wrong_prog
-          getLoc expr @?= mkInteractive tl
+          showUnsafe expr @?= showUnsafe texp
           all ((== 1) . snd) (concatMap snd $ flatten tree) @? "All subexpressions should be touched only once!",
       localOption (mkTimeout 30_000_000) $
         testCase "Trace finds loop" $ do
@@ -382,12 +382,10 @@ traceTests =
           let [(_, e_ty, e_prog')] = e_prog
               prog_at_ty = progAtTy e_prog' e_ty
               eprog_fix = eProgToEProgFix $ applyFixToEProg e_prog mempty
-          [tcorrel] <- runGhc' cc $ buildTraceCorrel cc tp prog_at_ty
-          Just [res] <- traceTarget cc tp eprog_fix failed_prop counter_example_args
-          let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr prog_at_ty
-              chain l = tcorrel Map.!? l >>= (eMap Map.!?)
-              trc = map (\(s, r) -> (chain $ mkInteractive s, r, maximum $ map snd r)) $ flatten res
-              isXbox (ExpBox _) = True
+          Just [(texp, res)] <- traceTarget cc tp eprog_fix failed_prop counter_example_args
+          let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr texp
+              trc = map (\(s, r) -> (eMap Map.!? s, r, maximum $ map snd r)) $ flatten res
+              isXBox (ExpBox _) = True
               isXBox _ = False
               isInEMapOrNotExpBox (Just _, _, _) = True
               isInEMapOrNotExpBox (_, r, _) = not (any (isXBox . fst) r)

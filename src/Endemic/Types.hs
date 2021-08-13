@@ -79,7 +79,7 @@ isFixed :: TestSuiteResult -> Bool
 isFixed (Right x) = x
 isFixed (Left xs) = and xs
 
-type Trace = Tree (SrcSpan, [(BoxLabel, Integer)])
+type Trace = (LHsExpr GhcPs, Tree (SrcSpan, [(BoxLabel, Integer)]))
 
 type TraceRes = [Trace]
 

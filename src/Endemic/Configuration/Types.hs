@@ -415,14 +415,11 @@ data AdditionalConf = AddConf
   { -- | If assumeNoLoops is true, we check the fixes assuming that there
     -- are no loops in the generated code. Beware! Will die with a message
     -- saying Alarm Clock in case there were loops.
-    assumeNoLoops :: Bool,
-    -- | Allow unfound hoes means that we can ignore holes that are not in
-    -- the trace_correlation
-    allowUnfoundHoles :: Bool
+    assumeNoLoops :: Bool
   }
 
 instance Default AdditionalConf where
-  def = AddConf {assumeNoLoops = True, allowUnfoundHoles = True}
+  def = AddConf {assumeNoLoops = True}
 
 -- | The Problem Description is generated at runtime, descriping a particular
 -- program to fix.
