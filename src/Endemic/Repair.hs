@@ -606,7 +606,7 @@ checkFixes
                 optLevel = if shouldInterpret then 0 else 2
               }
 
-    (tempDir, exeName, mname, target_name, tid) <- initCompileChecks orig_fixes
+    (tempDir, exeName, mname, target_name, _) <- initCompileChecks orig_fixes
     liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
     (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
     res <-
@@ -622,15 +622,40 @@ checkFixes
               liftIO $ mapM_ (logStr ERROR) msgs
               liftIO $ exitFailure
             else do
-              liftIO $ logStr ERROR "Not implemented"
-              liftIO $ mapM_ (logStr ERROR) msgs
-              liftIO $ exitFailure
+              liftIO $ logStr DEBUG $ "Error in target, trying to recover..."
+              -- This might wreak havoc on the linker...
+              compiling <- mapM (\f -> (f,) <$> doesCompile f) orig_fixes
+              let comp_inds = map fst $ filter (snd . snd) $ zip [0 :: Int ..] compiling
+                  compiling_fixes = map fst compiling
+
+              liftIO $ logStr DEBUG $ show (length orig_fixes - length compiling_fixes) ++ " were working..."
+              liftIO $ logStr DEBUG $ "Reinitializing..."
+              (tempDir', exeName', mname', target_name', _) <- initCompileChecks compiling_fixes
+              liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name' ++ " again..."
+              (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name'))
+              results <- Map.fromList . zip comp_inds <$> runCompiledFixes exeName' mname' compiling_fixes
+              let getRes i = case results Map.!? i of
+                    Just r -> r
+                    _ -> Right False
+              return $ zipWith (\i _ -> getRes i) [0 :: Int ..] orig_fixes
     dflags <- getSessionDynFlags
     cleanupAfterLoads tempDir mname dflags
     return res
     where
       shouldInterpret = useInterpreted && assumeNoLoops
       timeoutVal = fromIntegral timeout
+
+      doesCompile :: EProgFix -> Ghc Bool
+      doesCompile fix = do
+        dflags <- getSessionDynFlags
+        (tempDir, _, mname, target_name, tid) <- initCompileChecks orig_fixes
+        liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
+        (sf2, _) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
+        -- removeTarget might not be enough for the linker, we'll probably
+        -- get duplicate symbol complaints....
+        removeTarget tid
+        cleanupAfterLoads tempDir mname dflags
+        return (succeeded sf2)
 
       initCompileChecks :: [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, TargetId)
       initCompileChecks fixes = do
