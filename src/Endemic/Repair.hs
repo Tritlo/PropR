@@ -633,10 +633,10 @@ checkFixes
                   if succeeded sf2
                     then liftIO $ logStr DEBUG "Recovered!"
                     else do
-                      liftIO $ logStr DEBUG "Recovery failed!"
-                  liftIO $ mapM_ (logStr ERROR) msgs
+                      liftIO $ logStr ERROR "Recovery completely failed!"
+                      liftIO $ mapM_ (logStr ERROR) msgs
+                      liftIO $ exitFailure
                   new_results <- runCompiledFixes n_exe n_mname compiling_fixes
-                  --liftIO $ checkFixes desc compiling_fixes
                   let result_map = Map.fromList $ zip comp_inds new_results
                       getRes i = case result_map Map.!? i of
                         Just r -> r
