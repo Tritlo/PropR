@@ -368,7 +368,8 @@ findEvaluatedHoles ::
 findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc,
-      progProblem = tp@EProb {..}
+      progProblem = tp@EProb {..},
+      addConf = AddConf {..}
     } = runGhc' cc $ do
     liftIO $ logStr DEBUG "Finding evaluated holes..."
     -- We apply the fixes to all of the contexts, and all of the contexts
@@ -453,7 +454,10 @@ findEvaluatedHoles
               lookupInCorrel el =
                 case mapMaybe (Map.lookup el) trace_correls_per_target of
                   -- TODO: This should never happen
-                  [] -> Set.empty
+                  [] ->
+                    if allowUnfoundHoles
+                      then Set.empty
+                      else error "Shouldn't happen!"
                   xs -> Set.fromList xs
           return $ filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
         fk _ = return []
@@ -865,7 +869,7 @@ describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
         exprFitCands <- runGhc' compConf $ getExprFitCands $ Right modul
         let probModule = Just modul
             initialFixes = Nothing
-            addConf = AddConf {assumeNoLoops = True}
+            addConf = def {assumeNoLoops = True}
             descBase = ProbDesc {..}
         if precomputeFixes
           then do

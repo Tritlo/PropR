@@ -165,7 +165,14 @@ specialTests =
         runGenRepair
         60_000_000
         "Issue 87 w/o function fits"
-        "tests/cases/Issue87.hs"
+        "tests/cases/Issue87.hs",
+      expectFail $
+        mkRepairTest
+          tESTCONF
+          (runGenRepair . \desc -> desc {addConf = (addConf desc) {allowUnfoundHoles = False}})
+          60_000_000
+          "Issue 92"
+          "tests/cases/BrokenModule.hs"
     ]
 
 refinementTests :: TestTree
