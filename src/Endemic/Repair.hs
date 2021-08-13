@@ -454,10 +454,11 @@ findEvaluatedHoles
             Set.map toExprHole non_zero
           where
             sfe = sanctifyExpr expr
-            toExprHole (iv_expr, iv_loc) =
-              case find ((== iv_loc) . fst . snd) (zip sfe (sanctifyExpr iv_expr)) of
-                Just r -> fst r
-                _ -> error "SHOULND'T HAPPEN"
+            toExprHole (iv_expr, iv_loc) = fst r
+              where
+                Just r = find is_iv (zip sfe sfi)
+                sfi = sanctifyExpr iv_expr
+                is_iv = (== iv_loc) . fst . snd
         fk _ = Set.empty
         non_zero_holes = Set.unions $ map fk traces_that_worked
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.

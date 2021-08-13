@@ -731,17 +731,17 @@ traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
 toInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
 toInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
   where
+    isOkBox (ExpBox _, _) = True
+    isOkBox _ = False
     only_max :: (SrcSpan, [(BoxLabel, Integer)]) -> Maybe ((EExpr, SrcSpan), Integer)
-    -- TODO: What does it mean if there are multiple labels here?
+    only_max (src, []) = Just ((ex, src), 0)
+    only_max (src, [x]) | isOkBox x = Just ((ex, src), snd x)
+    only_max (src, [x]) = Nothing
+    -- TODO: What does it mean in HPC if there are multiple labels here?
     only_max (src, xs)
-      | xboxes <- filter isXBox xs,
-        not (null xboxes),
-        s <- maximum (map snd xboxes) =
-        Just ((ex, src), s)
-      where
-        isXBox (ExpBox _, _) = True
-        isXBox _ = False
-    only_max _ = Nothing
+      | any isOkBox xs =
+        Just ((ex, src), maximum $ map snd xs)
+    only_max (src, xs) = trace (show xs) Nothing
 
 -- Run HPC to get the trace information.
 traceTargets ::
@@ -882,8 +882,8 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
                 where
                   fname = fsLit the_f
                   (sl, sc, el, ec) = fromHpcPos sp
-                  -- We add two spaces before every line in the source.
                   start = mkSrcLoc fname sl sc
+                  -- HPC and GHC have different philosophies
                   end = mkSrcLoc fname el (ec + 1)
           case tix of
             Just (Tix mods) -> do
