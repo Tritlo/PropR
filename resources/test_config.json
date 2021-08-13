@@ -21,7 +21,8 @@
     "keep_looping_fixes": false,
     "allow_function_fits": true,
     "exclude_targets": [],
-    "extend_defaults": false
+    "extend_defaults": false,
+    "filter_incorrect_fixes": true
   },
   "output_config": {
     "locale": null,
