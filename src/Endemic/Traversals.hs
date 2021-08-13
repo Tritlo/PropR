@@ -41,7 +41,7 @@ flattenExpr = universeOf uniplate
 
 -- | Replace all expressions in a given expression with those
 -- found in the given map.
-replaceExpr :: Map SrcSpan (HsExpr GhcPs) -> LHsExpr GhcPs -> LHsExpr GhcPs
+replaceExpr :: Data (HsExpr id) => Map SrcSpan (HsExpr id) -> LHsExpr id -> LHsExpr id
 replaceExpr repls =
   transformOf uniplate $ \case
     L loc _ | loc `member` repls -> L loc (repls ! loc)
@@ -49,7 +49,7 @@ replaceExpr repls =
 
 -- | Replace all expressions in a given expression with those
 -- found in the given map.
-wrapExpr :: SrcSpan -> (HsExpr GhcPs -> HsExpr GhcPs) -> LHsExpr GhcPs -> LHsExpr GhcPs
+wrapExpr :: Data (HsExpr id) => SrcSpan -> (HsExpr id -> HsExpr id) -> LHsExpr id -> LHsExpr id
 wrapExpr repl_loc trans =
   transformOf uniplate $ \case
     L loc x | loc == repl_loc -> L loc (trans x)
@@ -59,13 +59,14 @@ wrapExpr repl_loc trans =
 -- the expression "holey". Which is pronounced holy.
 -- Could also be named `perforate`, `stigmatize` or
 -- `spindle`. See https://twitter.com/tritlo/status/1367202546415206400
-sanctifyExpr :: LHsExpr GhcPs -> [(SrcSpan, LHsExpr GhcPs)]
-sanctifyExpr = map repl . contextsOf uniplate
+sanctifyExpr :: (Data (HsExpr id), HasOccName (IdP id)) =>
+               XUnboundVar id -> LHsExpr id -> [(SrcSpan, LHsExpr id)]
+sanctifyExpr ext = map repl . contextsOf uniplate
   where
     repl ctxt = (loc, peek (L loc hole) ctxt)
       where
         (L loc expr) = pos ctxt
-        hole = HsUnboundVar noExtField $ TrueExprHole name
+        hole = HsUnboundVar ext $ TrueExprHole name
         name = case expr of
           HsVar _ (L _ v) ->
             let (ns, fs) = (occNameSpace (occName v), occNameFS (occName v))
@@ -80,7 +81,7 @@ sanctifyExpr = map repl . contextsOf uniplate
                 ++ [srcSpanEndCol r]
 
 -- | Fill the first hole in the given holed-expression.
-fillHole :: HsExpr GhcPs -> LHsExpr GhcPs -> Maybe (SrcSpan, LHsExpr GhcPs)
+fillHole :: Data (HsExpr id) => HsExpr id -> LHsExpr id -> Maybe (SrcSpan, LHsExpr id)
 fillHole fit = fillFirst . contextsOf uniplate
   where
     fillFirst (ctxt : ctxts) =

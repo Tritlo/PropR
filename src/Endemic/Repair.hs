@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -176,7 +177,6 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
     getHoleFits' plugRef n exprs = do
       fits <- lefts <$> mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
       procs <- processFits $ map (second $ map (second (uncurry (++)))) fits
-      --       pprPanic "ppr" $ ppr procs
       let f :: LHsExpr GhcPs -> SrcSpan -> [(Int, HsExpr GhcPs)] -> Ghc (SrcSpan, [(Int, HsExpr GhcPs)])
           f expr loc fits = do
             let (hasHoles, done) = partition ((> 0) . fst) fits
@@ -370,8 +370,7 @@ findEvaluatedHoles ::
 findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc,
-      progProblem = tp@EProb {..},
-      addConf = AddConf {..}
+      progProblem = tp@EProb {..}
     } = runGhc' cc $ do
     liftIO $ logStr DEBUG "Finding evaluated holes..."
     -- We apply the fixes to all of the contexts, and all of the contexts
@@ -453,20 +452,21 @@ findEvaluatedHoles
             not (null non_zero) =
             Set.fromList $ mapMaybe toExprHole $ Set.toList non_zero
           where
-            sfe = sanctifyExpr expr
+            sfe = sanctifyExpr noExtField expr
             toExprHole (iv_expr, iv_loc) =
                -- We can get a Nothing here if e.g. the evaluated part is with
                -- an operator with precedence, e.g. a ++ b ++ c, because GHC
                -- doesn't do precedence until it renames.
                fst <$> find is_iv (zip sfe sfi)
               where
-                sfi = sanctifyExpr iv_expr
+                sfi = sanctifyExpr noExtField iv_expr
                 is_iv = (== iv_loc) . fst . snd
         fk _ = Set.empty
         non_zero_holes = Set.unions $ map fk traces_that_worked
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
     let nzh = Set.toList non_zero_holes
     liftIO $ logStr DEBUG $ "Found " ++ show (length nzh) ++ " evaluated holes"
+    liftIO $ mapM (logOut ERROR) nzh
     return nzh
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 

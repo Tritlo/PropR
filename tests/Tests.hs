@@ -20,7 +20,7 @@ import Endemic.Repair
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
-import GHC (GhcPs, LHsExpr, tm_parsed_module)
+import GHC (GhcPs, LHsExpr, tm_parsed_module, noExtField)
 import GhcPlugins (GenLocated (L), getLoc, ppr, showSDocUnsafe, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
@@ -412,7 +412,7 @@ sanctifyTests =
           -- There are 7 ways to replace parts of the broken function in BrokenModule
           -- with holes:
           let [(_, _, e_prog')] = e_prog
-          length (sanctifyExpr e_prog') @?= 7,
+          length (sanctifyExpr noExtField e_prog') @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
           let cc = compileConfig tESTCONF
@@ -420,7 +420,7 @@ sanctifyTests =
               repair_target = Just "broken"
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
           let [(_, _, e_prog')] = e_prog
-              (holes, holey) = unzip $ sanctifyExpr e_prog'
+              (holes, holey) = unzip $ sanctifyExpr noExtField e_prog'
               filled = mapMaybe (fillHole undefVar) holey
           length filled @?= 7
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
