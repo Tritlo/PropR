@@ -578,7 +578,7 @@ checkFixes ::
   IO [TestSuiteResult]
 checkFixes _ [] = return []
 checkFixes
-  ProbDesc
+  desc@ProbDesc
     { compConf = cc@CompConf {..},
       progProblem = tp,
       addConf = AddConf {..},
@@ -588,25 +588,8 @@ checkFixes
   -- thread: hence the runGhc' here
   orig_fixes = runGhc' cc $ do
     liftIO $ logStr DEBUG "Checking fixes..."
-    dynFlags <- getSessionDynFlags
-    _ <-
-      setSessionDynFlags $
-        -- turn-off all warnings
-        flip (foldl wopt_unset) [toEnum 0 ..] $
-          flip (foldl gopt_unset) setFlags $ -- Remove the HPC
-            dynFlags
-              { -- ghcMode = OneShot is the default, if we want it to compile
-                -- the files. But we've already compiled them at this point,
-                -- so we want it to use the CompManager to pick up the
-                -- dependencies.
-                ghcMode = CompManager,
-                -- TODO: Should this be LinkDynLib for MacOS?
-                ghcLink = if shouldInterpret then LinkInMemory else LinkBinary,
-                hscTarget = if shouldInterpret then HscInterpreted else HscAsm,
-                optLevel = if shouldInterpret then 0 else 2
-              }
-
-    (tempDir, exeName, mname, target_name, _) <- initCompileChecks orig_fixes
+    orig_flags <- setCheckDynFlags
+    (tempDir, exeName, mname, target_name, tid) <- initCompileChecks orig_flags orig_fixes
     liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
     (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
     res <-
@@ -620,21 +603,34 @@ checkFixes
                   "Error while loading: " ++ moduleNameString target_name
                     ++ " see error message for more information"
               liftIO $ mapM_ (logStr ERROR) msgs
-              liftIO $ exitFailure
+              liftIO exitFailure
             else do
-              liftIO $ logStr DEBUG $ "Error in target, trying to recover..."
+              liftIO $ logStr ERROR "Error in fixes, trying to recover..."
               -- This might wreak havoc on the linker...
-              compiling <- mapM (\f -> (f,) <$> doesCompile f) orig_fixes
-              let comp_inds = map fst $ filter (snd . snd) $ zip [0 :: Int ..] compiling
-                  compiling_fixes = map fst compiling
-
-              liftIO $ logStr DEBUG $ show (length orig_fixes - length compiling_fixes) ++ " were working..."
+              removeTarget tid
+              compiling <- zip orig_fixes <$> doesCompileBin orig_flags orig_fixes
+              let comp_inds_n_e = filter (snd . snd) $ zip [0 :: Int ..] compiling
+                  comp_inds = map fst comp_inds_n_e
+                  compiling_fixes = map (fst . snd) comp_inds_n_e
+              when (null compiling_fixes) $ do
+                liftIO $ logStr DEBUG "No check compiled, recovery failed"
+                liftIO $ exitFailure
+              liftIO $ logStr DEBUG $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
               liftIO $ logStr DEBUG $ "Reinitializing..."
-              (tempDir', exeName', mname', target_name', _) <- initCompileChecks compiling_fixes
-              liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name' ++ " again..."
-              (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name'))
-              results <- Map.fromList . zip comp_inds <$> runCompiledFixes exeName' mname' compiling_fixes
-              let getRes i = case results Map.!? i of
+              setCheckDynFlags
+              (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
+              liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString n_target ++ " again..."
+              (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo n_target)
+              if succeeded sf2
+                then liftIO $ logStr DEBUG "Recovered!"
+                else do
+                  liftIO $ logStr ERROR "Recovery failed!"
+                  liftIO $ exitFailure
+              liftIO $ mapM_ (logStr ERROR) msgs
+              new_results <- runCompiledFixes n_exe n_mname compiling_fixes
+              --liftIO $ checkFixes desc compiling_fixes
+              let result_map = Map.fromList $ zip comp_inds new_results
+                  getRes i = case result_map Map.!? i of
                     Just r -> r
                     _ -> Right False
               return $ zipWith (\i _ -> getRes i) [0 :: Int ..] orig_fixes
@@ -645,20 +641,55 @@ checkFixes
       shouldInterpret = useInterpreted && assumeNoLoops
       timeoutVal = fromIntegral timeout
 
-      doesCompile :: EProgFix -> Ghc Bool
-      doesCompile fix = do
-        dflags <- getSessionDynFlags
-        (tempDir, _, mname, target_name, tid) <- initCompileChecks orig_fixes
+      doesCompileBin :: DynFlags -> [EProgFix] -> Ghc [Bool]
+      -- Wow, so applicative
+      doesCompileBin _ [] = return []
+      doesCompileBin dflags [fix] = (: []) <$> doesCompile dflags [fix]
+      doesCompileBin dflags fixes = (++) <$> checkHalf fh <*> checkHalf sh
+        where
+          (fh, sh) = splitAt (length fixes `div` 2) fixes
+          checkHalf [] = return []
+          checkHalf h = do
+            c <- doesCompile dflags h
+            if c
+              then return (replicate (length h) True)
+              else doesCompileBin dflags h
+
+      doesCompile :: DynFlags -> [EProgFix] -> Ghc Bool
+      doesCompile dflags fixes = do
+        (tempDir, _, mname, target_name, tid) <- initCompileChecks dflags fixes
         liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
-        (sf2, _) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
+        (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
+        liftIO $ mapM_ (logStr DEBUG) msgs
         -- removeTarget might not be enough for the linker, we'll probably
         -- get duplicate symbol complaints....
         removeTarget tid
         cleanupAfterLoads tempDir mname dflags
         return (succeeded sf2)
 
-      initCompileChecks :: [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, TargetId)
-      initCompileChecks fixes = do
+      setCheckDynFlags :: Ghc DynFlags
+      setCheckDynFlags = do
+        dynFlags <- getSessionDynFlags
+        let dflags' =
+              -- turn-off all warnings
+              flip (foldl wopt_unset) [toEnum 0 ..] $
+                flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+                  dynFlags
+                    { -- ghcMode = OneShot is the default, if we want it to compile
+                      -- the files. But we've already compiled them at this point,
+                      -- so we want it to use the CompManager to pick up the
+                      -- dependencies.
+                      ghcMode = CompManager,
+                      -- TODO: Should this be LinkDynLib for MacOS?
+                      ghcLink = if shouldInterpret then LinkInMemory else LinkBinary,
+                      hscTarget = if shouldInterpret then HscInterpreted else HscAsm,
+                      optLevel = if shouldInterpret then 0 else 2
+                    }
+        void $ setSessionDynFlags $ dflags'
+        return dflags'
+
+      initCompileChecks :: DynFlags -> [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, TargetId)
+      initCompileChecks dynFlags fixes = do
         seed <- liftIO newSeed
         let checkHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes, seed)
             tempDir = tempDirBase </> "checks" </> checkHash
@@ -680,8 +711,6 @@ checkFixes
         -- Adding and loading the target causes the compilation to kick
         -- off and compiles the file.
         target_name <- addTargetGetModName target
-
-        dynFlags <- getSessionDynFlags
         _ <-
           setSessionDynFlags $
             dynFlags
@@ -694,6 +723,7 @@ checkFixes
 
       runCompiledFixes :: FilePath -> String -> [EProgFix] -> Ghc [TestSuiteResult]
       runCompiledFixes exeName mname working_fixes = do
+        liftIO $ logStr DEBUG "Running compiled fixes..."
         mg <- depanal [] True
         liftIO $ logStr DEBUG "New graph:"
         liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg
@@ -708,6 +738,7 @@ checkFixes
                 let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
                 logStr DEBUG $ "Checking " ++ show which ++ ":"
                 logOut DEBUG (working_fixes !! which)
+                logStr DEBUG $ "Starting " ++ exeName
                 createProcess
                   (proc exeName [show which])
                     { -- TODO: /dev/null should be NUL if we're on windows.
