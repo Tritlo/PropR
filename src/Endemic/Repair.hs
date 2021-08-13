@@ -43,7 +43,7 @@ import Data.Either (lefts, rights)
 import Data.Function (on)
 import Data.Functor (($>), (<&>))
 import qualified Data.Functor
-import Data.IORef (IORef, modifyIORef', writeIORef)
+import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.List (groupBy, intercalate, nub, nubBy, partition, sort, sortOn, transpose)
@@ -61,6 +61,7 @@ import Endemic.Plugin (HoleFitState, resetHoleFitCache, resetHoleFitList)
 import Endemic.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr, wrapExpr)
 import Endemic.Types
 import Endemic.Util
+import Exception
 import FV (fvVarSet)
 import GHC
 import GHC.Prim (unsafeCoerce#)
@@ -545,6 +546,26 @@ generateFixCandidates
     return fix_cands
 generateFixCandidates _ _ = error "External problems not supported"
 
+-- Runs the given action and captures any errors
+tryGHCCaptureOutput :: Ghc a -> Ghc (a, [String])
+tryGHCCaptureOutput act = do
+  msg_ref <- liftIO $ newIORef []
+  dflags <- getSessionDynFlags
+  let logAction :: LogAction
+      logAction _ _ sev _ _ msg
+        | SevFatal <- sev = log
+        | SevError <- sev = log
+        | otherwise = reject
+        where
+          log = modifyIORef msg_ref (showSDoc dflags msg :)
+          reject = return ()
+  void $ setSessionDynFlags dflags {log_action = logAction}
+  res <- defaultErrorHandler (\err -> modifyIORef msg_ref (err :)) (FlushOut (return ())) act
+  dflags' <- getSessionDynFlags
+  void $ setSessionDynFlags dflags' {log_action = log_action dflags}
+  msgs <- reverse <$> liftIO (readIORef msg_ref)
+  return (res, msgs)
+
 -- | Runs a given (changed) Program against the Test-Suite described in ProblemDescription.
 -- The Result is the Test-Suite-Result, where
 -- Right True is full success (the tests exited with 0), Right False is full failure (e.g., timeout or errors in the test-framework)
@@ -565,24 +586,8 @@ checkFixes
     }
   -- Because checkFixes sets the dynFlags, we need to run it in a separate
   -- thread: hence the runGhc' here
-  fixes = runGhc' cc $ do
+  orig_fixes = runGhc' cc $ do
     liftIO $ logStr DEBUG "Checking fixes..."
-    seed <- liftIO newSeed
-    let checkHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes, seed)
-        tempDir = tempDirBase </> "checks" </> checkHash
-        the_f = tempDir </> ("FakeCheckTarget" ++ checkHash) <.> "hs"
-    liftIO $ createDirectoryIfMissing True tempDir
-    -- We generate the name of the module from the temporary file
-    let mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
-        modTxt = exprToCheckModule cc seed mname tp fixes
-        exeName = dropExtension the_f
-        timeoutVal = fromIntegral timeout
-    -- Note: we do not need to dump the text of the module into the file, it
-    -- only needs to exist. Otherwise we would have to write something like
-    -- `hPutStr handle modTxt`
-    liftIO $ writeFile the_f modTxt
-    liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
-    let shouldInterpret = useInterpreted && assumeNoLoops
     dynFlags <- getSessionDynFlags
     _ <-
       setSessionDynFlags $
@@ -590,8 +595,7 @@ checkFixes
         flip (foldl wopt_unset) [toEnum 0 ..] $
           flip (foldl gopt_unset) setFlags $ -- Remove the HPC
             dynFlags
-              { hpcDir = tempDir,
-                -- ghcMode = OneShot is the default, if we want it to compile
+              { -- ghcMode = OneShot is the default, if we want it to compile
                 -- the files. But we've already compiled them at this point,
                 -- so we want it to use the CompManager to pick up the
                 -- dependencies.
@@ -601,154 +605,189 @@ checkFixes
                 hscTarget = if shouldInterpret then HscInterpreted else HscAsm,
                 optLevel = if shouldInterpret then 0 else 2
               }
-    now <- liftIO getCurrentTime
-    let tid = TargetFile the_f Nothing
-        target = Target tid True Nothing
 
-    -- Adding and loading the target causes the compilation to kick
-    -- off and compiles the file.
-    target_name <- addTargetGetModName target
-
-    dynFlags <- getSessionDynFlags
-    _ <-
-      setSessionDynFlags $
-        dynFlags
-          { mainModIs = mkModule mainUnitId target_name,
-            mainFunIs = Just "main__",
-            importPaths = importPaths dynFlags ++ modBase
-          }
+    (tempDir, exeName, mname, target_name, tid) <- initCompileChecks orig_fixes
     liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
-    sf2 <- load (LoadUpTo target_name)
-    when (failed sf2) $ do
-      liftIO $
-        logStr ERROR $
-          "Error while loading: " ++ moduleNameString target_name
-            ++ " see error message for more information"
-      liftIO $ exitFailure
-    mg <- depanal [] True
-    liftIO $ logStr DEBUG "New graph:"
-    liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg
-
-    let p '1' = Just True
-        p '0' = Just False
-        p _ = Nothing
-        toP True = '1'
-        toP _ = '0'
-        startCheck :: Int -> IO (Handle, ProcessHandle)
-        startCheck which = do
-          (_, Just hout, _, ph) <- do
-            let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
-            logStr DEBUG $ "Checking " ++ show which ++ ":"
-            logOut DEBUG (fixes !! which)
-            createProcess
-              (proc exeName [show which])
-                { -- TODO: /dev/null should be NUL if we're on windows.
-                  env = Just [("HPCTIXFILE", tixFilePath)],
-                  -- We ignore the output
-                  std_out = CreatePipe
-                }
-          return (hout, ph)
-        waitOnCheck :: (Handle, ProcessHandle) -> IO TestSuiteResult
-        waitOnCheck (hout, ph) = do
-          ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
-          case ec of
-            Nothing -> do
-              terminateProcess ph
-              getPid ph >>= maybe (return ()) (signalProcess sigKILL)
-              return (Right False)
-            Just _ -> do
-              res <- hGetLine hout
-              hClose hout
-              let parsed = mapMaybe p res
-              return $
-                if length parsed == length res
-                  then if and parsed then Right True else Left parsed
-                  else Right False
-
-    let inds = take (length fixes) [0 ..]
-        m_name = mkModuleName mname
-        checkArr arr = if and arr then Right True else Left arr
-        forkWithFile :: ([Bool] -> Either [Bool] Bool) -> IO [Bool] -> IO (Either [Bool] Bool)
-        forkWithFile trans a =
-          maybe (Right False) trans <$> runInProc (2 * timeoutVal) encode decode a
-          where
-            encode = BSC.pack . map toP
-            decode = Just . mapMaybe p . BSC.unpack
-        fwf = if assumeNoLoops then fmap else forkWithFile
-        toB (Right False) = "R0"
-        toB (Right True) = "R1"
-        toB (Left xs) = "L" ++ map toP xs
-        isRorL c = (c == 'L') || (c == 'R')
-        fromB ['R', x] | Just b <- p x = Just $ Right b
-        fromB ('L' : xs) = Just $ Left $ mapMaybe p xs
-        fromB _ = Nothing
-        splitRes [] = []
-        splitRes xs =
-          f : case r of
-            [] -> []
-            (rorl : rest) ->
-              let (r, g) = break isRorL rest
-               in (rorl : r) : splitRes rest
-          where
-            (f, r) = break isRorL xs
-    batchSize <- liftIO getNumCapabilities
-    let interpretLoop checks = collectStats $ do
-          logStr DEBUG "Running checks..."
-          res <-
-            if parChecks
-              then do
-                -- We want the process to die in case we were wrong,
-                -- better than hanging.
-                scheduleAlarm (1 + 10 * length checks * ceiling (fromIntegral timeoutVal / 1_000_000))
-                howToRun (evf evalCheck checks)
-                  >>= (<$ scheduleAlarm 0) -- We finished, so turn off the alarm
-                  >>= \case
-                    Just res ->
-                      (res <$) $
-                        when (length res /= length checks) $ do
-                          logStr ERROR "Fewer results received than expected!"
-                          logStr ERROR ("Expected " ++ show (length checks))
-                          logStr ERROR ("Got " ++ show (length res))
-                          exitFailure
-                    Nothing -> mapM (forkWithFile checkArr) checks
-              else evf evalCheck checks
-          logStr DEBUG "Done checking!"
-          return res
-          where
-            encode = BSC.pack . concatMap toB
-            decode = Just . mapMaybe fromB . splitRes . BSC.unpack
-            (evalCheck, evf) =
-              if parChecks
-                then ((checkArr <$>), mapConcurrently)
-                else (fwf checkArr, mapM)
-            howToRun =
-              if assumeNoLoops
-                then (Just <$>)
-                else runInProc ((1 + length checks) * timeoutVal) encode decode
-        nonInterpretLoop inds =
-          collectStats $
-            if parChecks
-              then do
-                -- By starting all the processes and then waiting on them, we get more
-                -- mode parallelism.
-                liftIO $ logStr DEBUG "Running checks..."
-                procs <- collectStats $ mapM startCheck inds
-                collectStats $ mapM waitOnCheck procs
-              else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+    (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
     res <-
-      concat
-        <$> if shouldInterpret
-          then do
-            liftIO $ logStr DEBUG $ "Adding " ++ mname
-            setContext [IIDecl $ simpleImportDecl m_name]
-            liftIO $ logStr DEBUG "Compiling checks__"
-            checks_expr <- compileExpr "checks__"
-            let checks :: [IO [Bool]]
-                checks = unsafeCoerce# checks_expr
-            liftIO $ mapM interpretLoop $ chunkList batchSize checks
-          else liftIO $ mapM nonInterpretLoop $ chunkList batchSize inds
-    cleanupAfterLoads tempDir mname dynFlags
+      if succeeded sf2
+        then runCompiledFixes exeName mname orig_fixes
+        else
+          if not filterIncorrectFixes
+            then do
+              liftIO $
+                logStr ERROR $
+                  "Error while loading: " ++ moduleNameString target_name
+                    ++ " see error message for more information"
+              liftIO $ mapM_ (logStr ERROR) msgs
+              liftIO $ exitFailure
+            else do
+              liftIO $ logStr ERROR "Not implemented"
+              liftIO $ mapM_ (logStr ERROR) msgs
+              liftIO $ exitFailure
+    dflags <- getSessionDynFlags
+    cleanupAfterLoads tempDir mname dflags
     return res
+    where
+      shouldInterpret = useInterpreted && assumeNoLoops
+      timeoutVal = fromIntegral timeout
+
+      initCompileChecks :: [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, TargetId)
+      initCompileChecks fixes = do
+        seed <- liftIO newSeed
+        let checkHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes, seed)
+            tempDir = tempDirBase </> "checks" </> checkHash
+            the_f = tempDir </> ("FakeCheckTarget" ++ checkHash) <.> "hs"
+            -- We generate the name of the module from the temporary file
+            mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
+            modTxt = exprToCheckModule cc seed mname tp fixes
+            exeName = dropExtension the_f
+        liftIO $ createDirectoryIfMissing True tempDir
+        -- Note: we do not need to dump the text of the module into the file, it
+        -- only needs to exist. Otherwise we would have to write something like
+        -- `hPutStr handle modTxt`
+        liftIO $ writeFile the_f modTxt
+        liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
+        now <- liftIO getCurrentTime
+        let tid = TargetFile the_f Nothing
+            target = Target tid True Nothing
+
+        -- Adding and loading the target causes the compilation to kick
+        -- off and compiles the file.
+        target_name <- addTargetGetModName target
+
+        dynFlags <- getSessionDynFlags
+        _ <-
+          setSessionDynFlags $
+            dynFlags
+              { mainModIs = mkModule mainUnitId target_name,
+                mainFunIs = Just "main__",
+                importPaths = importPaths dynFlags ++ modBase,
+                hpcDir = tempDir
+              }
+        return (tempDir, exeName, mname, target_name, tid)
+
+      runCompiledFixes :: FilePath -> String -> [EProgFix] -> Ghc [TestSuiteResult]
+      runCompiledFixes exeName mname working_fixes = do
+        mg <- depanal [] True
+        liftIO $ logStr DEBUG "New graph:"
+        liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg
+        let p '1' = Just True
+            p '0' = Just False
+            p _ = Nothing
+            toP True = '1'
+            toP _ = '0'
+            startCheck :: Int -> IO (Handle, ProcessHandle)
+            startCheck which = do
+              (_, Just hout, _, ph) <- do
+                let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
+                logStr DEBUG $ "Checking " ++ show which ++ ":"
+                logOut DEBUG (working_fixes !! which)
+                createProcess
+                  (proc exeName [show which])
+                    { -- TODO: /dev/null should be NUL if we're on windows.
+                      env = Just [("HPCTIXFILE", tixFilePath)],
+                      -- We ignore the output
+                      std_out = CreatePipe
+                    }
+              return (hout, ph)
+            waitOnCheck :: (Handle, ProcessHandle) -> IO TestSuiteResult
+            waitOnCheck (hout, ph) = do
+              ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
+              case ec of
+                Nothing -> do
+                  terminateProcess ph
+                  getPid ph >>= maybe (return ()) (signalProcess sigKILL)
+                  return (Right False)
+                Just _ -> do
+                  res <- hGetLine hout
+                  hClose hout
+                  let parsed = mapMaybe p res
+                  return $
+                    if length parsed == length res
+                      then if and parsed then Right True else Left parsed
+                      else Right False
+        let inds = take (length working_fixes) [0 ..]
+            m_name = mkModuleName mname
+            checkArr arr = if and arr then Right True else Left arr
+            forkWithFile :: ([Bool] -> Either [Bool] Bool) -> IO [Bool] -> IO (Either [Bool] Bool)
+            forkWithFile trans a =
+              maybe (Right False) trans <$> runInProc (2 * timeoutVal) encode decode a
+              where
+                encode = BSC.pack . map toP
+                decode = Just . mapMaybe p . BSC.unpack
+            fwf = if assumeNoLoops then fmap else forkWithFile
+            toB (Right False) = "R0"
+            toB (Right True) = "R1"
+            toB (Left xs) = "L" ++ map toP xs
+            isRorL c = (c == 'L') || (c == 'R')
+            fromB ['R', x] | Just b <- p x = Just $ Right b
+            fromB ('L' : xs) = Just $ Left $ mapMaybe p xs
+            fromB _ = Nothing
+            splitRes [] = []
+            splitRes xs =
+              f : case r of
+                [] -> []
+                (rorl : rest) ->
+                  let (r, g) = break isRorL rest
+                   in (rorl : r) : splitRes rest
+              where
+                (f, r) = break isRorL xs
+        batchSize <- liftIO getNumCapabilities
+        let interpretLoop checks = collectStats $ do
+              logStr DEBUG "Running checks..."
+              res <-
+                if parChecks
+                  then do
+                    -- We want the process to die in case we were wrong,
+                    -- better than hanging.
+                    scheduleAlarm (1 + 10 * length checks * ceiling (fromIntegral timeoutVal / 1_000_000))
+                    howToRun (evf evalCheck checks)
+                      >>= (<$ scheduleAlarm 0) -- We finished, so turn off the alarm
+                      >>= \case
+                        Just res ->
+                          (res <$) $
+                            when (length res /= length checks) $ do
+                              logStr ERROR "Fewer results received than expected!"
+                              logStr ERROR ("Expected " ++ show (length checks))
+                              logStr ERROR ("Got " ++ show (length res))
+                              exitFailure
+                        Nothing -> mapM (forkWithFile checkArr) checks
+                  else evf evalCheck checks
+              logStr DEBUG "Done checking!"
+              return res
+              where
+                encode = BSC.pack . concatMap toB
+                decode = Just . mapMaybe fromB . splitRes . BSC.unpack
+                (evalCheck, evf) =
+                  if parChecks
+                    then ((checkArr <$>), mapConcurrently)
+                    else (fwf checkArr, mapM)
+                howToRun =
+                  if assumeNoLoops
+                    then (Just <$>)
+                    else runInProc ((1 + length checks) * timeoutVal) encode decode
+            nonInterpretLoop inds =
+              collectStats $
+                if parChecks
+                  then do
+                    -- By starting all the processes and then waiting on them, we get more
+                    -- mode parallelism.
+                    liftIO $ logStr DEBUG "Running checks..."
+                    procs <- collectStats $ mapM startCheck inds
+                    collectStats $ mapM waitOnCheck procs
+                  else collectStats $ mapM (startCheck >=> waitOnCheck) inds
+        concat
+          <$> if shouldInterpret
+            then do
+              liftIO $ logStr DEBUG $ "Adding " ++ mname
+              setContext [IIDecl $ simpleImportDecl m_name]
+              liftIO $ logStr DEBUG "Compiling checks__"
+              checks_expr <- compileExpr "checks__"
+              let checks :: [IO [Bool]]
+                  checks = unsafeCoerce# checks_expr
+              liftIO $ mapM interpretLoop $ chunkList batchSize checks
+            else liftIO $ mapM nonInterpretLoop $ chunkList batchSize inds
 
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
 describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do

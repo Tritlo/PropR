@@ -740,9 +740,6 @@ runGhcWithCleanup CompConf {..} act = do
   when check $ removeDirectoryRecursive tdBase
   return res
 
-debugOutputOnly :: LogAction
-debugOutputOnly _ _ _ _ _ = logOut DEBUG
-
 logOutLogAction :: LogAction
 logOutLogAction dflags _ severity _ _ msgdoc = do
   logStr GHCERR "GHC ERROR:"
