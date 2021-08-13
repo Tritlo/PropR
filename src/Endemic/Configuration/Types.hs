@@ -233,7 +233,8 @@ instance Materializeable CompileConfig where
       umKeepLoopingFixes :: Maybe Bool,
       umAllowFunctionFits :: Maybe Bool,
       umExcludeTargets :: Maybe [String],
-      umExtendDefaults :: Maybe Bool
+      umExtendDefaults :: Maybe Bool,
+      umFilterIncorrectFixes :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -242,6 +243,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -281,7 +283,8 @@ instance Materializeable CompileConfig where
         keepLoopingFixes = fromMaybe keepLoopingFixes umKeepLoopingFixes,
         allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits,
         excludeTargets = fromMaybe excludeTargets umExcludeTargets,
-        extendDefaults = fromMaybe extendDefaults umExtendDefaults
+        extendDefaults = fromMaybe extendDefaults umExtendDefaults,
+        filterIncorrectFixes = fromMaybe filterIncorrectFixes umFilterIncorrectFixes
       }
 
 -- | Configuration for the compilation itself
@@ -344,10 +347,14 @@ data CompileConfig = CompConf
     -- | Targets to exclude from repairing. Could be things like examples or
     -- test helpers that we don't want to change.
     excludeTargets :: [String],
-    -- Extend defaults allows us to use GHC's extended defaulting during
+    -- | Extend defaults allows us to use GHC's extended defaulting during
     -- hole-fit generation. Only works if we're not relying too much on
     -- type-defaulting, since the types will not be defaulted during checking.
-    extendDefaults :: Bool
+    extendDefaults :: Bool,
+    -- | With filter incorrect fixes set, we try to recover from incorrect fixes
+    -- by checking the fixes one by one and seeing which ones compile. Without
+    -- this flag, we simply fail on incorrect fixes.
+    filterIncorrectFixes :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -374,7 +381,8 @@ instance Default CompileConfig where
         keepLoopingFixes = False,
         allowFunctionFits = True,
         excludeTargets = [],
-        extendDefaults = False
+        extendDefaults = False,
+        filterIncorrectFixes = True
       }
 
 instance Default LogConfig where
