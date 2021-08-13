@@ -552,12 +552,13 @@ tryGHCCaptureOutput act = do
   msg_ref <- liftIO $ newIORef []
   dflags <- getSessionDynFlags
   let logAction :: LogAction
-      logAction _ _ sev _ _ msg
+      logAction _ _ sev loc _ msg
         | SevFatal <- sev = log
         | SevError <- sev = log
         | otherwise = reject
         where
-          log = modifyIORef msg_ref (showSDoc dflags msg :)
+          log = modifyIORef msg_ref ((locstr ++ " " ++ showSDoc dflags msg) :)
+          locstr = showSDoc dflags $ ppr loc
           reject = return ()
   void $ setSessionDynFlags dflags {log_action = logAction}
   res <- defaultErrorHandler (\err -> modifyIORef msg_ref (err :)) (FlushOut (return ())) act
@@ -605,35 +606,42 @@ checkFixes
               liftIO $ mapM_ (logStr ERROR) msgs
               liftIO exitFailure
             else do
-              liftIO $ logStr ERROR "Error in fixes, trying to recover..."
+              liftIO $ logStr DEBUG "Error in fixes, trying to recover..."
               -- This might wreak havoc on the linker...
               removeTarget tid
               compiling <- zip orig_fixes <$> doesCompileBin orig_flags orig_fixes
               let comp_inds_n_e = filter (snd . snd) $ zip [0 :: Int ..] compiling
                   comp_inds = map fst comp_inds_n_e
                   compiling_fixes = map (fst . snd) comp_inds_n_e
-              when (null compiling_fixes) $ do
-                liftIO $ logStr DEBUG "No check compiled, recovery failed"
-                liftIO $ exitFailure
-              liftIO $ logStr DEBUG $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
-              liftIO $ logStr DEBUG $ "Reinitializing..."
-              setCheckDynFlags
-              (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
-              liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString n_target ++ " again..."
-              (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo n_target)
-              if succeeded sf2
-                then liftIO $ logStr DEBUG "Recovered!"
+              if (null compiling_fixes)
+                then do
+                  liftIO $
+                    logStr DEBUG $
+                      "Error while loading: " ++ moduleNameString target_name
+                        ++ " see error message for more information"
+                  liftIO $ logStr DEBUG $ "None of the " ++ show (length orig_fixes) ++ " fixes compiled, recovery failed"
+                  liftIO $ logStr DEBUG $ "Failed with the errors:"
+                  liftIO $ mapM_ (logStr DEBUG) msgs
+                  return (replicate (length orig_fixes) (Right False))
                 else do
-                  liftIO $ logStr ERROR "Recovery failed!"
-                  liftIO $ exitFailure
-              liftIO $ mapM_ (logStr ERROR) msgs
-              new_results <- runCompiledFixes n_exe n_mname compiling_fixes
-              --liftIO $ checkFixes desc compiling_fixes
-              let result_map = Map.fromList $ zip comp_inds new_results
-                  getRes i = case result_map Map.!? i of
-                    Just r -> r
-                    _ -> Right False
-              return $ zipWith (\i _ -> getRes i) [0 :: Int ..] orig_fixes
+                  liftIO $ logStr DEBUG $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
+                  liftIO $ logStr DEBUG $ "Reinitializing..."
+                  setCheckDynFlags
+                  (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
+                  liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString n_target ++ " again..."
+                  (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo n_target)
+                  if succeeded sf2
+                    then liftIO $ logStr DEBUG "Recovered!"
+                    else do
+                      liftIO $ logStr DEBUG "Recovery failed!"
+                  liftIO $ mapM_ (logStr ERROR) msgs
+                  new_results <- runCompiledFixes n_exe n_mname compiling_fixes
+                  --liftIO $ checkFixes desc compiling_fixes
+                  let result_map = Map.fromList $ zip comp_inds new_results
+                      getRes i = case result_map Map.!? i of
+                        Just r -> r
+                        _ -> Right False
+                  return $ zipWith (\i _ -> getRes i) [0 :: Int ..] orig_fixes
     dflags <- getSessionDynFlags
     cleanupAfterLoads tempDir mname dflags
     return res
