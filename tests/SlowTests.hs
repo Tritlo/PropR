@@ -22,7 +22,8 @@ import Endemic.Search.Exhaustive
 import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
-import Endemic.Util (logStr, withLogLevel)
+import Endemic.Util (logStr, traceOut, traceOutId, withLogLevel)
+import GhcPlugins (text)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit

@@ -1,9 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -40,6 +42,7 @@ import Data.Char (isAlphaNum)
 import Data.Default
 import Data.Dynamic (fromDyn)
 import Data.Either (lefts, rights)
+import Data.Foldable (find)
 import Data.Function (on)
 import Data.Functor (($>), (<&>))
 import qualified Data.Functor
@@ -174,7 +177,6 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
     getHoleFits' plugRef n exprs = do
       fits <- lefts <$> mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
       procs <- processFits $ map (second $ map (second (uncurry (++)))) fits
-      --       pprPanic "ppr" $ ppr procs
       let f :: LHsExpr GhcPs -> SrcSpan -> [(Int, HsExpr GhcPs)] -> Ghc (SrcSpan, [(Int, HsExpr GhcPs)])
           f expr loc fits = do
             let (hasHoles, done) = partition ((> 0) . fst) fits
@@ -427,7 +429,7 @@ findEvaluatedHoles
             resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map Map.!))
 
     -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
-    traces_that_worked <-
+    traces_that_worked :: [(EExpr, Map (EExpr, SrcSpan) Integer)] <-
       liftIO $
         map (second (Map.unionsWith (+) . map (toInvokes . snd)))
           -- The traces are per prop per expr, but we need a per expr per prop,
@@ -444,23 +446,33 @@ findEvaluatedHoles
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
-    let fk (expr, invokes) | non_zero <- Map.keysSet (Map.filter (> 0) invokes),
-                             not (null non_zero) = do
-          liftIO $ logStr DEBUG "Building trace correlation..."
-          trace_correls_per_target <- buildTraceCorrel cc tp expr
-
-          let non_zero_src = Set.unions $ Set.map lookupInCorrel non_zero
-              lookupInCorrel el =
-                case mapMaybe (Map.lookup el) trace_correls_per_target of
-                  -- TODO: This should never happen
-                  [] -> Set.empty
-                  xs -> Set.fromList xs
-          return $ filter ((`Set.member` non_zero_src) . fst) $ sanctifyExpr expr
-        fk _ = return []
-        nubOrd = Set.toList . Set.fromList
-    non_zero_holes <- mapM fk traces_that_worked
+    let fk :: (EExpr, Map (EExpr, SrcSpan) Integer) -> Set.Set (SrcSpan, LHsExpr GhcPs)
+        fk (expr, invokes)
+          | non_zero <- Map.keysSet (Map.filter (> 0) invokes),
+            not (null non_zero) =
+            Set.fromList $ mapMaybe toExprHole $ Set.toList non_zero
+          where
+            sfe = sanctifyExpr noExtField expr
+            toExprHole (iv_expr, iv_loc) =
+               -- We can get a Nothing here if e.g. the evaluated part is with
+               -- an operator with precedence, e.g. a ++ b ++ c, because GHC
+               -- doesn't do precedence until it renames. We *could* use the
+               -- renamed `iv_expr` and rename the `expr` as well to get those
+               -- locs... but then we'd have to switch the whole thing over to
+               -- `LHsExpr GhcRn`, since those locs do not exsist in  the
+               -- `LHsExpr GhcPs` yet, and then we have issues with compiling
+               -- them to get the valid hole fits, since GHC has no built-in
+               -- function `compileRnStmt`. So we'll make do for now.
+               case find is_iv (zip sfe sfi) of
+                 Just (e@(e_loc,_), _) | isGoodSrcSpan e_loc -> Just e
+                 _ -> Nothing
+              where
+                sfi = sanctifyExpr noExtField iv_expr
+                is_iv = (== iv_loc) . fst . snd
+        fk _ = Set.empty
+        non_zero_holes = Set.unions $ map fk traces_that_worked
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
-    let nzh = nubOrd $ concat non_zero_holes
+    let nzh = Set.toList non_zero_holes
     liftIO $ logStr DEBUG $ "Found " ++ show (length nzh) ++ " evaluated holes"
     return nzh
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
@@ -865,7 +877,7 @@ describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
         exprFitCands <- runGhc' compConf $ getExprFitCands $ Right modul
         let probModule = Just modul
             initialFixes = Nothing
-            addConf = AddConf {assumeNoLoops = True}
+            addConf = def {assumeNoLoops = True}
             descBase = ProbDesc {..}
         if precomputeFixes
           then do

@@ -42,6 +42,7 @@ import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
 import Data.IORef (IORef, newIORef, readIORef)
 import Data.List (groupBy, intercalate, nub, partition, stripPrefix)
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isJust, isNothing, mapMaybe)
 import Data.Set (Set)
@@ -649,44 +650,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
     --           _ -> int_prob
     return (cc', tc_modul, int_prob)
 
--- Create a fake base loc for a trace.
-fakeBaseLoc :: CompileConfig -> EProblem -> EProgFix -> Ghc SrcSpan
-fakeBaseLoc cc prob (fix : _) = getLoc . head <$> buildTraceCorrelExpr cc prob fix
-fakeBaseLoc cc prob [] = error "Cannot construct base loc for empty prog!"
-
--- When we do the trace, we use a "fake_target" function. This build the
--- corresponding expression,
-buildTraceCorrelExpr :: CompileConfig -> EProblem -> EExpr -> Ghc [LHsExpr GhcPs]
-buildTraceCorrelExpr cc EProb {..} expr = do
-  let correl =
-        map (\(nm, _, _) -> baseFun (mkVarUnqual $ fsLit $ "fake_target_" ++ rdrNamePrint nm) expr) e_prog
-      correl_ctxts :: [LHsLocalBinds GhcPs]
-      correl_ctxts = map (\c -> noLoc $ HsValBinds NoExtField (ValBinds NoExtField (unitBag c) [])) correl
-      correl_exprs :: [LHsExpr GhcPs]
-      correl_exprs = map (\ctxt -> noLoc $ HsLet NoExtField ctxt (noLoc hole)) correl_ctxts
-
-  pcorrels <- mapM (parseExprNoInit . showUnsafe) correl_exprs
-  let getBod (L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ bg _))) _))
-        | [L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}] <- bagToList bg,
-          [L _ Match {m_grhss = GRHSs {grhssGRHSs = [L _ (GRHS _ _ bod)]}}] <- alts =
-          Just bod
-      getBod _ = Nothing
-  return $ mapMaybe getBod pcorrels
-buildTraceCorrelExpr _ _ _ = error "External fixes not supported!"
-
--- We build a Map from the traced expression and to the  original so we can
--- correlate the trace information with the expression we're checking.
--- This helps e.g. to find placements of changed elements (in our fixes) to the original position.
-buildTraceCorrel :: CompileConfig -> EProblem -> EExpr -> Ghc [Map.Map SrcSpan SrcSpan]
-buildTraceCorrel cc prob expr = do
-  map toCorrel <$> buildTraceCorrelExpr cc prob expr
-  where
-    expr_exprs = flattenExpr expr
-    toCorrel trace_expr = Map.fromList $ filter (\(e, b) -> isGoodSrcSpan e && isGoodSrcSpan b) locPairs
-      where
-        trace_exprs = flattenExpr trace_expr
-        locPairs = zipWith (\t e -> (getLoc t, getLoc e)) trace_exprs expr_exprs
-
 -- | Runs a GHC action and cleans up any hpc-directories that might have been
 -- created as a side-effect.
 -- TODO: Does this slow things down massively? We lose out on the pre-generated
@@ -762,12 +725,22 @@ traceTarget ::
   EProp ->
   [RExpr] ->
   IO (Maybe TraceRes)
-traceTarget cc tp e fp ce = head <$> (traceTargets cc tp e [(fp, ce)])
+traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
 
-toInvokes :: Trace -> Map.Map SrcSpan Integer
-toInvokes res = Map.fromList $ map only_max $ flatten res
+toInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
+toInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
   where
-    only_max (src, r) = (mkInteractive src, maximum $ map snd r)
+    isOkBox (ExpBox _, _) = True
+    isOkBox _ = False
+    only_max :: (SrcSpan, [(BoxLabel, Integer)]) -> Maybe ((EExpr, SrcSpan), Integer)
+    only_max (src, []) = Just ((ex, src), 0)
+    only_max (src, [x]) | isOkBox x = Just ((ex, src), snd x)
+    only_max (src, [x]) = Nothing
+    -- TODO: What does it mean in HPC if there are multiple labels here?
+    only_max (src, xs)
+      | any isOkBox xs =
+        Just ((ex, src), maximum $ map snd xs)
+    only_max (src, xs) = trace (show xs) Nothing
 
 -- Run HPC to get the trace information.
 traceTargets ::
@@ -779,19 +752,13 @@ traceTargets ::
 traceTargets _ _ _ [] = return []
 -- Note: we call runGhc' here directly, since we want every trace to be a
 -- new ghc thread (since we set the dynflags per module)
-traceTargets cc@CompConf {..} tp@EProb {..} exprs' ps_w_ce =
+traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
   runGhc' cc $ do
     seed <- liftIO newSeed
-    let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs', ps_w_ce, seed)
+    let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)
         tempDir = tempDirBase </> "trace" </> traceHash
         the_f = tempDir </> ("FakeTraceTarget" ++ traceHash) <.> "hs"
     liftIO $ createDirectoryIfMissing True tempDir
-    (exprs, realSpan) <- case exprs' of
-      ((L (RealSrcSpan realSpan) _) : _) -> return (exprs', realSpan)
-      _ -> do
-        ~tl@(RealSrcSpan rsp) <- fakeBaseLoc cc tp exprs'
-        let exprs = map (L tl . unLoc) exprs'
-        return (exprs, rsp)
     let correl =
           zipWith
             ( \(nm, _, _) e ->
@@ -801,33 +768,11 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs' ps_w_ce =
             e_prog
             exprs
         fake_target_names = Set.fromList $ map (\(n, _, _) -> n) correl
-        toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
-        toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
-          createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
-        isTarget Node {rootLabel = (_, [(TopLevelBox [ftn], _)])} =
-          ftn `Set.member` fake_target_names
-        isTarget _ = False
-        -- We convert the HpcPos to the equivalent span we would get if we'd
-        -- parsed and compiled the expression directly.
-        toFakeSpan :: FilePath -> HpcPos -> HpcPos -> SrcSpan
-        toFakeSpan the_f root sp = mkSrcSpan start end
-          where
-            fname = fsLit $ takeFileName the_f
-            (_, _, rel, rec) = fromHpcPos root
-            eloff = rel - srcSpanEndLine realSpan
-            ecoff = rec - srcSpanEndCol realSpan
-            (sl, sc, el, ec) = fromHpcPos sp
-            -- We add two spaces before every line in the source.
-            start = mkSrcLoc fname (sl - eloff) (sc - ecoff -1)
-            -- GHC Srcs end one after the end
-            end = mkSrcLoc fname (el - eloff) (ec - ecoff)
         mname = filter isAlphaNum $ dropExtension $ takeFileName the_f
         modTxt = exprToTraceModule cc tp seed mname correl ps_w_ce
         exeName = dropExtension the_f
         mixFilePath = tempDir
-        timeoutVal = fromIntegral timeout
 
-    liftIO $ logStr DEBUG modTxt
     liftIO $ writeFile the_f modTxt
     _ <- liftIO $ mapM (logStr DEBUG) $ lines modTxt
     -- We set the module as the main module, which makes GHC generate
@@ -857,6 +802,18 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs' ps_w_ce =
           }
 
     _ <- load (LoadUpTo target_name)
+
+    modul@ParsedModule {pm_parsed_source = (L _ HsModule {..})} <-
+      getModSummary target_name >>= parseModule
+    -- Retrieves the Values declared in the given Haskell-Module
+    let our_targets :: Map String (LHsExpr GhcPs)
+        our_targets = Map.fromList $ mapMaybe fromValD hsmodDecls
+          where
+            fromValD (L l (ValD _ b@FunBind {..}))
+              | rdrNameToStr (unLoc fun_id) `elem` fake_target_names,
+                Just ex <- unFun b =
+                Just (rdrNameToStr $ unLoc fun_id, ex)
+            fromValD _ = Nothing
 
     -- We should for here in case it doesn't terminate, and modify
     -- the run function so that it use the trace reflect functionality
@@ -908,21 +865,40 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs' ps_w_ce =
           -- TODO: When run in parallel, this can fail
           let rm m = (m,) <$> readMix [mixFilePath] (Right m)
               isTargetMod = (mname ==) . tixModuleName
+              toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
+              toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
+                createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
+
+              nd n@Node {rootLabel = (root, _)} =
+                fmap (Data.Bifunctor.first (toSpan the_f)) n
+              wTarget n@Node {rootLabel = (_, [(TopLevelBox [ftn], _)])} =
+                (,nd n) <$> our_targets Map.!? ftn
+              wTarget _ = Nothing
+              -- We convert the HpcPos to the equivalent span we would get if we'd
+              -- parsed and compiled the expression directly.
+              toSpan :: FilePath -> HpcPos -> SrcSpan
+              toSpan the_f sp = mkSrcSpan start end
+                where
+                  fname = fsLit the_f
+                  (sl, sc, el, ec) = fromHpcPos sp
+                  start = mkSrcLoc fname sl sc
+                  -- HPC and GHC have different philosophies
+                  end = mkSrcLoc fname el (ec + 1)
           case tix of
             Just (Tix mods) -> do
               -- We throw away any extra functions in the file, such as
               -- the properties and the main function, and only look at
               -- the ticks for our expression
               let fake_only = filter isTargetMod mods
-                  nd n@Node {rootLabel = (root, _)} =
-                    fmap (Data.Bifunctor.first (toFakeSpan the_f root)) n
-              res <- map nd . filter isTarget . concatMap toDom <$> mapM rm fake_only
+              res <- mapMaybe wTarget . concatMap toDom <$> mapM rm fake_only
               return $ Just res
             _ -> return Nothing
 
     res <- liftIO $ mapM (runTrace . fst) $ zip [0 ..] ps_w_ce
     cleanupAfterLoads tempDir mname dynFlags
     return res
+  where
+    timeoutVal = fromIntegral timeout
 traceTargets _ _ [] _ = error "No fix!"
 traceTargets _ ExProb {} _ _ = error "Exprobs not supported!"
 

@@ -149,7 +149,9 @@ mkRepairTest' conf how timeout tag file TestConf {..} =
                       "Actual fixes were:",
                       unlines (map (showSDocUnsafe . ppr) $ Set.toList fixes),
                       "Number of fixes:",
-                      show (Set.size fixes)
+                      show (Set.size fixes),
+                      "Number of expected:",
+                      show (length expected)
                     ]
             when reportTestStats (putStrLn "" >> putStrLn "Stats:" >> getStats >>= mapM_ putStrLn)
             when (not check && acceptNew) $ writeExpected file (unlines diffs)
