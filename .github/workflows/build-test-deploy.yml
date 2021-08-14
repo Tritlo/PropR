@@ -104,7 +104,7 @@ jobs:
           context: .
           build-args: |
             "HASKELL_VERSION=8.10.4"
-            "ENDEMIC_VERSION=0.6.0"
+            "ENDEMIC_VERSION=0.7.0"
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
