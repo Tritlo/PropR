@@ -456,8 +456,16 @@ findEvaluatedHoles
             toExprHole (iv_expr, iv_loc) =
                -- We can get a Nothing here if e.g. the evaluated part is with
                -- an operator with precedence, e.g. a ++ b ++ c, because GHC
-               -- doesn't do precedence until it renames.
-               fst <$> find is_iv (zip sfe sfi)
+               -- doesn't do precedence until it renames. We *could* use the
+               -- renamed `iv_expr` and rename the `expr` as well to get those
+               -- locs... but then we'd have to switch the whole thing over to
+               -- `LHsExpr GhcRn`, since those locs do not exsist in  the
+               -- `LHsExpr GhcPs` yet, and then we have issues with compiling
+               -- them to get the valid hole fits, since GHC has no built-in
+               -- function `compileRnStmt`. So we'll make do for now.
+               case find is_iv (zip sfe sfi) of
+                 Just (e@(e_loc,_), _) | isGoodSrcSpan e_loc -> Just e
+                 _ -> Nothing
               where
                 sfi = sanctifyExpr noExtField iv_expr
                 is_iv = (== iv_loc) . fst . snd
@@ -466,7 +474,6 @@ findEvaluatedHoles
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
     let nzh = Set.toList non_zero_holes
     liftIO $ logStr DEBUG $ "Found " ++ show (length nzh) ++ " evaluated holes"
-    liftIO $ mapM (logOut ERROR) nzh
     return nzh
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 

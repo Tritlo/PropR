@@ -32,6 +32,7 @@ import Data.List (intercalate)
 import Data.Map (Map, member, (!))
 import GHC
 import GhcPlugins
+import Data.Char (isAlphaNum, ord)
 
 -- TODO: This doesn't recurse into (L _ (HsWrap _ _ v)), because there's no located expressions in v!
 
@@ -69,9 +70,16 @@ sanctifyExpr ext = map repl . contextsOf uniplate
         hole = HsUnboundVar ext $ TrueExprHole name
         name = case expr of
           HsVar _ (L _ v) ->
-            let (ns, fs) = (occNameSpace (occName v), occNameFS (occName v))
+            let (ns, fs) = (occNameSpace (occName v), fsLit (sanitize v))
              in mkOccNameFS ns (concatFS $ fsLit "_" : [fs, fsLit $ locToStr loc])
           _ -> mkVarOcc $ "_" ++ locToStr loc
+        sanitize nm =
+          if not (null alphanum)
+            then alphanum
+            else intercalate "_" $ map (show . ord) base
+          where
+            base = occNameString $ occName nm
+            alphanum = filter isAlphaNum base
         locToStr (UnhelpfulSpan x) = unpackFS x
         locToStr s@(RealSrcSpan r) =
           intercalate "_" $

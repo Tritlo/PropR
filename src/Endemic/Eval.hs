@@ -56,7 +56,7 @@ import DynFlags
 import Endemic.Check
 import Endemic.Configuration
 import Endemic.Plugin
-import Endemic.Traversals (flattenExpr, sanctifyExpr)
+import Endemic.Traversals (flattenExpr)
 import Endemic.Types
 import Endemic.Util
 import ErrUtils (ErrMsg (errMsgSeverity), errMsgSpan, pprErrMsgBagWithLoc)
@@ -68,7 +68,6 @@ import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
 import Numeric (showHex)
 import PrelNames (toDynName)
-import qualified Pretty as Pretty
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive, removeFile)

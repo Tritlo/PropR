@@ -39,7 +39,7 @@ import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
-import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, showSDocUnsafe)
+import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, showSDocUnsafe, HasOccName)
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
@@ -286,7 +286,7 @@ eProgToEProgFix = map (\(_, _, c) -> c)
 eProgToEProgFixAtTy :: EProg -> EProgFix
 eProgToEProgFixAtTy = map (\(_, t, p) -> p `progAtTy` t)
 
-rdrNamePrint :: RdrName -> String
+rdrNamePrint :: HasOccName o => o -> String
 rdrNamePrint nm =
   if not (null alphanum)
     then alphanum
