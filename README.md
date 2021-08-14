@@ -1,5 +1,4 @@
-[![Haskell CI](https://github.com/Tritlo/Endemic/actions/workflows/haskell.yml/badge.svg)](https://github.com/Tritlo/Endemic/actions/workflows/haskell.yml)
-[![Docker CI](https://github.com/Tritlo/Endemic/actions/workflows/docker.yml/badge.svg)](https://github.com/Tritlo/Endemic/actions/workflows/docker.yml)
+[![Build, test, and deploy](https://github.com/Tritlo/Endemic/actions/workflows/build-test-deploy.yml/badge.svg)](https://github.com/Tritlo/Endemic/actions/workflows/build-test-deploy.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-hotpink.svg)](https://github.com/Tritlo/Endemic/blob/master/LICENSE)
 
 # Endemic: Genetic Program repair using GHC 🐣
