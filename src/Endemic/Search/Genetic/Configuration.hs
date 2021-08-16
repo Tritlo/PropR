@@ -108,7 +108,7 @@ instance Materializeable GeneticConfiguration where
              ]
             (Unmaterialized GeneticConfiguration)
 
-  conjure = UmGeneticConfiguration n n n n n n n n n n n n n
+  conjure = UmGeneticConfiguration n n n n n n n n n n n n n n
     where
       n = Nothing
 

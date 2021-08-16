@@ -284,9 +284,17 @@ geneticSearch = collectStats $ do
       let (shuffledMergedPop, gen''') = shuffle mergedPop gen''
       putGen gen'''
       mergedPop' <- sortPopByFitness shuffledMergedPop
-      -- We select the top i% elite if specified in the configuration. 
-      let nextPop = take (populationSize conf) mergedPop'
-      -- We then take the remaining ones random 
+      -- We select the top i% elite if specified in the configuration.
+      let 
+          numElites = floor ((fromIntegral $ populationSize conf) * (elitismRate conf))
+          numRandies = (populationSize conf) - numElites
+          elites = take numElites mergedPop'
+          -- To not pick elites twice, we make a new non-elite pop to draw from
+          -- As the non-elite pop is taken from the shuffled pop, it is shuffled too.
+          nonElitePop = deleteMany elites shuffledMergedPop 
+          -- We then take the remaining ones random 
+          nonElites = take numRandies nonElitePop 
+          nextPop = elites ++ nonElites
       return nextPop
 
     tournamentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]

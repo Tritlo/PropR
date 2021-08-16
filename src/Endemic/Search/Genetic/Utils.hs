@@ -117,3 +117,7 @@ pickElementUniform [] _ = Nothing
 pickElementUniform xs g =
   let (ind, g') = uniformR (0, length xs - 1) g
    in Just (xs !! ind, g')
+
+deleteMany :: Eq a => [a] -> [a] -> [a]
+deleteMany [] xs = xs
+deleteMany (d:ds) xs = deleteMany ds (delete d xs)
