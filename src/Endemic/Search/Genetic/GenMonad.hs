@@ -68,24 +68,33 @@ instance Chromosome EFix where
         EProb {..} = progProblem
         n_progs = map (applyFixToEProg e_prog) to_mutate
         (gen'' : gens') = splitGenList gen'
-        selection ((p, pFixes), generation) =
-          case pickElementUniform pFixes generation of
+        selection ((p, pFixes), gen) = do
+          -- To avoid taking only single steps, we take between
+          -- 1 and maxFixSizeSteps at a time.
+          let (fix_size, gen') = uniformR (1, maxFixSizeStep) gen
+          case pickRandomElements fix_size gen' pFixes of
             -- No possible fix, meaning we don't have any locations
             -- to change... which means we've already solved it!
             -- TODO: is this always the case when we get Nothing
             -- here?
-            Nothing -> return p
+            ([], _) -> return p
             -- Fix res here is:
             -- + Right True if all the properties are correct (perfect fitnesss!)
             -- + Right False if the program doesn't terminate (worst fitness)..
             --    Blacklist this fix?
             -- + Left [Bool] if it's somewhere in between.
-            Just ((fix, mb_fix_res), _) -> do
+            -- We special case for the
+            ([(fix, mb_fix_res)], _) -> do
               let mf = mergeFixes fix p
               case mb_fix_res of
                 Just fix_res -> updateCache (mf, basicFitness mf fix_res)
                 _ -> return ()
               return mf
+            -- We just merge the fixes straight up.
+            -- TODO: Similarly to the problem with precomputingFixes, it is
+            -- not neccessarily correct to just merge them in case the types
+            -- change. However, for non-refinement holes this should be fine.
+            (fixes, _) -> return $ foldl mergeFixes p $ map fst fixes
         mapGen = if useParallelMap then mapConcurrently else mapM
 
     -- TODO: Is it safe to use the initial_fixes here? Should be, since fixes

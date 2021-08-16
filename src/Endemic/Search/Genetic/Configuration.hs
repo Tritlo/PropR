@@ -41,6 +41,8 @@ data GeneticConfiguration = GConf
     islandConfiguration :: Maybe IslandConfiguration,
     -- | The probability of how often we drop during mutation
     dropRate :: Double,
+    -- | How big the maximum fix size step should be
+    maxFixSizeStep :: Int,
     -- | Whether or not to try to minimize the successfull fixes. This step is performed after search as postprocessing and does not affect initial search runtime.
     tryMinimizeFixes :: Bool,
     -- | Whether successfull candidates will be removed from the populations, replaced with a new-full-random element.
@@ -66,6 +68,7 @@ instance Default GeneticConfiguration where
       islandConfiguration = Nothing
       -- T
       dropRate = 0.05
+      maxFixSizeStep = 1
       tryMinimizeFixes = False -- Not implemented
       replaceWinners = True
       useParallelMap = True
@@ -83,6 +86,7 @@ instance Materializeable GeneticConfiguration where
       umTournamentConfiguration :: Maybe (Unmaterialized TournamentConfiguration),
       umIslandConfiguration :: Maybe (Unmaterialized IslandConfiguration),
       umDropRate :: Maybe Double,
+      umMaxFixSizeStep :: Maybe Int,
       umTryMinimizeFixes :: Maybe Bool,
       umReplaceWinners :: Maybe Bool,
       umUseParallelMap :: Maybe Bool
@@ -97,7 +101,7 @@ instance Materializeable GeneticConfiguration where
              ]
             (Unmaterialized GeneticConfiguration)
 
-  conjure = UmGeneticConfiguration n n n n n n n n n n n n
+  conjure = UmGeneticConfiguration n n n n n n n n n n n n n
     where
       n = Nothing
 
@@ -111,6 +115,7 @@ instance Materializeable GeneticConfiguration where
         timeoutInSeconds = fromMaybe timeoutInSeconds umTimeoutInSeconds,
         stopOnResults = fromMaybe stopOnResults umStopOnResults,
         dropRate = fromMaybe dropRate umDropRate,
+        maxFixSizeStep = fromMaybe maxFixSizeStep umMaxFixSizeStep,
         tryMinimizeFixes = fromMaybe tryMinimizeFixes umTryMinimizeFixes,
         replaceWinners = fromMaybe replaceWinners umReplaceWinners,
         useParallelMap = fromMaybe useParallelMap umUseParallelMap,
