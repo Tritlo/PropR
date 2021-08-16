@@ -284,7 +284,9 @@ geneticSearch = collectStats $ do
       let (shuffledMergedPop, gen''') = shuffle mergedPop gen''
       putGen gen'''
       mergedPop' <- sortPopByFitness shuffledMergedPop
+      -- We select the top i% elite if specified in the configuration. 
       let nextPop = take (populationSize conf) mergedPop'
+      -- We then take the remaining ones random 
       return nextPop
 
     tournamentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]

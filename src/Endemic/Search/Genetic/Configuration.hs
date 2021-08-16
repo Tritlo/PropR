@@ -34,6 +34,11 @@ data GeneticConfiguration = GConf
     timeoutInSeconds :: Double,
     -- | Whether or not to stop at the generation that first produces positive results
     stopOnResults :: Bool,
+    -- | How many of the environment-selected elements will be from the best fit. Value between 0 and 1.
+    -- Default 100% Elitism Selection will be performed (legacy-behaviour).
+    -- Remaining non-elite elements for the next generation are chosen at random.
+    -- This value is completely omitted in case of Tournament-Selection.
+    elitismRate :: Double, 
     -- | Nothing to not do Tournament Selection, existing Conf will use Tournament instead (See below for more info)
     tournamentConfiguration :: Maybe TournamentConfiguration,
     -- | Nothing to disable IslandEvolution, existing Conf will run Island Evolution (See below for more Info)
@@ -64,6 +69,7 @@ instance Default GeneticConfiguration where
       populationSize = 64
       timeoutInSeconds = 5 * 60
       stopOnResults = True
+      elitismRate = 1.0
       tournamentConfiguration = Nothing
       islandConfiguration = Nothing
       -- T
@@ -83,6 +89,7 @@ instance Materializeable GeneticConfiguration where
       umPopulationSize :: Maybe Int,
       umTimeoutInSeconds :: Maybe Double,
       umStopOnResults :: Maybe Bool,
+      umElitismRate :: Maybe Double,
       umTournamentConfiguration :: Maybe (Unmaterialized TournamentConfiguration),
       umIslandConfiguration :: Maybe (Unmaterialized IslandConfiguration),
       umDropRate :: Maybe Double,
@@ -119,6 +126,7 @@ instance Materializeable GeneticConfiguration where
         tryMinimizeFixes = fromMaybe tryMinimizeFixes umTryMinimizeFixes,
         replaceWinners = fromMaybe replaceWinners umReplaceWinners,
         useParallelMap = fromMaybe useParallelMap umUseParallelMap,
+        elitismRate = fromMaybe elitismRate umElitismRate,
         tournamentConfiguration = overrideIfPresent tournamentConfiguration umTournamentConfiguration,
         islandConfiguration = overrideIfPresent islandConfiguration umIslandConfiguration
       }
