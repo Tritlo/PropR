@@ -105,15 +105,18 @@ geneticSearch = collectStats $ do
       -- | The (current) population on which to perform search on
       [g] ->
       -- | The results found, for which the fitness function is correct. Collected over all generations, ordered by generations ascending
-      -- Case A: Iterations Done, return empty results
       GenMonad (Set g)
-    geneticSearch' 0 _ _ = return Set.empty
+    -- Case A: Iterations Done, return empty results
+    geneticSearch' 0 _ pop = do 
+      reportNearResults pop 10
+      return Set.empty
     -- Case B: Iterations left, check on other abortion criteria
     geneticSearch' n currentTime pop = do
       conf <- R.ask
       if currentTime > maxTimeInMS conf
         then do
           logStr' INFO "Time Budget used up - ending genetic search"
+          reportNearResults pop 10
           return Set.empty
         else do
           start <- liftIO getCurrentTime
@@ -473,3 +476,18 @@ fittest :: (Chromosome g) => [g] -> GenMonad (Maybe g)
 fittest gs = do
   sorted <- sortPopByFitness gs
   return (listToMaybe sorted)
+
+
+-- | Prints the best elements of the population to VERBOSE level. 
+-- TODO: Add the failing properties per each element.
+reportNearResults :: (Chromosome g) => 
+  [g]            -- ^ The (last) population to be printed from 
+  -> Int         -- ^ Number of elements to be printed 
+  -> GenMonad () -- ^ Stuff is just printed, but the fitness cache is utilized. 
+reportNearResults pop n = 
+  do 
+    sortedPop <- sortPopByFitness pop
+    let besties = take n sortedPop
+    liftIO $ logStr VERBOSE ("Best-Fitted elements of the population where: ")
+    liftIO $ mapM (logOut VERBOSE) besties
+    return ()
