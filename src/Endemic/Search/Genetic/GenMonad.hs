@@ -121,18 +121,20 @@ instance Chromosome EFix where
     if null to_compute
       then return $ map snd done
       else do
-        desc@ProbDesc {..} <- liftDesc R.ask
-        GConf {..} <- liftConf R.ask
-        let EProb {..} = progProblem
-            n_progs = map (applyFixToEProg e_prog) to_compute
-        res <-
-          zipWith (\e f -> (e, basicFitness e f)) to_compute
-            <$> liftIO (checkFixes desc $ map eProgToEProgFix n_progs)
+        res <- zipWith (\e f -> (e, basicFitness e f)) to_compute
+                 <$> unsafeComputePopResults to_compute
         putCache (Map.fromList res `Map.union` fc)
         return $
           map (snd . snd) $
             sortOn fst $
               zip to_compute_inds res ++ zip done_inds done
+
+  unsafeComputePopResults to_compute = do
+    desc@ProbDesc {..} <- liftDesc R.ask
+    GConf {..} <- liftConf R.ask
+    let EProb {..} = progProblem
+        n_progs = map (applyFixToEProg e_prog) to_compute
+    liftIO (checkFixes desc $ map eProgToEProgFix n_progs)
 
   initialPopulation 0 = return [] -- We don't want to do any work if there's no work to do.
   initialPopulation n = collectStats $

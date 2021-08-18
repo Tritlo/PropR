@@ -8,7 +8,7 @@ module Endemic.Search.Genetic.Search where
 import Control.Monad (foldM, forM)
 import qualified Control.Monad.Trans.Reader as R
 import Data.Function (on)
-import Data.List (partition, sortBy, sortOn, minimumBy)
+import Data.List (partition, sortBy, sortOn, minimumBy, intercalate)
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
@@ -107,7 +107,7 @@ geneticSearch = collectStats $ do
       -- | The results found, for which the fitness function is correct. Collected over all generations, ordered by generations ascending
       GenMonad (Set g)
     -- Case A: Iterations Done, return empty results
-    geneticSearch' 0 _ pop = do 
+    geneticSearch' 0 _ pop = do
       reportNearResults pop 10
       return Set.empty
     -- Case B: Iterations left, check on other abortion criteria
@@ -155,7 +155,7 @@ geneticSearch = collectStats $ do
           let averageFitness = average popFitness
               (bestFitness, bestCand) = minimumBy (compare `on` fst) $ zip popFitness nextPop
           logStr' VERBOSE ("Average Fitness of Generation " ++ show currentGen
-                ++ " is " 
+                ++ " is "
                 ++ show (averageFitness)
                 )
           logStr' VERBOSE ("Best candidate so far with fitness " ++ show bestFitness ++ ":")
@@ -290,16 +290,16 @@ geneticSearch = collectStats $ do
       -- We select the top i% elite if specified in the configuration.
       if (elitismRate conf) > 1 || (elitismRate conf) < 0
       then error "Received invalid elitismRate - aborting. ElitismRate must be in [0,1]"
-      else do 
-        let 
+      else do
+        let
             numElites = floor ((fromIntegral $ populationSize conf) * (elitismRate conf))
             numRandies = (populationSize conf) - numElites
             elites = take numElites mergedPop'
             -- To not pick elites twice, we make a new non-elite pop to draw from
             -- As the non-elite pop is taken from the shuffled pop, it is shuffled too.
-            nonElitePop = deleteMany elites shuffledMergedPop 
-            -- We then take the remaining ones random 
-            nonElites = take numRandies nonElitePop 
+            nonElitePop = deleteMany elites shuffledMergedPop
+            -- We then take the remaining ones random
+            nonElites = take numRandies nonElitePop
             nextPop = elites ++ nonElites
         return nextPop
 
@@ -478,16 +478,23 @@ fittest gs = do
   return (listToMaybe sorted)
 
 
--- | Prints the best elements of the population to VERBOSE level. 
+-- | Prints the best elements of the population to VERBOSE level.
 -- TODO: Add the failing properties per each element.
-reportNearResults :: (Chromosome g) => 
-  [g]            -- ^ The (last) population to be printed from 
-  -> Int         -- ^ Number of elements to be printed 
-  -> GenMonad () -- ^ Stuff is just printed, but the fitness cache is utilized. 
-reportNearResults pop n = 
-  do 
+reportNearResults :: (Chromosome g) =>
+  [g]            -- ^ The (last) population to be printed from
+  -> Int         -- ^ Number of elements to be printed
+  -> GenMonad () -- ^ Stuff is just printed, but the fitness cache is utilized.
+reportNearResults pop n =
+  do
+    propNames <- map propToName . e_props . progProblem <$> liftDesc R.ask
     sortedPop <- sortPopByFitness pop
     let besties = take n sortedPop
-    liftIO $ logStr VERBOSE ("Best-Fitted elements of the population where: ")
-    liftIO $ mapM (logOut VERBOSE) besties
+        toFailReason (Right False) = "Did not terminate/compile"
+        toFailReason (Right True) = "It worked... shouldn't be here..."
+        toFailReason (Left props) =
+          let failing = map fst $ filter (not . snd) $ zip propNames props
+          in unwords failing
+    (failReasons :: [String]) <- map toFailReason <$> unsafeComputePopResults besties
+    liftIO $ logStr VERBOSE ("Best-Fitted elements of the population were: ")
+    liftIO $ mapM (\(fr, b) -> logStr VERBOSE fr >> logOut VERBOSE b) $ zip failReasons besties
     return ()

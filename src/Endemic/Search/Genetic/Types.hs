@@ -12,7 +12,7 @@ import qualified Data.Map as Map
 import Endemic.Configuration
 import Endemic.Eval (getExprFitCands, moduleToProb)
 import Endemic.Search.Genetic.Configuration
-import Endemic.Types (EFix, EProblem (..), ExprFitCand)
+import Endemic.Types
 import Endemic.Util (undefVar)
 import GHC (HsExpr (HsLet), NoExtField (NoExtField))
 import GhcPlugins (Outputable (..), noLoc)
@@ -44,6 +44,8 @@ class (Ord g, Outputable g, NFData g) => Chromosome g where
     g ->
     -- | A fitness function, applicable to the Chromosome.
     GenMonad Double
+
+  unsafeComputePopResults :: [g] -> GenMonad [TestSuiteResult]
 
   -- | Returns an Initial Population of Size p
   initialPopulation ::
