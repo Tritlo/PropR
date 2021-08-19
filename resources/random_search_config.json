@@ -1,8 +1,6 @@
 {
   "compile_config": {
-    "import_stmts": [
-      "import Prelude"
-    ],
+    "import_stmts": [],
     "packages": [
       "base"
     ],

@@ -67,7 +67,7 @@ import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
 import Numeric (showHex)
-import PrelNames (toDynName)
+import PrelNames (pRELUDE_NAME, toDynName)
 import RnExpr (rnLExpr)
 import StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive, removeFile)
@@ -162,7 +162,7 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
   liftIO $ logStr DEBUG "Parsing imports..."
-  imports <- mapM (fmap IIDecl . parseImportDecl) importStmts
+  imports <- addPreludeIfNotPresent <$> mapM (fmap IIDecl . parseImportDecl) importStmts
   let toTarget mod_path = Target (TargetFile mod_path Nothing) True Nothing
   liftIO $ logStr DEBUG "Adding additional targets..."
   mapM_ (addTarget . toTarget) additionalTargets
@@ -172,6 +172,17 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
   getContext >>= setContext . (imports ++)
   liftIO $ logStr DEBUG "Initialization complete."
   return plugRef
+
+addPreludeIfNotPresent :: [InteractiveImport] -> [InteractiveImport]
+addPreludeIfNotPresent decls =
+  if any isPrelude decls
+    then decls
+    else (prelImport : decls)
+  where
+    isPrelude (IIModule mname) = mname == pRELUDE_NAME
+    isPrelude (IIDecl ImportDecl {..}) = unLoc ideclName == pRELUDE_NAME
+    isPrelude _ = False
+    prelImport = IIDecl $ simpleImportDecl pRELUDE_NAME
 
 justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
 justParseExpr cc str = do
@@ -422,7 +433,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
           liftIO $ logStr DEBUG "Unfolding tests..."
           let thisMod = IIDecl $ simpleImportDecl mname
           getContext >>= setContext . (thisMod :)
-          imports <- mapM (fmap IIDecl . parseImportDecl) (importStmts ++ checkImports)
+          imports <- addPreludeIfNotPresent <$> mapM (fmap IIDecl . parseImportDecl) (importStmts ++ checkImports)
           getContext >>= setContext . ((thisMod : imports) ++)
           let countExpr =
                 "map (length . unfoldTastyTests) ["
@@ -992,8 +1003,9 @@ exprToTraceModule _ _ _ _ _ _ = error "External problems not supported yet!"
 reportError :: (HasCallStack, GhcMonad m, Outputable p) => p -> SourceError -> m b
 reportError p e = do
   liftIO $ do
-    logStr ERROR "Compiling check Failed with unexpected Exception:"
+    logStr ERROR "Compiling check failed with unexpected exception:"
     logStr ERROR (showUnsafe p)
+    logStr ERROR (unlines $ bagToList $ mapBag show $ srcErrorMessages e)
   printException e
   error "UNEXPECTED EXCEPTION"
 

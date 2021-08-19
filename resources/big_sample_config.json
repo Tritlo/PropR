@@ -1,8 +1,6 @@
 {
   "compile_config": {
-    "import_stmts": [
-      "import Prelude"
-    ],
+    "import_stmts": [],
     "packages": [
       "base"
     ],
@@ -39,6 +37,7 @@
       "population_size": 64,
       "timeout_in_seconds": 300,
       "stop_on_results": false,
+      "elitism_rate": 1,
       "tournament_configuration": {
         "t_size": 8,
         "t_rounds": 8

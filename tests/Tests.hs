@@ -20,7 +20,7 @@ import Endemic.Repair
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
-import GHC (GhcPs, LHsExpr, tm_parsed_module, noExtField)
+import GHC (GhcPs, LHsExpr, noExtField, tm_parsed_module)
 import GhcPlugins (GenLocated (L), getLoc, ppr, showSDocUnsafe, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
@@ -442,7 +442,8 @@ moduleTests =
       mkSimpleModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing,
       mkSimpleModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,
       mkSimpleModuleTest 30_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing,
-      mkSimpleModuleTest 30_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing
+      mkSimpleModuleTest 30_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing,
+      mkSimpleModuleTest 30_000_000 "Prelude overwrite" "tests/cases/PreludeOverwrite.hs" Nothing
     ]
 
 main = defaultMain tests

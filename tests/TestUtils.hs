@@ -64,38 +64,39 @@ instance Default TestConf where
 mkSimpleModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> TestTree
 mkSimpleModuleTest timeout tag toFix repair_target =
   localOption (mkTimeout timeout) $
-    testCase tag $ do
-      expected <- readExpected toFix
-      setSeedGenSeed tESTSEED
-      (cc', mod, mb_prob) <- moduleToProb (compileConfig tESTCONF) toFix repair_target
-      case mb_prob of
-        Nothing -> [] @?= expected
-        Just ExProb {..} -> error "not supported yet!"
-        Just tp@EProb {..} -> do
-          fixes <- repair cc' tp
-          let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
-              diffs =
-                map
-                  ( concatMap ppDiff
-                      . snd
-                      . applyFixes (tm_parsed_module mod)
-                      . getFixBinds
-                      . head
-                  )
-                  fixProgs
-              check = sort diffs == sort expected
-              msg =
-                unlines
-                  [ "Fix mismatch!",
-                    "Expected:",
-                    unlines expected,
-                    "But got:",
-                    unlines diffs,
-                    "Actual fixes were:",
-                    unlines (map (showSDocUnsafe . ppr) fixes)
-                  ]
-          when (not check && acceptNew def) $ writeExpected toFix (unlines diffs)
-          assertBool msg check
+    testCase tag $
+      withLogLevel GHCERR $ do
+        expected <- readExpected toFix
+        setSeedGenSeed tESTSEED
+        (cc', mod, mb_prob) <- moduleToProb (compileConfig tESTCONF) toFix repair_target
+        case mb_prob of
+          Nothing -> [] @?= expected
+          Just ExProb {..} -> error "not supported yet!"
+          Just tp@EProb {..} -> do
+            fixes <- repair cc' tp
+            let fixProgs = map (eProgToEProgFix . applyFixToEProg e_prog) fixes
+                diffs =
+                  map
+                    ( concatMap ppDiff
+                        . snd
+                        . applyFixes (tm_parsed_module mod)
+                        . getFixBinds
+                        . head
+                    )
+                    fixProgs
+                check = sort diffs == sort expected
+                msg =
+                  unlines
+                    [ "Fix mismatch!",
+                      "Expected:",
+                      unlines expected,
+                      "But got:",
+                      unlines diffs,
+                      "Actual fixes were:",
+                      unlines (map (showSDocUnsafe . ppr) fixes)
+                    ]
+            when (not check && acceptNew def) $ writeExpected toFix (unlines diffs)
+            assertBool msg check
 
 mkRepairTest ::
   Configuration ->
