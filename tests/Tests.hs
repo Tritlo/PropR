@@ -443,7 +443,8 @@ moduleTests =
       mkSimpleModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,
       mkSimpleModuleTest 30_000_000 "Unnamed faked" "tests/cases/unnamed.hs" Nothing,
       mkSimpleModuleTest 30_000_000 "Main module faked" "tests/cases/mainMod.hs" Nothing,
-      mkSimpleModuleTest 30_000_000 "Prelude overwrite" "tests/cases/PreludeOverwrite.hs" Nothing
+      mkSimpleModuleTest 30_000_000 "Prelude overwrite" "tests/cases/PreludeOverwrite.hs" Nothing,
+      mkSimpleModuleTest 30_000_000 "Prelude overwrite imports" "tests/cases/PreludeOverwriteImports.hs" Nothing
     ]
 
 main = defaultMain tests
