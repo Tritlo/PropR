@@ -29,7 +29,7 @@
 --      definitely solved)
 module Endemic.Repair where
 
-import Bag (bagToList, emptyBag, listToBag)
+import Bag (bagToList, emptyBag, filterBag, listToBag)
 import Constraint
 import Control.Arrow (first, second, (***))
 import Control.Concurrent (getNumCapabilities, threadDelay, threadWaitRead)
@@ -558,26 +558,94 @@ generateFixCandidates
     return fix_cands
 generateFixCandidates _ _ = error "External problems not supported"
 
--- Runs the given action and captures any errors
-tryGHCCaptureOutput :: Ghc a -> Ghc (a, [String])
-tryGHCCaptureOutput act = do
-  msg_ref <- liftIO $ newIORef []
-  dflags <- getSessionDynFlags
-  let logAction :: LogAction
-      logAction _ _ sev loc _ msg
-        | SevFatal <- sev = log
-        | SevError <- sev = log
-        | otherwise = reject
+-- | Remove Problematic Targets removes targets that have issues without any
+-- fixes at all, e.g. parse errors or similar.
+removeProblematicTargets :: ProblemDescription -> IO (Maybe EProblem)
+removeProblematicTargets desc@ProbDesc {progProblem = prob@EProb {..}, ..} = do
+  do
+    logStr TRACE "Checking for problematic targets..."
+    check <- checkPBT e_prog
+    if check
+      then do
+        logStr TRACE "No problematic targets found!"
+        return (Just prob)
+      else do
+        logStr TRACE "Problematic targets found!"
+        logStr TRACE "Removing problematic targets..."
+        (working, not_working) <-
+          (map fst *** map fst) . partition snd . zip e_prog <$> pbtBinSearch e_prog
+        logStr TRACE $ show (length not_working) ++ " problematic targets removed:"
+        mapM_ (logOut DEBUG . (\(n, _, _) -> n)) not_working
+        return $
+          if null working
+            then Nothing
+            else Just (closeEProb $ prob {e_prog = working})
+  where
+    checkPBT n_prog =
+      isJust <$> checkFixes' True d [eProgToEProgFixAtTy c_prog]
+      where
+        n_prob@EProb {e_prog = c_prog} = closeEProb (prob {e_prog = n_prog})
+        d = desc {progProblem = n_prob}
+    pbtBinSearch [] = return []
+    pbtBinSearch n_prog@[_] = (: []) <$> checkPBT n_prog
+    pbtBinSearch n_prog = (++) <$> checkHalf fh <*> checkHalf sh
+      where
+        (fh, sh) = splitAt (length n_prog `div` 2) n_prog
+        checkHalf [] = return []
+        checkHalf h = do
+          c <- checkPBT h
+          if c
+            then return (replicate (length h) True)
+            else pbtBinSearch h
+removeProblematicTargets desc@ProbDesc {..} = return (Just progProblem)
+
+-- | CloseEProg removes all binds from the EProb that's not mentioned in the e_prog,
+-- and fixes the properties as well.
+closeEProb :: EProblem -> EProblem
+closeEProb prob@EProb {..} = prob {e_prog = n_prog, e_props = n_props, e_prop_sigs = n_prop_sigs}
+  where
+    (n_props, n_prop_sigs) = unzip $ catMaybes $ zipWith fixPNSig e_props e_prop_sigs
+    n_prog = map (\(n, t, e) -> (n, t, fixExpr e)) e_prog
+    names = Set.fromList $ map (\(n, _, _) -> n) e_prog
+    fixPNSig :: EProp -> LSig GhcPs -> Maybe (EProp, LSig GhcPs)
+    fixPNSig
+      (L pl fb@FunBind {fun_matches = fm@MG {mg_alts = alts@(L la matches)}})
+      (L ps (TypeSig xts nms (HsWC e (HsIB ix ty)))) =
+        if drpd == num_dropped
+          then
+            Just
+              ( L pl fb {fun_matches = fm {mg_alts = L la matches'}},
+                L ps (TypeSig xts nms (HsWC e (HsIB ix nty)))
+              )
+          else Nothing
         where
-          log = modifyIORef msg_ref ((locstr ++ " " ++ showSafe dflags msg) :)
-          locstr = showSafe dflags loc
-          reject = return ()
-  void $ setSessionDynFlags dflags {log_action = logAction}
-  res <- defaultErrorHandler (\err -> modifyIORef msg_ref (err :)) (FlushOut (return ())) act
-  dflags' <- getSessionDynFlags
-  void $ setSessionDynFlags dflags' {log_action = log_action dflags}
-  msgs <- reverse <$> liftIO (readIORef msg_ref)
-  return (res, msgs)
+          dropWildCards :: Int -> LHsType GhcPs -> (Int, LHsType GhcPs)
+          dropWildCards 0 t = (0, t)
+          dropWildCards n (L _ (HsFunTy NoExtField (L _ (HsWildCardTy NoExtField)) rty)) = dropWildCards (n -1) rty
+          dropWildCards n t = (n, t)
+          (drpd, nty) = dropWildCards num_dropped ty
+          num_dropped = maximum $ map length dropped
+          (dropped, matches') = unzip $ map fixMatch matches
+          fixMatch (L lm m@Match {..}) =
+            (dropped, L lm m {m_pats = pats'})
+            where
+              (pats', dropped) = partition keepPat m_pats
+              keepPat (L _ (ParPat _ (L _ (VarPat _ (L _ vn))))) = vn `Set.member` names
+              keepPat _ = True
+    fixPNSig p s = Just (p, s)
+    fixExpr :: EExpr -> EExpr
+    fixExpr (L l (HsLet lx (L l' (HsValBinds hvbx (ValBinds vbx pb sigs))) le)) =
+      L l (HsLet lx (L l' (HsValBinds hvbx (ValBinds vbx pb' sigs'))) le)
+      where
+        sigs' = filter sig_in_names sigs
+        pb' = filterBag bind_in_names pb
+        bind_in_names (L _ FunBind {fun_id = fid}) = unLoc fid `Set.member` names
+        bind_in_names _ = True
+        sig_in_names (L _ (TypeSig _ nms _)) = any ((`Set.member` names) . unLoc) nms
+        sig_in_names _ = True
+    fixExpr x = x
+
+closeEProg ExProb {..} = error "External problems not supported!"
 
 -- | Runs a given (changed) Program against the Test-Suite described in ProblemDescription.
 -- The Result is the Test-Suite-Result, where
@@ -585,12 +653,17 @@ tryGHCCaptureOutput act = do
 -- Left [Bool] expresses a list of the results of each run test, where true is passing and false is failing.
 -- Shortwires an empty list when the EExpr list is empty.
 -- TODO: DOCUMENT (Further)
-checkFixes ::
-  ProblemDescription ->
-  [EProgFix] ->
-  IO [TestSuiteResult]
-checkFixes _ [] = return []
-checkFixes
+checkFixes :: ProblemDescription -> [EProgFix] -> IO [TestSuiteResult]
+checkFixes desc prog =
+  fromMaybe (replicate (length prog) (Right False)) <$> checkFixes' False desc prog
+
+-- | checkFixes' does the actual work for checkFixes, but additionally takes in
+-- a boolean switch, `compile_check_only`. If True, the fixes will only be
+-- checked whether they comile, and not run.
+checkFixes' :: Bool -> ProblemDescription -> [EProgFix] -> IO (Maybe [TestSuiteResult])
+checkFixes' _ _ [] = return (Just [])
+checkFixes'
+  compile_check_only
   desc@ProbDesc
     { compConf = cc@CompConf {..},
       progProblem = tp,
@@ -605,55 +678,65 @@ checkFixes
     (tempDir, exeName, mname, target_name, tid) <- initCompileChecks orig_flags orig_fixes
     liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
     (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
-    res <-
+    (res :: Maybe [TestSuiteResult]) <-
       if succeeded sf2
-        then runCompiledFixes exeName mname orig_fixes
+        then
+          if compile_check_only
+            then return (Just [])
+            else Just <$> runCompiledFixes exeName mname orig_fixes
         else
-          if not filterIncorrectFixes
+          if compile_check_only
             then do
-              liftIO $
-                logStr ERROR $
-                  "Error while loading: " ++ moduleNameString target_name
-                    ++ " see error message for more information"
-              liftIO $ mapM_ (logStr ERROR) msgs
-              liftIO exitFailure
-            else do
-              liftIO $ logStr TRACE "Error in fixes, trying to recover..."
-              -- This might wreak havoc on the linker...
-              removeTarget tid
-              compiling <- zip orig_fixes <$> doesCompileBin orig_flags orig_fixes
-              let comp_inds_n_e = filter (snd . snd) $ zip [0 :: Int ..] compiling
-                  comp_inds = map fst comp_inds_n_e
-                  compiling_fixes = map (fst . snd) comp_inds_n_e
-              if (null compiling_fixes)
-                then do
-                  liftIO $
-                    logStr TRACE $
-                      "Error while loading: " ++ moduleNameString target_name
-                        ++ " see error message for more information"
-                  liftIO $ logStr TRACE $ "None of the " ++ show (length orig_fixes) ++ " fixes compiled, recovery failed"
-                  liftIO $ logStr TRACE $ "Failed with the errors:"
-                  liftIO $ mapM_ (logStr DEBUG) msgs
-                  return (replicate (length orig_fixes) (Right False))
-                else do
-                  liftIO $ logStr TRACE $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
-                  liftIO $ logStr TRACE $ "Reinitializing..."
-                  setCheckDynFlags
-                  (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
-                  liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString n_target ++ " again..."
-                  (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo n_target)
-                  if succeeded sf2
-                    then liftIO $ logStr TRACE "Recovered!"
-                    else do
-                      liftIO $ logStr ERROR "Recovery completely failed!"
-                      liftIO $ mapM_ (logStr ERROR) msgs
-                      liftIO $ exitFailure
-                  new_results <- runCompiledFixes n_exe n_mname compiling_fixes
-                  let result_map = Map.fromList $ zip comp_inds new_results
-                      getRes i = case result_map Map.!? i of
-                        Just r -> r
-                        _ -> Right False
-                  return $ zipWith (\i _ -> getRes i) [0 :: Int ..] orig_fixes
+              liftIO $ logStr TRACE "Fixes failed to compile!"
+              liftIO $ mapM_ (logStr DEBUG) msgs
+              return Nothing
+            else
+              Just
+                <$> if not filterIncorrectFixes
+                  then do
+                    liftIO $
+                      logStr ERROR $
+                        "Error while loading: " ++ moduleNameString target_name
+                          ++ " see error message for more information"
+                    liftIO $ mapM_ (logStr ERROR) msgs
+                    liftIO exitFailure
+                  else do
+                    liftIO $ logStr TRACE "Error in fixes, trying to recover..."
+                    -- This might wreak havoc on the linker...
+                    removeTarget tid
+                    compiling <- zip orig_fixes <$> doesCompileBin orig_flags orig_fixes
+                    let comp_inds_n_e = filter (snd . snd) $ zip [0 :: Int ..] compiling
+                        comp_inds = map fst comp_inds_n_e
+                        compiling_fixes = map (fst . snd) comp_inds_n_e
+                    if (null compiling_fixes)
+                      then do
+                        liftIO $
+                          logStr TRACE $
+                            "Error while loading: " ++ moduleNameString target_name
+                              ++ " see error message for more information"
+                        liftIO $ logStr TRACE $ "None of the " ++ show (length orig_fixes) ++ " fixes compiled, recovery failed"
+                        liftIO $ logStr TRACE $ "Failed with the errors:"
+                        liftIO $ mapM_ (logStr DEBUG) msgs
+                        return (replicate (length orig_fixes) (Right False))
+                      else do
+                        liftIO $ logStr TRACE $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
+                        liftIO $ logStr TRACE $ "Reinitializing..."
+                        setCheckDynFlags
+                        (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
+                        liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString n_target ++ " again..."
+                        (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo n_target)
+                        if succeeded sf2
+                          then liftIO $ logStr TRACE "Recovered!"
+                          else do
+                            liftIO $ logStr ERROR "Recovery completely failed!"
+                            liftIO $ mapM_ (logStr ERROR) msgs
+                            liftIO $ exitFailure
+                        new_results <- runCompiledFixes n_exe n_mname compiling_fixes
+                        let result_map = Map.fromList $ zip comp_inds new_results
+                            getRes i = case result_map Map.!? i of
+                              Just r -> r
+                              _ -> Right False
+                        return $ zipWith (\i _ -> getRes i) [0 :: Int ..] orig_fixes
     dflags <- getSessionDynFlags
     cleanupAfterLoads tempDir mname dflags
     return res
@@ -868,17 +951,24 @@ checkFixes
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
 describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
   logStr TRACE "Describing problem..."
-  (compConf@CompConf {..}, modul, problem) <- moduleToProb ogcc fp Nothing
+  (compConf@CompConf {..}, modul, initial_problem) <- moduleToProb ogcc fp Nothing
+  let probModule = Just modul
+      initialFixes = Nothing
+      addConf = def {assumeNoLoops = True}
+  problem <- case initial_problem of
+    Just p@EProb {} ->
+      let progProblem = p
+          exprFitCands = []
+          db = ProbDesc {..}
+       in removeProblematicTargets db
+    x -> return x
   case problem of
     Just ExProb {} -> error "External targets not supported!"
     Nothing -> return Nothing
     Just progProblem@EProb {..} ->
       Just <$> do
         exprFitCands <- runGhc' compConf $ getExprFitCands $ Right modul
-        let probModule = Just modul
-            initialFixes = Nothing
-            addConf = def {assumeNoLoops = True}
-            descBase = ProbDesc {..}
+        let descBase = ProbDesc {..}
         if precomputeFixes
           then do
             logStr TRACE "Pre-computing fixes..."
