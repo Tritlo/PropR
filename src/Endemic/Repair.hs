@@ -1,5 +1,4 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE NumericUnderscores #-}
@@ -8,6 +7,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Module      : Endemic.Repair
@@ -372,7 +372,7 @@ findEvaluatedHoles
     { compConf = cc,
       progProblem = tp@EProb {..}
     } = runGhc' cc $ do
-    liftIO $ logStr DEBUG "Finding evaluated holes..."
+    liftIO $ logStr TRACE "Finding evaluated holes..."
     -- We apply the fixes to all of the contexts, and all of the contexts
     -- contain the entire current program.
     -- TODO: Is this safe?
@@ -380,20 +380,20 @@ findEvaluatedHoles
 
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
-    liftIO $ logStr DEBUG "Finding failing props..."
+    liftIO $ logStr TRACE "Finding failing props..."
     failing_props <- collectStats $ failingProps' desc
-    liftIO $ logStr DEBUG $ "Found " ++ show (length failing_props) ++ " failing props"
+    liftIO $ logStr TRACE $ "Found " ++ show (length failing_props) ++ " failing props"
 
-    liftIO $ logStr DEBUG "Finding counter examples..."
+    liftIO $ logStr TRACE "Finding counter examples..."
     counter_examples <- liftIO $ collectStats $ propCounterExamples desc failing_props
-    liftIO $ logStr DEBUG $ "Found " ++ show (length counter_examples) ++ " counter examples"
+    liftIO $ logStr TRACE $ "Found " ++ show (length counter_examples) ++ " counter examples"
 
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
         -- ps_w_ce = Properties with CounterExamples -> The Failing Properties
         ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
     -- We compute the locations that are touched by the failing counter-examples
-    liftIO $ logStr DEBUG "Tracing program..."
+    -- liftIO $ logStr TRACE "Tracing program..."
     -- This Method helps us to go resolve the traces per expressions touched by properties
     -- To get the traces per properties touched by expressions.
     -- If it were a matrix, this would be a classic matrix transpose.
@@ -441,7 +441,7 @@ findEvaluatedHoles
           . zip (zip [0 :: Integer ..] ps_w_ce)
           <$> traceTargets cc tp id_prog ps_w_ce
 
-    liftIO $ logStr DEBUG $ "Got " ++ show (length traces_that_worked) ++ " traces that worked"
+    liftIO $ logStr TRACE $ "Got " ++ show (length traces_that_worked) ++ " traces that worked"
     liftIO $ mapM_ (logOut DEBUG . second (Map.filter (> 0))) traces_that_worked
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
@@ -454,18 +454,18 @@ findEvaluatedHoles
           where
             sfe = sanctifyExpr noExtField expr
             toExprHole (iv_expr, iv_loc) =
-               -- We can get a Nothing here if e.g. the evaluated part is with
-               -- an operator with precedence, e.g. a ++ b ++ c, because GHC
-               -- doesn't do precedence until it renames. We *could* use the
-               -- renamed `iv_expr` and rename the `expr` as well to get those
-               -- locs... but then we'd have to switch the whole thing over to
-               -- `LHsExpr GhcRn`, since those locs do not exsist in  the
-               -- `LHsExpr GhcPs` yet, and then we have issues with compiling
-               -- them to get the valid hole fits, since GHC has no built-in
-               -- function `compileRnStmt`. So we'll make do for now.
-               case find is_iv (zip sfe sfi) of
-                 Just (e@(e_loc,_), _) | isGoodSrcSpan e_loc -> Just e
-                 _ -> Nothing
+              -- We can get a Nothing here if e.g. the evaluated part is with
+              -- an operator with precedence, e.g. a ++ b ++ c, because GHC
+              -- doesn't do precedence until it renames. We *could* use the
+              -- renamed `iv_expr` and rename the `expr` as well to get those
+              -- locs... but then we'd have to switch the whole thing over to
+              -- `LHsExpr GhcRn`, since those locs do not exsist in  the
+              -- `LHsExpr GhcPs` yet, and then we have issues with compiling
+              -- them to get the valid hole fits, since GHC has no built-in
+              -- function `compileRnStmt`. So we'll make do for now.
+              case find is_iv (zip sfe sfi) of
+                Just (e@(e_loc, _), _) | isGoodSrcSpan e_loc -> Just e
+                _ -> Nothing
               where
                 sfi = sanctifyExpr noExtField iv_expr
                 is_iv = (== iv_loc) . fst . snd
@@ -473,7 +473,7 @@ findEvaluatedHoles
         non_zero_holes = Set.unions $ map fk traces_that_worked
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
     let nzh = Set.toList non_zero_holes
-    liftIO $ logStr DEBUG $ "Found " ++ show (length nzh) ++ " evaluated holes"
+    liftIO $ logStr TRACE $ "Found " ++ show (length nzh) ++ " evaluated holes"
     return nzh
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
@@ -552,9 +552,9 @@ generateFixCandidates
               map (Map.fromList . fst) $ replacements hole_expr multi_fits
         fix_cands :: [(EFix, EProgFix)]
         fix_cands = map (\f -> (f,) $ map (\(_, _, prog) -> f `replaceExpr` prog) e_prog) fix_cands'
-    liftIO $ logStr DEBUG "Fix candidates:"
+    liftIO $ logStr TRACE "Fix candidates:"
     liftIO $ mapM_ (logOut DEBUG) fix_cands
-    liftIO $ logStr DEBUG "Those were all of them!"
+    liftIO $ logStr TRACE "Those were all of them!"
     return fix_cands
 generateFixCandidates _ _ = error "External problems not supported"
 
@@ -600,10 +600,10 @@ checkFixes
   -- Because checkFixes sets the dynFlags, we need to run it in a separate
   -- thread: hence the runGhc' here
   orig_fixes = runGhc' cc $ do
-    liftIO $ logStr DEBUG "Checking fixes..."
+    liftIO $ logStr TRACE "Checking fixes..."
     orig_flags <- setCheckDynFlags
     (tempDir, exeName, mname, target_name, tid) <- initCompileChecks orig_flags orig_fixes
-    liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
+    liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
     (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
     res <-
       if succeeded sf2
@@ -618,7 +618,7 @@ checkFixes
               liftIO $ mapM_ (logStr ERROR) msgs
               liftIO exitFailure
             else do
-              liftIO $ logStr DEBUG "Error in fixes, trying to recover..."
+              liftIO $ logStr TRACE "Error in fixes, trying to recover..."
               -- This might wreak havoc on the linker...
               removeTarget tid
               compiling <- zip orig_fixes <$> doesCompileBin orig_flags orig_fixes
@@ -628,22 +628,22 @@ checkFixes
               if (null compiling_fixes)
                 then do
                   liftIO $
-                    logStr DEBUG $
+                    logStr TRACE $
                       "Error while loading: " ++ moduleNameString target_name
                         ++ " see error message for more information"
-                  liftIO $ logStr DEBUG $ "None of the " ++ show (length orig_fixes) ++ " fixes compiled, recovery failed"
-                  liftIO $ logStr DEBUG $ "Failed with the errors:"
+                  liftIO $ logStr TRACE $ "None of the " ++ show (length orig_fixes) ++ " fixes compiled, recovery failed"
+                  liftIO $ logStr TRACE $ "Failed with the errors:"
                   liftIO $ mapM_ (logStr DEBUG) msgs
                   return (replicate (length orig_fixes) (Right False))
                 else do
-                  liftIO $ logStr DEBUG $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
-                  liftIO $ logStr DEBUG $ "Reinitializing..."
+                  liftIO $ logStr TRACE $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
+                  liftIO $ logStr TRACE $ "Reinitializing..."
                   setCheckDynFlags
                   (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
-                  liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString n_target ++ " again..."
+                  liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString n_target ++ " again..."
                   (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo n_target)
                   if succeeded sf2
-                    then liftIO $ logStr DEBUG "Recovered!"
+                    then liftIO $ logStr TRACE "Recovered!"
                     else do
                       liftIO $ logStr ERROR "Recovery completely failed!"
                       liftIO $ mapM_ (logStr ERROR) msgs
@@ -678,7 +678,7 @@ checkFixes
       doesCompile :: DynFlags -> [EProgFix] -> Ghc Bool
       doesCompile dflags fixes = do
         (tempDir, _, mname, target_name, tid) <- initCompileChecks dflags fixes
-        liftIO $ logStr DEBUG $ "Loading up to " ++ moduleNameString target_name
+        liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
         (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
         liftIO $ mapM_ (logStr DEBUG) msgs
         -- removeTarget might not be enough for the linker, we'll probably
@@ -743,9 +743,9 @@ checkFixes
 
       runCompiledFixes :: FilePath -> String -> [EProgFix] -> Ghc [TestSuiteResult]
       runCompiledFixes exeName mname working_fixes = do
-        liftIO $ logStr DEBUG "Running compiled fixes..."
+        liftIO $ logStr TRACE "Running compiled fixes..."
         mg <- depanal [] True
-        liftIO $ logStr DEBUG "New graph:"
+        liftIO $ logStr TRACE "New graph:"
         liftIO $ mapM (logOut DEBUG) $ mgModSummaries mg
         let p '1' = Just True
             p '0' = Just False
@@ -756,9 +756,9 @@ checkFixes
             startCheck which = do
               (_, Just hout, _, ph) <- do
                 let tixFilePath = exeName ++ "_" ++ show which ++ ".tix"
-                logStr DEBUG $ "Checking " ++ show which ++ ":"
+                logStr TRACE $ "Checking " ++ show which ++ ":"
                 logOut DEBUG (working_fixes !! which)
-                logStr DEBUG $ "Starting " ++ exeName
+                logStr TRACE $ "Starting " ++ exeName
                 createProcess
                   (proc exeName [show which])
                     { -- TODO: /dev/null should be NUL if we're on windows.
@@ -811,7 +811,7 @@ checkFixes
                 (f, r) = break isRorL xs
         batchSize <- liftIO getNumCapabilities
         let interpretLoop checks = collectStats $ do
-              logStr DEBUG "Running checks..."
+              logStr TRACE "Running checks..."
               res <-
                 if parChecks
                   then do
@@ -830,7 +830,7 @@ checkFixes
                               exitFailure
                         Nothing -> mapM (forkWithFile checkArr) checks
                   else evf evalCheck checks
-              logStr DEBUG "Done checking!"
+              logStr TRACE "Done checking!"
               return res
               where
                 encode = BSC.pack . concatMap toB
@@ -849,16 +849,16 @@ checkFixes
                   then do
                     -- By starting all the processes and then waiting on them, we get more
                     -- mode parallelism.
-                    liftIO $ logStr DEBUG "Running checks..."
+                    liftIO $ logStr TRACE "Running checks..."
                     procs <- collectStats $ mapM startCheck inds
                     collectStats $ mapM waitOnCheck procs
                   else collectStats $ mapM (startCheck >=> waitOnCheck) inds
         concat
           <$> if shouldInterpret
             then do
-              liftIO $ logStr DEBUG $ "Adding " ++ mname
+              liftIO $ logStr TRACE $ "Adding " ++ mname
               setContext [IIDecl $ simpleImportDecl m_name]
-              liftIO $ logStr DEBUG "Compiling checks__"
+              liftIO $ logStr TRACE "Compiling checks__"
               checks_expr <- compileExpr "checks__"
               let checks :: [IO [Bool]]
                   checks = unsafeCoerce# checks_expr
@@ -867,7 +867,7 @@ checkFixes
 
 describeProblem :: Configuration -> FilePath -> IO (Maybe ProblemDescription)
 describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
-  logStr DEBUG "Describing problem..."
+  logStr TRACE "Describing problem..."
   (compConf@CompConf {..}, modul, problem) <- moduleToProb ogcc fp Nothing
   case problem of
     Just ExProb {} -> error "External targets not supported!"
@@ -881,7 +881,7 @@ describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
             descBase = ProbDesc {..}
         if precomputeFixes
           then do
-            logStr DEBUG "Pre-computing fixes..."
+            logStr TRACE "Pre-computing fixes..."
             let desc' = descBase {addConf = addConf {assumeNoLoops = False}}
                 fix_str_length :: EFix -> Int
                 fix_str_length = sum . map (length . showSDocUnsafe . ppr) . Map.elems
@@ -905,7 +905,7 @@ describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
                       . map (\(f, r) -> (fitness r, f))
                       . filter ((/= Right False) . snd)
                       <$> repairAttempt desc'
-            logStr DEBUG $ "Found  " ++ show (length initialFixes) ++ " initial fixes:"
+            logStr TRACE $ "Found  " ++ show (length initialFixes) ++ " initial fixes:"
             mapM_ (logOut DEBUG) initialFixes'
             return $ descBase {initialFixes = Just initialFixes'}
           else return descBase

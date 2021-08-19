@@ -136,7 +136,7 @@ initGhcCtxt' ::
   [ExprFitCand] ->
   Ghc (IORef HoleFitState)
 initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
-  liftIO $ logStr DEBUG "Initializing GHC..."
+  liftIO $ logStr TRACE "Initializing GHC..."
   -- First we have to add "base" to scope
   flags <- config holeLvl <$> getSessionDynFlags
   --`dopt_set` Opt_D_dump_json
@@ -155,29 +155,29 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
               paPlugin = synthPlug cc use_cache local_exprs plugRef
             }
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
-  liftIO $ logStr DEBUG "Setting DynFlags..."
+  liftIO $ logStr TRACE "Setting DynFlags..."
   -- We might get "congestion" if multiple GHC threads are all making .mix files
 
   toLink <- setSessionDynFlags flags' {importPaths = importPaths flags' ++ modBase}
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
-  liftIO $ logStr DEBUG "Parsing imports..."
+  liftIO $ logStr TRACE "Parsing imports..."
   imports <- addPreludeIfNotPresent <$> mapM (fmap IIDecl . parseImportDecl) importStmts
   let toTarget mod_path = Target (TargetFile mod_path Nothing) True Nothing
-  liftIO $ logStr DEBUG "Adding additional targets..."
+  liftIO $ logStr TRACE "Adding additional targets..."
   mapM_ (addTarget . toTarget) additionalTargets
-  liftIO $ logStr DEBUG "Loading targets.."
+  liftIO $ logStr TRACE "Loading targets.."
   _ <- load LoadAllTargets
-  liftIO $ logStr DEBUG "Adding imports to context..."
+  liftIO $ logStr TRACE "Adding imports to context..."
   getContext >>= setContext . (imports ++)
-  liftIO $ logStr DEBUG "Initialization complete."
+  liftIO $ logStr TRACE "Initialization complete."
   return plugRef
 
 addPreludeIfNotPresent :: [InteractiveImport] -> [InteractiveImport]
 addPreludeIfNotPresent decls =
   if any isPrelude decls
     then decls
-    else (prelImport : decls)
+    else prelImport : decls
   where
     isPrelude (IIModule mname) = mname == pRELUDE_NAME
     isPrelude (IIDecl ImportDecl {..}) = unLoc ideclName == pRELUDE_NAME
@@ -233,7 +233,7 @@ getHoleFitsFromError plugRef holeSpanList err =
 
     if not (null otherErrorSpans)
       then do
-        liftIO $ logStr DEBUG "Additional errors detected, discarding"
+        liftIO $ logStr TRACE "Additional errors detected, discarding"
         liftIO $ mapM_ (logOut DEBUG) valsAndRefs
         return $ Left $ Left $ (valsAndRefs, otherErrors)
       else return $ Left $ Right valsAndRefs
@@ -278,7 +278,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
   -- Feed the given Module into GHC
   runGhc' cc {importStmts = importStmts ++ checkImports, randomizeHiDir = False} $ do
     dflags <- getSessionDynFlags
-    liftIO $ logStr DEBUG "Loading module targets..."
+    liftIO $ logStr TRACE "Loading module targets..."
 
     mname <- addTargetGetModName target
     let no_ext = dropExtension mod_path
@@ -292,9 +292,9 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
     mnames_after_local <- depanal [] False
     _ <- load LoadAllTargets
     -- Retrieve the parsed module
-    liftIO $ logStr DEBUG "Parsing module..."
+    liftIO $ logStr TRACE "Parsing module..."
     modul@ParsedModule {..} <- getModSummary mname >>= parseModule
-    liftIO $ logStr DEBUG "Type checking module..."
+    liftIO $ logStr TRACE "Type checking module..."
     tc_modul@TypecheckedModule {..} <- typecheckModule modul
 
     -- Due to an issue with the GHC linker, we have to give modules a name
@@ -430,7 +430,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
     unfoldedTasty <-
       if unfoldTastyTests
         then do
-          liftIO $ logStr DEBUG "Unfolding tests..."
+          liftIO $ logStr TRACE "Unfolding tests..."
           let thisMod = IIDecl $ simpleImportDecl mname
           getContext >>= setContext . (thisMod :)
           imports <- addPreludeIfNotPresent <$> mapM (fmap IIDecl . parseImportDecl) (importStmts ++ checkImports)
@@ -715,16 +715,18 @@ runGhcWithCleanup CompConf {..} act = do
   return res
 
 logOutLogAction :: LogAction
-logOutLogAction dflags _ severity _ _ msgdoc = do
-  logStr GHCERR "GHC ERROR:"
-  case severity of
-    SevOutput -> logOut TRACE msgdoc
-    SevDump -> logOut TRACE msgdoc
-    SevInteractive -> logOut INFO msgdoc
-    SevInfo -> logOut INFO msgdoc
-    SevWarning -> logOut INFO msgdoc
-    SevFatal -> logOut GHCERR msgdoc
-    SevError -> logOut GHCERR msgdoc
+logOutLogAction dflags _ severity loc _ msgdoc =
+  do
+    let ll = case severity of
+          SevOutput -> DUMP
+          SevDump -> DUMP
+          SevInteractive -> INFO
+          SevInfo -> INFO
+          SevWarning -> INFO
+          SevFatal -> GHCERR
+          SevError -> GHCERR
+    logStr ll ("GHC ERROR at " ++ showUnsafe loc)
+    logOut ll msgdoc
 
 runGhc' :: CompileConfig -> Ghc a -> IO a
 runGhc' cc = runGhcWithCleanup cc . (initGhcCtxt cc >>)
@@ -765,6 +767,7 @@ traceTargets _ _ _ [] = return []
 -- new ghc thread (since we set the dynflags per module)
 traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
   runGhc' cc $ do
+    liftIO $ logStr TRACE "Tracing targets..."
     seed <- liftIO newSeed
     let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)
         tempDir = tempDirBase </> "trace" </> traceHash
@@ -919,7 +922,7 @@ cleanupAfterLoads tempDir mname dynFlags = do
     -- Remove the dir with the .hs and .hi file
     check <- doesDirectoryExist tempDir
     when check $ do
-      logStr DEBUG $ "Removing " ++ tempDir
+      logStr TRACE $ "Removing " ++ tempDir
       removeDirectoryRecursive tempDir
     case objectDir dynFlags of
       Just dir | fp <- dir </> mname ->
@@ -927,7 +930,7 @@ cleanupAfterLoads tempDir mname dynFlags = do
           let file = fp <.> ext
           check <- doesFileExist file
           when check $ do
-            logStr DEBUG $ "Removing " ++ file
+            logStr TRACE $ "Removing " ++ file
             removeFile file
       _ -> return ()
 
@@ -1073,7 +1076,7 @@ justTcExpr parsed = do
 -- of the resulting Core expression
 getExprTys :: HscEnv -> [LHsExpr GhcTc] -> Ghc [Maybe Type]
 getExprTys hsc_env exprs = do
-  liftIO $ logStr DEBUG "Desugaring..."
+  liftIO $ logStr TRACE "Desugaring..."
   mb_types <- liftIO $ mapM (fmap snd . deSugarExpr hsc_env) exprs
   return $ map (fmap CoreUtils.exprType) mb_types
 
@@ -1084,12 +1087,12 @@ getExprFitCands ::
   Either EExpr TypecheckedModule ->
   Ghc [ExprFitCand]
 getExprFitCands expr_or_mod = do
-  liftIO $ logStr DEBUG "Getting expression fit cands..."
+  liftIO $ logStr TRACE "Getting expression fit cands..."
   -- setSessionDynFlags reads the package database.
-  liftIO $ logStr DEBUG "Reading the package database..."
+  liftIO $ logStr TRACE "Reading the package database..."
   _ <- setSessionDynFlags =<< getSessionDynFlags
   -- If it type checks, we can use the expression
-  liftIO $ logStr DEBUG "Typechecking the expression..."
+  liftIO $ logStr TRACE "Typechecking the expression..."
   case expr_or_mod of
     Left expr -> do
       mb_tcd_context <- justTcExpr expr
@@ -1104,11 +1107,11 @@ getExprFitCands expr_or_mod = do
                     flat' = filter nonTriv $ tail flat
                  in toEsAnNames wc flat'
               _ -> []
-      liftIO $ logStr DEBUG "Getting the session..."
+      liftIO $ logStr TRACE "Getting the session..."
       hsc_env <- getSession
       -- After we've found the expressions and any ids contained within them, we
       -- need to find their types
-      liftIO $ logStr DEBUG "Getting expression types..."
+      liftIO $ logStr TRACE "Getting expression types..."
       mb_tys <- getExprTys hsc_env $ map (\(e, _, _) -> e) esAndNames
       return $ zipWith finalize esAndNames mb_tys
     Right typechecked -> do
@@ -1118,11 +1121,11 @@ getExprFitCands expr_or_mod = do
           esAndNames = toEsAnNames emptyWC $ filter nonTriv exprs
       desugared <- desugarModule typechecked
 
-      liftIO $ logStr DEBUG "Getting the session..."
+      liftIO $ logStr TRACE "Getting the session..."
       hsc_env <- getSession
       -- After we've found the expressions and any ids contained within them, we
       -- need to find their types
-      liftIO $ logStr DEBUG "Getting expression types..."
+      liftIO $ logStr TRACE "Getting expression types..."
       mb_tys <-
         liftIO $
           mapM

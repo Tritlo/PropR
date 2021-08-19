@@ -46,7 +46,7 @@ findCabalFile = do
 repairPackage :: Configuration -> FilePath -> IO [String]
 repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
   cabal_file <- findCabalFile
-  logStr DEBUG $ "Using cabal file " ++ cabal_file
+  logStr TRACE $ "Using cabal file " ++ cabal_file
   g_desc <- readGenericPackageDescription silent cabal_file
   --   lbi_res <- newIORef Nothing
   --   let hooks =
@@ -72,9 +72,9 @@ repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
       non_local_deps BuildInfo {..} = partition (\(Dependency dname _ _) -> dname /= pname) targetBuildDepends
 
   found_tests <- mapM (\(b, p) -> (b,) <$> makeAbsolute p) found_mods
-  logStr DEBUG $ "Found test modules:"
+  logStr TRACE $ "Found test modules:"
   mapM_ (logStr DEBUG . show . snd) found_tests
-  logStr DEBUG $ "Non local deps"
+  logStr TRACE $ "Non local deps"
   let depToName = (\(Dependency dname _ _) -> unPackageName dname)
       packages =
         map

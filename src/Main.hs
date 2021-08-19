@@ -173,9 +173,9 @@ repairModule conf@Conf {..} target = do
 
         logStr INFO "REPAIRING..."
         fixes <- runRepair searchAlgorithm desc
-        logStr DEBUG "DONE! Fixes:"
+        logStr TRACE "DONE! Fixes:"
         mapM_ (logOut DEBUG) fixes
-        logStr DEBUG "After applying:"
+        logStr TRACE "After applying:"
         mapM_ (logOut DEBUG . applyFixToEProg e_prog) fixes
         return $ fixesToDiffs desc fixes
 
