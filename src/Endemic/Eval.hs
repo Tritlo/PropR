@@ -746,14 +746,13 @@ toNonZeroInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
     isOkBox (ExpBox _, _) = True
     isOkBox _ = False
     only_max :: (SrcSpan, [(BoxLabel, Integer)]) -> Maybe ((EExpr, SrcSpan), Integer)
-    only_max (src, []) = Just ((ex, src), 0)
-    only_max (src, [x]) | isOkBox x = Just ((ex, src), snd x)
-    only_max (src, [x]) = Nothing
-    -- TODO: What does it mean in HPC if there are multiple labels here?
     only_max (src, xs)
-      | any isOkBox xs =
-        Just ((ex, src), maximum $ map snd xs)
-    only_max (src, xs) = trace (show xs) Nothing
+      | any isOkBox xs,
+        ms <- maximum $ map snd xs,
+        ms > 0 =
+        Just ((ex, src), ms)
+    -- TODO: What does it mean in HPC if there are multiple labels here?
+    only_max (src, xs) = Nothing
 
 -- Run HPC to get the trace information.
 traceTargets ::
