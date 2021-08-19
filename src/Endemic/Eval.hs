@@ -740,8 +740,8 @@ traceTarget ::
   IO (Maybe TraceRes)
 traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
 
-toInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
-toInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
+toNonZeroInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
+toNonZeroInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
   where
     isOkBox (ExpBox _, _) = True
     isOkBox _ = False
@@ -1165,8 +1165,9 @@ getExprFitCands expr_or_mod = do
     nonTriv (L _ HsWrap {}) = False
     nonTriv _ = True
     finalize :: (LHsExpr GhcTc, [Ct], [Id]) -> Maybe Type -> ExprFitCand
-    finalize (e, _, rs) ty@Nothing = EFC e emptyBag rs ty
-    finalize (e, wc, rs) ty@(Just expr_ty) = EFC e (listToBag (relevantCts expr_ty wc)) rs ty
+    finalize (e, _, rs) ty@Nothing = EFC (parenthesizeHsExpr appPrec e) emptyBag rs ty
+    finalize (e, wc, rs) ty@(Just expr_ty) =
+      EFC (parenthesizeHsExpr appPrec e) (listToBag (relevantCts expr_ty wc)) rs ty
     -- Taken from TcHoleErrors, which is sadly not exported. Takes a type and
     -- a list of constraints and filters out irrelvant constraints that do not
     -- mention any typve variable in the type.
