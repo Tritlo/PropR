@@ -31,7 +31,7 @@ import Endemic.Types
 import Endemic.Util (progAtTy, showUnsafe)
 import FastString (unpackFS)
 import GHC
-import GhcPlugins (Outputable, ppr, showSDocUnsafe)
+import GhcPlugins (Outputable)
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
 getFixBinds parsed =
@@ -61,7 +61,7 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nb =
       case nbMap Map.!? unLoc fun_id of
         Just b
           | n <- L dl (ValD x $ unLoc b),
-            neq <- (/=) `on` (showSDocUnsafe . ppr),
+            neq <- (/=) `on` showUnsafe,
             n `neq` d ->
             Just (d, n)
         _ -> Nothing

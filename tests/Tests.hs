@@ -21,7 +21,7 @@ import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
 import GHC (GhcPs, LHsExpr, noExtField, tm_parsed_module)
-import GhcPlugins (GenLocated (L), getLoc, ppr, showSDocUnsafe, unLoc)
+import GhcPlugins (GenLocated (L), getLoc, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit

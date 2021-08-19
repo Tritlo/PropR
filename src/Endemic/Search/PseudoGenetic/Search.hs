@@ -31,7 +31,7 @@ import Endemic.Traversals (replaceExpr)
 import Endemic.Types
 import Endemic.Util
 import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (Outputable (ppr), isSubspanOf, noLoc, pprPanic)
+import GhcPlugins (Outputable (..), isSubspanOf, noLoc, pprPanic)
 
 -- |
 --   An Individual consists of a "Fix", that is a change to be applied,

@@ -148,7 +148,7 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
                 (nubBy nf *** nubBy nf)
                   . foldr (\(vs, rfs) (vss, rfss) -> (vs ++ vss, rfs ++ rfss)) ([], [])
               nf hfa@HoleFit {} hfb@HoleFit {} = hfId hfa == hfId hfb
-              nf (RawHoleFit a) (RawHoleFit b) = showSDocUnsafe a == showSDocUnsafe b
+              nf (RawHoleFit a) (RawHoleFit b) = showUnsafe a == showUnsafe b
               nf _ _ = False
           -- Get all the results from all the defaults and then we join them.
           -- Note that the transpose is safe here, since the amount of holes
@@ -569,8 +569,8 @@ tryGHCCaptureOutput act = do
         | SevError <- sev = log
         | otherwise = reject
         where
-          log = modifyIORef msg_ref ((locstr ++ " " ++ showSDoc dflags msg) :)
-          locstr = showSDoc dflags $ ppr loc
+          log = modifyIORef msg_ref ((locstr ++ " " ++ showSafe dflags msg) :)
+          locstr = showSafe dflags loc
           reject = return ()
   void $ setSessionDynFlags dflags {log_action = logAction}
   res <- defaultErrorHandler (\err -> modifyIORef msg_ref (err :)) (FlushOut (return ())) act
@@ -711,7 +711,7 @@ checkFixes
       initCompileChecks :: DynFlags -> [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, TargetId)
       initCompileChecks dynFlags fixes = do
         seed <- liftIO newSeed
-        let checkHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (tp, fixes, seed)
+        let checkHash = flip showHex "" $ abs $ hashString $ showUnsafe (tp, fixes, seed)
             tempDir = tempDirBase </> "checks" </> checkHash
             the_f = tempDir </> ("FakeCheckTarget" ++ checkHash) <.> "hs"
             -- We generate the name of the module from the temporary file
@@ -884,7 +884,7 @@ describeProblem conf@Conf {compileConfig = ogcc} fp = collectStats $ do
             logStr TRACE "Pre-computing fixes..."
             let desc' = descBase {addConf = addConf {assumeNoLoops = False}}
                 fix_str_length :: EFix -> Int
-                fix_str_length = sum . map (length . showSDocUnsafe . ppr) . Map.elems
+                fix_str_length = sum . map (length . showUnsafe) . Map.elems
                 fitness :: TestSuiteResult -> Float
                 fitness (Right True) = 0
                 fitness (Right False) = 1

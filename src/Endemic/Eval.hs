@@ -321,7 +321,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                         Just (L _ exports) ->
                           let exps =
                                 intercalate "," $
-                                  map (showSDocUnsafe . ppr) exports
+                                  map showUnsafe exports
                            in ("(" ++ exps ++ ")")
                     )
                   _ -> (Nothing, "")
@@ -437,7 +437,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
           getContext >>= setContext . ((thisMod : imports) ++)
           let countExpr =
                 "map (length . unfoldTastyTests) ["
-                  ++ intercalate ", " (map (showSDocUnsafe . ppr) testTreeList)
+                  ++ intercalate ", " (map showUnsafe testTreeList)
                   ++ "]"
           countTrees <- compileExpr countExpr
           let treeLengths :: [Int]
@@ -769,7 +769,7 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
   runGhc' cc $ do
     liftIO $ logStr TRACE "Tracing targets..."
     seed <- liftIO newSeed
-    let traceHash = flip showHex "" $ abs $ hashString $ showSDocUnsafe $ ppr (exprs, ps_w_ce, seed)
+    let traceHash = flip showHex "" $ abs $ hashString $ showUnsafe (exprs, ps_w_ce, seed)
         tempDir = tempDirBase </> "trace" </> traceHash
         the_f = tempDir </> ("FakeTraceTarget" ++ traceHash) <.> "hs"
     liftIO $ createDirectoryIfMissing True tempDir
