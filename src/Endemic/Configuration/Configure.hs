@@ -9,6 +9,7 @@ module Endemic.Configuration.Configure
     CLIOptions (..),
     newSeed,
     setSeedGenSeed,
+    withFrozenSeedGen,
   )
 where
 
@@ -17,7 +18,7 @@ import Data.Aeson (eitherDecodeFileStrict', eitherDecodeStrict')
 import Data.Bifunctor (second)
 import qualified Data.ByteString.Char8 as BS
 import Data.Default
-import Data.IORef (IORef, atomicModifyIORef', newIORef, writeIORef)
+import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Tuple (swap)
@@ -44,6 +45,16 @@ sEEDGEN = unsafePerformIO $ initSMGen >>= newIORef
 
 newSeed :: IO Int
 newSeed = atomicModifyIORef' sEEDGEN (swap . nextInt)
+
+-- | Freeze the seed gen for the current action, meaning we restore it back
+-- to it's original value after it's been used. Useful for checking e.g. if
+-- a change is due to a different seed or an actual change.
+withFrozenSeedGen :: IO a -> IO a
+withFrozenSeedGen a = do
+  s <- readIORef sEEDGEN
+  r <- a
+  writeIORef sEEDGEN s
+  return r
 
 setSeedGenSeed :: Int -> IO ()
 setSeedGenSeed = writeIORef sEEDGEN . mkSMGen . fromIntegral

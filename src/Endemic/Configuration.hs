@@ -23,6 +23,7 @@ module Endemic.Configuration
     -- Generating good random seeds for quickcheck
     newSeed,
     setSeedGenSeed,
+    withFrozenSeedGen,
     -- Configuration
     CLIOptions (..),
     getConfiguration,
