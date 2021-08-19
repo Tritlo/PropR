@@ -30,13 +30,6 @@ prop_anyBlockBlah r
 -- +++ b/tests/cases/AmbiguousTypeVariables.hs
 -- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
 -- -isOkayBlock b = length b == length (nub b)
--- +isOkayBlock b = (pred (length b)) == length (nub b)
---
--- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
--- --- a/tests/cases/AmbiguousTypeVariables.hs
--- +++ b/tests/cases/AmbiguousTypeVariables.hs
--- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
--- -isOkayBlock b = length b == length (nub b)
 -- +isOkayBlock b = (succ (length b)) == length (nub b)
 --
 -- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
@@ -65,21 +58,7 @@ prop_anyBlockBlah r
 -- +++ b/tests/cases/AmbiguousTypeVariables.hs
 -- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
 -- -isOkayBlock b = length b == length (nub b)
--- +isOkayBlock b = length (init (b)) == length (nub b)
---
--- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
--- --- a/tests/cases/AmbiguousTypeVariables.hs
--- +++ b/tests/cases/AmbiguousTypeVariables.hs
--- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
--- -isOkayBlock b = length b == length (nub b)
--- +isOkayBlock b = length (show (b)) == length (nub b)
---
--- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
--- --- a/tests/cases/AmbiguousTypeVariables.hs
--- +++ b/tests/cases/AmbiguousTypeVariables.hs
--- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
--- -isOkayBlock b = length b == length (nub b)
--- +isOkayBlock b = length (tail (b)) == length (nub b)
+-- +isOkayBlock b = length (mempty (b)) == length (nub b)
 --
 -- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
 -- --- a/tests/cases/AmbiguousTypeVariables.hs
@@ -101,20 +80,6 @@ prop_anyBlockBlah r
 -- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
 -- -isOkayBlock b = length b == length (nub b)
 -- +isOkayBlock b = length b == (negate (length (nub b)))
---
--- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
--- --- a/tests/cases/AmbiguousTypeVariables.hs
--- +++ b/tests/cases/AmbiguousTypeVariables.hs
--- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
--- -isOkayBlock b = length b == length (nub b)
--- +isOkayBlock b = length b == (pred (length (nub b)))
---
--- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
--- --- a/tests/cases/AmbiguousTypeVariables.hs
--- +++ b/tests/cases/AmbiguousTypeVariables.hs
--- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
--- -isOkayBlock b = length b == length (nub b)
--- +isOkayBlock b = length b == (succ (length (nub b)))
 --
 -- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
 -- --- a/tests/cases/AmbiguousTypeVariables.hs
@@ -150,6 +115,13 @@ prop_anyBlockBlah r
 -- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
 -- -isOkayBlock b = length b == length (nub b)
 -- +isOkayBlock b = length b == length (mempty ((nub b)))
+--
+-- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
+-- --- a/tests/cases/AmbiguousTypeVariables.hs
+-- +++ b/tests/cases/AmbiguousTypeVariables.hs
+-- @@ -12,1 +12,1 @@ isOkayBlock b = length b == le...
+-- -isOkayBlock b = length b == length (nub b)
+-- +isOkayBlock b = length b == length (tail ((nub b)))
 --
 -- diff --git a/tests/cases/AmbiguousTypeVariables.hs b/tests/cases/AmbiguousTypeVariables.hs
 -- --- a/tests/cases/AmbiguousTypeVariables.hs

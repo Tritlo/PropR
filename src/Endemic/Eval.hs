@@ -40,7 +40,7 @@ import Data.Char (isAlphaNum)
 import Data.Data.Lens (template, tinplate, uniplate)
 import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
-import Data.IORef (IORef, newIORef, readIORef)
+import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.List (groupBy, intercalate, nub, partition, stripPrefix)
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -815,102 +815,115 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
             importPaths = importPaths dynFlags ++ modBase
           }
 
-    _ <- load (LoadUpTo target_name)
+    liftIO $ logStr TRACE "Loading trace target..."
+    (_, errs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
+    if not (null errs)
+      then do
+        liftIO $ logStr TRACE "Got an error while loading trace target!"
+        liftIO $ mapM_ (logStr DEBUG) errs
+        -- TODO: We could be more clever here and try to figure out which
+        -- ps_w_ce is failing... but if it's a weird parse error or some such
+        -- (like in #103) there's not much we can do. Beyond just returning
+        -- Nothing for all of them.
+        return (replicate (length ps_w_ce) Nothing)
+      else do
+        liftIO $ logStr TRACE "Loaded!"
+        liftIO $ logStr TRACE $ "Got " ++ show (length errs) ++ " errors!"
 
-    modul@ParsedModule {pm_parsed_source = (L _ HsModule {..})} <-
-      getModSummary target_name >>= parseModule
-    -- Retrieves the Values declared in the given Haskell-Module
-    let our_targets :: Map String (LHsExpr GhcPs)
-        our_targets = Map.fromList $ mapMaybe fromValD hsmodDecls
-          where
-            fromValD (L l (ValD _ b@FunBind {..}))
-              | rdrNameToStr (unLoc fun_id) `elem` fake_target_names,
-                Just ex <- unFun b =
-                Just (rdrNameToStr $ unLoc fun_id, ex)
-            fromValD _ = Nothing
+        modul@ParsedModule {pm_parsed_source = (L _ HsModule {..})} <-
+          getModSummary target_name >>= parseModule
+        -- Retrieves the Values declared in the given Haskell-Module
+        let our_targets :: Map String (LHsExpr GhcPs)
+            our_targets = Map.fromList $ mapMaybe fromValD hsmodDecls
+              where
+                fromValD (L l (ValD _ b@FunBind {..}))
+                  | rdrNameToStr (unLoc fun_id) `elem` fake_target_names,
+                    Just ex <- unFun b =
+                    Just (rdrNameToStr $ unLoc fun_id, ex)
+                fromValD _ = Nothing
 
-    -- We should for here in case it doesn't terminate, and modify
-    -- the run function so that it use the trace reflect functionality
-    -- to timeout and dump the tix file if possible.
-    let runTrace which = do
-          let tixFilePath = exeName ++ "_" ++ show @Integer which ++ ".tix"
-          (_, _, _, ph) <-
-            createProcess
-              (proc exeName [show which])
-                { env = Just [("HPCTIXFILE", tixFilePath)],
-                  -- We ignore the output
-                  std_out = CreatePipe
-                }
-          ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
+        -- We should for here in case it doesn't terminate, and modify
+        -- the run function so that it use the trace reflect functionality
+        -- to timeout and dump the tix file if possible.
+        let runTrace which = do
+              let tixFilePath = exeName ++ "_" ++ show @Integer which ++ ".tix"
+              (_, _, _, ph) <-
+                createProcess
+                  (proc exeName [show which])
+                    { env = Just [("HPCTIXFILE", tixFilePath)],
+                      -- We ignore the output
+                      std_out = CreatePipe
+                    }
+              ec <- System.Timeout.timeout timeoutVal $ waitForProcess ph
 
-          let -- If it doesn't respond to signals, we can't do anything
-              -- other than terminate
-              loop :: Maybe ExitCode -> Integer -> IO ()
-              loop _ 0 =
-                -- "WHY WON'T YOU DIE?" -- Freddy Kruger
-                getPid ph >>= \case
-                  Just pid ->
-                    let term3 0 = return ()
-                        term3 n = do
-                          terminateProcess ph
-                          threadDelay timeoutVal
-                          c <- isJust <$> getPid ph
-                          when c $ term3 (n -1)
-                     in term3 3
-                  _ -> terminateProcess ph
-              loop Nothing n = do
-                -- If it's taking too long, it's probably stuck in a loop.
-                -- By sending the right signal though, it will dump the tix
-                -- file before dying.
-                mb_pid <- getPid ph
-                case mb_pid of
-                  Just pid ->
-                    do
-                      signalProcess keyboardSignal pid
-                      ec2 <- System.Timeout.timeout timeoutVal $ waitForProcess ph
-                      loop ec2 (n -1)
-                  -- It finished in the brief time between calls, so we're good.
-                  _ -> return ()
-              loop (Just _) _ = return ()
-          -- We give it 3 tries
-          loop ec 3
+              let -- If it doesn't respond to signals, we can't do anything
+                  -- other than terminate
+                  loop :: Maybe ExitCode -> Integer -> IO ()
+                  loop _ 0 =
+                    -- "WHY WON'T YOU DIE?" -- Freddy Kruger
+                    getPid ph >>= \case
+                      Just pid ->
+                        let term3 0 = return ()
+                            term3 n = do
+                              terminateProcess ph
+                              threadDelay timeoutVal
+                              c <- isJust <$> getPid ph
+                              when c $ term3 (n -1)
+                         in term3 3
+                      _ -> terminateProcess ph
+                  loop Nothing n = do
+                    -- If it's taking too long, it's probably stuck in a loop.
+                    -- By sending the right signal though, it will dump the tix
+                    -- file before dying.
+                    mb_pid <- getPid ph
+                    case mb_pid of
+                      Just pid ->
+                        do
+                          signalProcess keyboardSignal pid
+                          ec2 <- System.Timeout.timeout timeoutVal $ waitForProcess ph
+                          loop ec2 (n -1)
+                      -- It finished in the brief time between calls, so we're good.
+                      _ -> return ()
+                  loop (Just _) _ = return ()
+              -- We give it 3 tries
+              loop ec 3
 
-          tix <- readTix tixFilePath
-          -- TODO: When run in parallel, this can fail
-          let rm m = (m,) <$> readMix [mixFilePath] (Right m)
-              isTargetMod = (mname ==) . tixModuleName
-              toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
-              toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
-                createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
+              tix <- readTix tixFilePath
+              -- TODO: When run in parallel, this can fail
+              let rm m = (m,) <$> readMix [mixFilePath] (Right m)
+                  isTargetMod = (mname ==) . tixModuleName
+                  toDom :: (TixModule, Mix) -> [MixEntryDom [(BoxLabel, Integer)]]
+                  toDom (TixModule _ _ _ ts, Mix _ _ _ _ es) =
+                    createMixEntryDom $ zipWith (\t (pos, bl) -> (pos, (bl, t))) ts es
 
-              nd n@Node {rootLabel = (root, _)} =
-                fmap (Data.Bifunctor.first (toSpan the_f)) n
-              wTarget n@Node {rootLabel = (_, [(TopLevelBox [ftn], _)])} =
-                (,nd n) <$> our_targets Map.!? ftn
-              wTarget _ = Nothing
-              -- We convert the HpcPos to the equivalent span we would get if we'd
-              -- parsed and compiled the expression directly.
-              toSpan :: FilePath -> HpcPos -> SrcSpan
-              toSpan the_f sp = mkSrcSpan start end
-                where
-                  fname = fsLit the_f
-                  (sl, sc, el, ec) = fromHpcPos sp
-                  start = mkSrcLoc fname sl sc
-                  -- HPC and GHC have different philosophies
-                  end = mkSrcLoc fname el (ec + 1)
-          case tix of
-            Just (Tix mods) -> do
-              -- We throw away any extra functions in the file, such as
-              -- the properties and the main function, and only look at
-              -- the ticks for our expression
-              let fake_only = filter isTargetMod mods
-              res <- mapMaybe wTarget . concatMap toDom <$> mapM rm fake_only
-              return $ Just res
-            _ -> return Nothing
+                  nd n@Node {rootLabel = (root, _)} =
+                    fmap (Data.Bifunctor.first (toSpan the_f)) n
+                  wTarget n@Node {rootLabel = (_, [(TopLevelBox [ftn], _)])} =
+                    (,nd n) <$> our_targets Map.!? ftn
+                  wTarget _ = Nothing
+                  -- We convert the HpcPos to the equivalent span we would get if we'd
+                  -- parsed and compiled the expression directly.
+                  toSpan :: FilePath -> HpcPos -> SrcSpan
+                  toSpan the_f sp = mkSrcSpan start end
+                    where
+                      fname = fsLit the_f
+                      (sl, sc, el, ec) = fromHpcPos sp
+                      start = mkSrcLoc fname sl sc
+                      -- HPC and GHC have different philosophies
+                      end = mkSrcLoc fname el (ec + 1)
+              case tix of
+                Just (Tix mods) -> do
+                  -- We throw away any extra functions in the file, such as
+                  -- the properties and the main function, and only look at
+                  -- the ticks for our expression
+                  let fake_only = filter isTargetMod mods
+                  res <- mapMaybe wTarget . concatMap toDom <$> mapM rm fake_only
+                  return $ Just res
+                _ -> return Nothing
 
-    res <- liftIO $ mapM (runTrace . fst) $ zip [0 ..] ps_w_ce
-    cleanupAfterLoads tempDir mname dynFlags
-    return res
+        res <- liftIO $ mapM (runTrace . fst) $ zip [0 ..] ps_w_ce
+        cleanupAfterLoads tempDir mname dynFlags
+        return res
   where
     timeoutVal = fromIntegral timeout
 traceTargets _ _ [] _ = error "No fix!"
@@ -1196,3 +1209,24 @@ withDefaulting tys act = do
   env' <- getSession
   setSession (env' {hsc_IC = (hsc_IC env') {ic_default = prev}})
   return r
+
+-- Runs the given action and captures any errors
+tryGHCCaptureOutput :: Ghc a -> Ghc (a, [String])
+tryGHCCaptureOutput act = do
+  msg_ref <- liftIO $ newIORef []
+  dflags <- getSessionDynFlags
+  let logAction :: LogAction
+      logAction _ _ sev loc _ msg
+        | SevFatal <- sev = log
+        | SevError <- sev = log
+        | otherwise = reject
+        where
+          log = modifyIORef msg_ref ((locstr ++ " " ++ showSafe dflags msg) :)
+          locstr = showSafe dflags loc
+          reject = return ()
+  void $ setSessionDynFlags dflags {log_action = logAction}
+  res <- defaultErrorHandler (\err -> modifyIORef msg_ref (err :)) (FlushOut (return ())) act
+  dflags' <- getSessionDynFlags
+  void $ setSessionDynFlags dflags' {log_action = log_action dflags}
+  msgs <- reverse <$> liftIO (readIORef msg_ref)
+  return (res, msgs)
