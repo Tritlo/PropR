@@ -22,7 +22,7 @@ import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
 import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util (collectStats, getStats, logOut, reportStats, reportStats', resetStats, showTime, time)
-import GhcPlugins (Outputable (ppr), showSDocUnsafe)
+import GhcPlugins (Outputable (ppr))
 import Test.Tasty
 import TestUtils
 

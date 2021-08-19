@@ -39,7 +39,9 @@ import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
-import GhcPlugins (HasCallStack, Outputable (ppr), fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, showSDocUnsafe, HasOccName)
+import GhcPlugins (HasCallStack, HasOccName, Outputable (..), defaultUserStyle, fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, runSDoc, unsafeGlobalDynFlags)
+import Outputable (initSDocContext)
+import qualified Pretty
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
@@ -106,7 +108,18 @@ logFormattedTime = do
   return (formatTime locale format time)
 
 showUnsafe :: Outputable p => p -> String
-showUnsafe = showSDocUnsafe . ppr
+showUnsafe = showSafe unsafeGlobalDynFlags
+
+showSafe :: Outputable p => DynFlags -> p -> String
+showSafe dflags p =
+  Pretty.renderStyle s $ runSDoc d (initSDocContext dflags (defaultUserStyle dflags))
+  where
+    d = ppr p
+    s =
+      Pretty.style
+        { Pretty.lineLength = maxBound,
+          Pretty.ribbonsPerLine = 0
+        }
 
 -- Prints a string, and then flushes, so that intermediate strings show up
 putStr' :: String -> IO ()
@@ -380,7 +393,7 @@ propToName (L _ FunBind {..}) = rdrNameToStr $ unLoc fun_id
 propToName _ = error "Non-prop passed to propToName!"
 
 traceOutId :: Outputable p => String -> p -> p
-traceOutId msg a = trace (msg ++ " { " ++ showSDocUnsafe (ppr a) ++ " } ") a
+traceOutId msg a = trace (msg ++ " { " ++ showUnsafe a ++ " } ") a
 
 traceOut :: Outputable p => String -> p -> a -> a
-traceOut msg a = trace (msg ++ " { " ++ showSDocUnsafe (ppr a) ++ " } ")
+traceOut msg a = trace (msg ++ " { " ++ showUnsafe a ++ " } ")

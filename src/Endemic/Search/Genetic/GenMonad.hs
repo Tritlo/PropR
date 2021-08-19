@@ -29,7 +29,7 @@ import Endemic.Traversals (replaceExpr)
 import Endemic.Types (EFix, EProblem (..), TestSuiteResult)
 import Endemic.Util (applyFixToEProg, collectStats, eProgToEProgFix, mergeFixes, mergeFixes', progAtTy)
 import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
-import GhcPlugins (Outputable (..), liftIO, ppr, showSDocUnsafe)
+import GhcPlugins (Outputable (..), liftIO)
 import System.Random
 
 -- ===========                                    ==============

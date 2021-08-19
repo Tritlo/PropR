@@ -25,7 +25,6 @@ import Endemic.Traversals
 import Endemic.Types
 import Endemic.Util
 import GHC (tm_parsed_module)
-import GhcPlugins (ppr, showSDocUnsafe)
 import System.Directory
 import System.IO
 import Test.Tasty
@@ -93,7 +92,7 @@ mkSimpleModuleTest timeout tag toFix repair_target =
                       "But got:",
                       unlines diffs,
                       "Actual fixes were:",
-                      unlines (map (showSDocUnsafe . ppr) fixes)
+                      unlines (map showUnsafe fixes)
                     ]
             when (not check && acceptNew def) $ writeExpected toFix (unlines diffs)
             assertBool msg check
@@ -148,7 +147,7 @@ mkRepairTest' conf how timeout tag file TestConf {..} =
                       "But got:",
                       unlines diffs,
                       "Actual fixes were:",
-                      unlines (map (showSDocUnsafe . ppr) $ Set.toList fixes),
+                      unlines (map showUnsafe $ Set.toList fixes),
                       "Number of fixes:",
                       show (Set.size fixes),
                       "Number of expected:",

@@ -26,7 +26,7 @@ import Endemic.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
 import Endemic.Util (progAtTy, propVars, rdrNamePrint, rdrNameToStr)
 import FastString (fsLit)
 import GHC
-import GhcPlugins (occName, ppr, showSDocUnsafe)
+import GhcPlugins (occName)
 import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
 import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
