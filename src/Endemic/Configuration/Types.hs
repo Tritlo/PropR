@@ -367,7 +367,7 @@ instance Default CompileConfig where
       { holeLvl = 0,
         holeDepth = 1,
         packages = ["base"],
-        importStmts = ["import Prelude"],
+        importStmts = [],
         unfoldTastyTests = True,
         modBase = [],
         additionalTargets = [],

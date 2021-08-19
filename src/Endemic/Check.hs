@@ -46,8 +46,7 @@ qcArgsExpr seed (Just shrinks) =
 checkImports :: [String]
 checkImports =
   [ "import Check.Helpers",
-    "import System.Environment (getArgs)",
-    "import Prelude"
+    "import System.Environment (getArgs)"
   ]
 
 checkPackages :: [String]

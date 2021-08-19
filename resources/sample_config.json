@@ -1,8 +1,6 @@
 {
   "compile_config": {
-    "import_stmts": [
-      "import Prelude"
-    ],
+    "import_stmts": [],
     "packages": [
       "base"
     ],
@@ -39,6 +37,7 @@
       "population_size": 64,
       "timeout_in_seconds": 300,
       "stop_on_results": false,
+      "elitism_rate": 1,
       "drop_rate": 0.25,
       "max_fix_size_step": 1,
       "try_minimize_fixes": false,
