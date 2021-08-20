@@ -50,12 +50,15 @@ import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef, writeI
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import Data.List (groupBy, intercalate, nub, nubBy, partition, sort, sortOn, transpose)
+import qualified Data.List as L
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromJust, fromMaybe, isJust, mapMaybe)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (flatten)
+import qualified Data.Vector as V
+import Debug.Trace (traceShowId)
 import Desugar (deSugarExpr)
 import Endemic.Check
 import Endemic.Configuration
@@ -67,11 +70,13 @@ import Endemic.Util
 import Exception
 import FV (fvVarSet)
 import GHC
+import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
 import Numeric (showHex)
 import PrelNames (mkMainModule, mkMainModule_)
 import StringBuffer (stringToStringBuffer)
+import System.CPUTime (getCPUTime)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (exitFailure)
 import System.FilePath (dropExtension, dropFileName, takeDirectory, takeFileName, (<.>), (</>))
@@ -401,58 +406,61 @@ findEvaluatedHoles
     -- As they do not provide Equality themselves.
     -- However, (Toplevel) Expressions and Properties are unique, so we do not carry around duplicates.
     -- It was just easier to use an Integer as a helper than to implement equality for Compiler-Objects.
-    let assigToExprProp :: [((Integer, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
+    let assigToExprProp :: [((Int, EProp), [((Int, EExpr), Trace)])] -> [(EExpr, [(EProp, Trace)])]
         assigToExprProp xs = resolve $ joinExprs mergeExprs
           where
-            eprop_map :: Map Integer EProp
-            eprop_map = Map.fromList (map fst xs)
+            eprop_map :: IntMap EProp
+            eprop_map = IntMap.fromList (map fst xs)
             expr_map :: IntMap EExpr
             expr_map = IntMap.fromList $ map fst $ concatMap snd xs
-            indsOnly :: [(Integer, [(Int, Trace)])]
+            indsOnly :: [(Int, [(Int, Trace)])]
             indsOnly = map (Data.Bifunctor.bimap fst (map (first fst))) xs
-            dupProps :: [(Integer, (Int, Trace))]
+            dupProps :: [(Int, (Int, Trace))]
             dupProps = concatMap (\(p, ls) -> map (p,) ls) indsOnly
-            flipProps :: [(Int, (Integer, Trace))]
+            flipProps :: [(Int, (Int, Trace))]
             flipProps = map (\(p, (e, t)) -> (e, (p, t))) dupProps
-            mergeExprs :: [[(Int, (Integer, Trace))]]
+            mergeExprs :: [[(Int, (Int, Trace))]]
             mergeExprs = groupBy ((==) `on` fst) $ sortOn fst flipProps
-            joinExprs :: [[(Int, (Integer, Trace))]] -> [(Int, [(Integer, Trace)])]
+            joinExprs :: [[(Int, (Int, Trace))]] -> [(Int, [(Int, Trace)])]
             joinExprs xs = map comb xs
               where
-                comb :: [(Int, (Integer, Trace))] -> (Int, [(Integer, Trace)])
+                comb :: [(Int, (Int, Trace))] -> (Int, [(Int, Trace)])
                 comb xs@((i, _) : _) = foldr f (i, []) xs
                   where
-                    f :: (Int, (Integer, Trace)) -> (Int, [(Integer, Trace)]) -> (Int, [(Integer, Trace)])
+                    f :: (Int, (Int, Trace)) -> (Int, [(Int, Trace)]) -> (Int, [(Int, Trace)])
                     f (_, t) (i, ts) = (i, t : ts)
                 comb [] = error "expr with no traces!"
-            resolve :: [(Int, [(Integer, Trace)])] -> [(EExpr, [(EProp, Trace)])]
-            resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map Map.!))
+            resolve :: [(Int, [(Int, Trace)])] -> [(EExpr, [(EProp, Trace)])]
+            resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map IntMap.!))
 
     -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
     traces_that_worked :: [(EExpr, Map (EExpr, SrcSpan) Integer)] <-
       liftIO $
-        map (second (Map.unionsWith (+) . map (toInvokes . snd)))
+        -- If we want the full count, we need Map.unionsWith (+) here..., but
+        -- since we only care about whether or not it's 0, unions is enough,
+        -- since we only return non-zero invokes
+        map (second (Map.unions . map (toNonZeroInvokes . snd)))
           -- The traces are per prop per expr, but we need a per expr per prop,
           -- so we add indices and then use this custom transpose to get
           -- the traces per expr. (See above)
           . assigToExprProp
           . map (zip (zip [0 :: Int ..] id_prog) <$>)
           . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
-          . zip (zip [0 :: Integer ..] ps_w_ce)
+          . zip (zip [0 :: Int ..] ps_w_ce)
           <$> traceTargets cc tp id_prog ps_w_ce
 
     liftIO $ logStr TRACE $ "Got " ++ show (length traces_that_worked) ++ " traces that worked"
-    liftIO $ mapM_ (logOut DEBUG . second (Map.filter (> 0))) traces_that_worked
+    liftIO $ mapM_ (logOut DEBUG) traces_that_worked
+    liftIO $ logStr TRACE "Finding non-zero holes from trace..."
+
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
-    let fk :: (EExpr, Map (EExpr, SrcSpan) Integer) -> Set.Set (SrcSpan, LHsExpr GhcPs)
-        fk (expr, invokes)
-          | non_zero <- Map.keysSet (Map.filter (> 0) invokes),
-            not (null non_zero) =
-            Set.fromList $ mapMaybe toExprHole $ Set.toList non_zero
+    let fk :: (EExpr, Map (EExpr, SrcSpan) Integer) -> [(SrcSpan, LHsExpr GhcPs)]
+        fk (expr, invokes) | Map.null invokes = []
+        fk (expr, invokes) = mapMaybe toExprHole $ Map.keys invokes
           where
-            sfe = sanctifyExpr noExtField expr
+            sfe = V.fromList (sanctifyExpr noExtField expr)
             toExprHole (iv_expr, iv_loc) =
               -- We can get a Nothing here if e.g. the evaluated part is with
               -- an operator with precedence, e.g. a ++ b ++ c, because GHC
@@ -463,14 +471,18 @@ findEvaluatedHoles
               -- `LHsExpr GhcPs` yet, and then we have issues with compiling
               -- them to get the valid hole fits, since GHC has no built-in
               -- function `compileRnStmt`. So we'll make do for now.
-              case find is_iv (zip sfe sfi) of
-                Just (e@(e_loc, _), _) | isGoodSrcSpan e_loc -> Just e
+              case L.elemIndex iv_loc sf_locs of
+                Just iv_ind
+                  | Just e@(e_loc, _) <- sfe V.!? iv_ind,
+                    isGoodSrcSpan e_loc ->
+                    Just e
                 _ -> Nothing
               where
-                sfi = sanctifyExpr noExtField iv_expr
-                is_iv = (== iv_loc) . fst . snd
-        fk _ = Set.empty
-        non_zero_holes = Set.unions $ map fk traces_that_worked
+                sf_locs = map getLoc $ flattenExpr iv_expr
+        sfec = case traces_that_worked of
+          ((e, _) : _) -> Just (V.fromList (sanctifyExpr noExtField e))
+          _ -> Nothing
+        non_zero_holes = Set.fromList $ concatMap fk traces_that_worked
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
     let nzh = Set.toList non_zero_holes
     liftIO $ logStr TRACE $ "Found " ++ show (length nzh) ++ " evaluated holes"

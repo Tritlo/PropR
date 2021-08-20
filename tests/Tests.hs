@@ -112,21 +112,21 @@ repairTests =
               expected =
                 [ "EFC {\"hello, world!\"}",
                   "EFC {0}",
-                  "EFC {gcd' 0 b}",
-                  "EFC {gcd' 0}",
+                  "EFC {(gcd' 0 b)}",
+                  "EFC {(gcd' 0)}",
                   "EFC {0}",
                   "EFC {0}",
-                  "EFC {b == 0}",
+                  "EFC {(b == 0)}",
                   "EFC {0}",
                   "EFC {0}",
-                  "EFC {if (a > b) then gcd' (a - b) b else gcd' a (b - a)}",
-                  "EFC {a > b}",
-                  "EFC {gcd' (a - b) b}",
-                  "EFC {gcd' (a - b)}",
-                  "EFC {a - b}",
-                  "EFC {gcd' a (b - a)}",
-                  "EFC {gcd' a}",
-                  "EFC {b - a}"
+                  "EFC {(if (a > b) then gcd' (a - b) b else gcd' a (b - a))}",
+                  "EFC {(a > b)}",
+                  "EFC {(gcd' (a - b) b)}",
+                  "EFC {(gcd' (a - b))}",
+                  "EFC {(a - b)}",
+                  "EFC {(gcd' a (b - a))}",
+                  "EFC {(gcd' a)}",
+                  "EFC {(b - a)}"
                 ]
           expr_cands <- runJustParseExpr (compileConfig tESTCONF) wrong_prog >>= (runGhc' (compileConfig tESTCONF) . getExprFitCands . Left)
           map showUnsafe expr_cands @?= expected,

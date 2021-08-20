@@ -740,20 +740,19 @@ traceTarget ::
   IO (Maybe TraceRes)
 traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
 
-toInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
-toInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
+toNonZeroInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
+toNonZeroInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
   where
     isOkBox (ExpBox _, _) = True
     isOkBox _ = False
     only_max :: (SrcSpan, [(BoxLabel, Integer)]) -> Maybe ((EExpr, SrcSpan), Integer)
-    only_max (src, []) = Just ((ex, src), 0)
-    only_max (src, [x]) | isOkBox x = Just ((ex, src), snd x)
-    only_max (src, [x]) = Nothing
-    -- TODO: What does it mean in HPC if there are multiple labels here?
     only_max (src, xs)
-      | any isOkBox xs =
-        Just ((ex, src), maximum $ map snd xs)
-    only_max (src, xs) = trace (show xs) Nothing
+      | any isOkBox xs,
+        ms <- maximum $ map snd xs,
+        ms > 0 =
+        Just ((ex, src), ms)
+    -- TODO: What does it mean in HPC if there are multiple labels here?
+    only_max (src, xs) = Nothing
 
 -- Run HPC to get the trace information.
 traceTargets ::
@@ -1165,8 +1164,9 @@ getExprFitCands expr_or_mod = do
     nonTriv (L _ HsWrap {}) = False
     nonTriv _ = True
     finalize :: (LHsExpr GhcTc, [Ct], [Id]) -> Maybe Type -> ExprFitCand
-    finalize (e, _, rs) ty@Nothing = EFC e emptyBag rs ty
-    finalize (e, wc, rs) ty@(Just expr_ty) = EFC e (listToBag (relevantCts expr_ty wc)) rs ty
+    finalize (e, _, rs) ty@Nothing = EFC (parenthesizeHsExpr appPrec e) emptyBag rs ty
+    finalize (e, wc, rs) ty@(Just expr_ty) =
+      EFC (parenthesizeHsExpr appPrec e) (listToBag (relevantCts expr_ty wc)) rs ty
     -- Taken from TcHoleErrors, which is sadly not exported. Takes a type and
     -- a list of constraints and filters out irrelvant constraints that do not
     -- mention any typve variable in the type.
