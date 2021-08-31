@@ -17,21 +17,21 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.LocalTime (utc)
 import Data.Version (showVersion)
-import Endemic
-import Endemic.Check (checkImports)
-import Endemic.Diff
-import Endemic.Eval
-import Endemic.Packages (repairPackage)
-import Endemic.Repair (detranslate, translate)
-import Endemic.Search.Genetic (geneticSearchPlusPostprocessing, runGenMonad)
-import Endemic.Traversals (replaceExpr)
-import Endemic.Types
-import Endemic.Util
+import PropR
+import PropR.Check (checkImports)
+import PropR.Diff
+import PropR.Eval
+import PropR.Packages (repairPackage)
+import PropR.Repair (detranslate, translate)
+import PropR.Search.Genetic (geneticSearchPlusPostprocessing, runGenMonad)
+import PropR.Traversals (replaceExpr)
+import PropR.Types
+import PropR.Util
 import GHC (HsExpr (HsLet), NoExtField (..))
 import GhcPlugins (noLoc)
 import Options.Applicative
 import Options.Applicative.Types (readerAsk)
-import qualified Paths_Endemic as PE (version)
+import qualified Paths_PropR as PE (version)
 import System.Directory (createDirectory, doesDirectoryExist)
 import System.Environment (getArgs)
 import System.IO
@@ -140,8 +140,8 @@ optParser = info (pickOpt <**> helper) modinfo
         <*> cliOpts
     modinfo =
       briefDesc
-        <> progDesc "Repair TARGET using the endemic genetic method"
-        <> header ("endemic " ++ showVersion PE.version ++ " - Genetic program repair for Haskell")
+        <> progDesc "Repair TARGET using the PropR TLSR method"
+        <> header ("PropR " ++ showVersion PE.version ++ " - Property-based Program Repair for Haskell")
     dumpConfig =
       flag'
         True
@@ -187,7 +187,7 @@ main = do
   conf@Conf {..} <- getConfiguration clOpts
   case optPicked of
     DumpConfig _ _ -> BS.putStrLn (encode conf)
-    ShowVersion _ _ -> putStrLn $ "endemic version " ++ showVersion PE.version
+    ShowVersion _ _ -> putStrLn $ "PropR version " ++ showVersion PE.version
     Repair _ target -> do
       setGlobalFlags conf
       isDir <- doesDirectoryExist target

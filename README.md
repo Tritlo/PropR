@@ -1,13 +1,13 @@
-[![Build, test, and deploy](https://github.com/Tritlo/Endemic/actions/workflows/build-test-deploy.yml/badge.svg)](https://github.com/Tritlo/Endemic/actions/workflows/build-test-deploy.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-hotpink.svg)](https://github.com/Tritlo/Endemic/blob/master/LICENSE)
+[![Build, test, and deploy](https://github.com/Tritlo/PropR/actions/workflows/build-test-deploy.yml/badge.svg)](https://github.com/Tritlo/PropR/actions/workflows/build-test-deploy.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-hotpink.svg)](https://github.com/Tritlo/PropR/blob/master/LICENSE)
 
-# Endemic: Genetic Program repair using GHC 🐣
+# PropR: Property-based Program repair using GHC 🐣
 
 > Inspired by GenProg.
 
 Welcome! 
 
-This repository holds *Endemic*, a program repair library in and for Haskell. 
+This repository holds *PropR*, a program repair library in and for Haskell. 
 With just a few dependencies, we can help you repair your program using GHC and genetic search! 
 
 Key aspects:
@@ -36,7 +36,7 @@ To run the program, ensure that the `check-helpers` library is installed by runn
 `$ cabal install --lib check-helpers`. You can then run
 
 ```
-$ cabal run endemic -- examples/BrokenModule.hs
+$ cabal run propr -- examples/BrokenModule.hs
 ```
 
 Optionally, you can use Docker: 
@@ -126,7 +126,7 @@ Showing how it works.
 For the `BrokenGCD` module, we get an interesting result:
 
 ```
-$ cabal run endemic -- examples/BrokenGCD.hs
+$ cabal run propr -- examples/BrokenGCD.hs
 ```
 
 gives us:
@@ -156,12 +156,12 @@ in `examples/`, but note that AST coverage is pretty limited at the moment.
 ---------
 
 ```
-endemic - Genetic program repair for Haskell
+PropR - Genetic program repair for Haskell
 
-Usage: endemic [--log-loc] [--no-log-timestamp] [--log-level LOGLEVEL]
+Usage: propr [--log-loc] [--no-log-timestamp] [--log-level LOGLEVEL]
                [--log-file FILE] [--seed INT] [--config CONFIG]
                [--override CONFIG] TARGET
-  Repair TARGET using the endemic genetic method
+  Repair TARGET using the propr genetic method
 
 Available options:
   --log-loc                Add location to log messages

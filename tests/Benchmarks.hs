@@ -12,16 +12,16 @@ import qualified Data.Map as Map
 import Data.Maybe (isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Endemic (describeProblem, getExprFitCands)
-import Endemic.Configuration
-import Endemic.Diff (applyFixes, fixesToDiffs, getFixBinds, ppDiff)
-import Endemic.Eval
-import Endemic.Search
-import Endemic.Search.Exhaustive
-import Endemic.Search.PseudoGenetic (pseudoGeneticRepair)
-import Endemic.Traversals
-import Endemic.Types
-import Endemic.Util (collectStats, getStats, logOut, reportStats, reportStats', resetStats, showTime, time)
+import PropR (describeProblem, getExprFitCands)
+import PropR.Configuration
+import PropR.Diff (applyFixes, fixesToDiffs, getFixBinds, ppDiff)
+import PropR.Eval
+import PropR.Search
+import PropR.Search.Exhaustive
+import PropR.Search.PseudoGenetic (pseudoGeneticRepair)
+import PropR.Traversals
+import PropR.Types
+import PropR.Util (collectStats, getStats, logOut, reportStats, reportStats', resetStats, showTime, time)
 import GhcPlugins (Outputable (ppr))
 import Test.Tasty
 import TestUtils

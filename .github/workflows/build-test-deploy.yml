@@ -73,7 +73,7 @@ jobs:
         with:
           # list of Docker images to use as base name for tags
           images: |
-            ghcr.io/tritlo/endemic
+            ghcr.io/tritlo/propr
           # generate Docker tags based on the following events/attributes
           tags: |
             type=schedule
@@ -104,7 +104,7 @@ jobs:
           context: .
           build-args: |
             "HASKELL_VERSION=8.10.4"
-            "ENDEMIC_VERSION=0.7.0"
+            "PROPR_VERSION=1.0.0"
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}

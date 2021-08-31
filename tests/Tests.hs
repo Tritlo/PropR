@@ -13,13 +13,13 @@ import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isJust, mapMaybe)
 import Data.Tree
 import Data.Tuple (swap)
-import Endemic.Configuration
-import Endemic.Diff
-import Endemic.Eval
-import Endemic.Repair
-import Endemic.Traversals
-import Endemic.Types
-import Endemic.Util
+import PropR.Configuration
+import PropR.Diff
+import PropR.Eval
+import PropR.Repair
+import PropR.Traversals
+import PropR.Types
+import PropR.Util
 import GHC (GhcPs, LHsExpr, noExtField, tm_parsed_module)
 import GhcPlugins (GenLocated (L), getLoc, unLoc)
 import Test.Tasty

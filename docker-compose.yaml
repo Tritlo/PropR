@@ -1,8 +1,8 @@
 version: '3.8'
 
 services:
-  Endemic_Example:
-    image: tritlo/endemic:unstable
+  PropR_Example:
+    image: tritlo/propr:unstable
     build:
       context: .
       dockerfile: Dockerfile
