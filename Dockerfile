@@ -1,4 +1,4 @@
-ARG HASKELL_VERSION=8.10.4
+ARG HASKELL_VERSION=8.10.7
 ARG PROPR_VERSION=1.0.0
 ARG RUN_TESTS
 # ==========================================
