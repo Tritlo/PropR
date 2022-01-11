@@ -25,13 +25,24 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        ghc: ['8.10.7', '9.0.1']
+        cabal: ['3.4.0.0']
 
     steps:
     - uses: actions/checkout@v2
-    - uses: actions/setup-haskell@v1
-      with:
-        ghc-version: '8.10.7'
-        cabal-version: '3.4'
+
+    - name: Install ghcup on non-windows
+      run: curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_MINIMAL=1 sh
+
+    - name: Install ghc/cabal
+      run: |
+        ghcup install ghc ${{ matrix.ghc }}
+        ghcup install cabal ${{ matrix.cabal }}
+      shell: bash
 
     - name: Cache
       uses: actions/cache@v2
@@ -46,6 +57,10 @@ jobs:
           ${{ runner.os }}-build-${{ env.cache-name }}-
           ${{ runner.os }}-build-
           ${{ runner.os }}-
+
+    - name: Update cabal index
+      run: cabal update
+      shell: bash
 
     - name: Install dependencies
       run: |
