@@ -12,6 +12,6 @@ stdenv.mkDerivation {
   buildInputs = [
     # cowsay is an arbitary package
     # see https://nixos.org/nixos/packages.html to search for more
-    zlib haskell.compiler.ghc8104 cabal-install
+    zlib haskell.compiler.ghc8107 cabal-install
   ];
 }
