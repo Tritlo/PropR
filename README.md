@@ -42,6 +42,12 @@ $ cabal run propr -- examples/BrokenModule.hs
 Optionally, you can use Docker: 
 
 ```
+$ docker build -t propr .
+$ docker run -it --volume $(pwd):/data --entrypoint /app/propr propr /data/examples/BrokenModule.hs
+```
+
+or docker-compose:
+```
 $ docker-compose up --build
 ```
 
