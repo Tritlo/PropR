@@ -29,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.10.7', '9.0.1']
+        ghc: ['8.10.7']
         cabal: ['3.4.0.0']
 
     steps:
