@@ -5,9 +5,7 @@
 
 > Inspired by GenProg.
 
-Welcome! 
-
-This repository holds *PropR*, a program repair library in and for Haskell. 
+Welcome! This repository holds *PropR*, a program repair library in and for Haskell. 
 With just a few dependencies, we can help you repair your program using GHC and genetic search! 
 
 Key aspects:
@@ -23,6 +21,16 @@ The repair process uses arcane knowledge that yet has to be molded into a public
 To give a coarse-grained overview, we utilize punching typed holes in the expressions touched by failing properties, 
 and ask GHC for valid hole-fits. 
 The compilers suggestions are used as components for the genetic search, where we mix and match them until all properties are passed.
+
+## Requirements
+
+
+| Haskell-Way   |   Docker-Way  |   Nix-Way  | 
+| ------------- | ------------- | ---------- | 
+| GHC 8.10      | Docker 20+    | Nix 2.3+   |
+| Cabal 1.24    | Compose 2.2   |    ...     |
+
+These are the versions we currently use - older versions might work too, please let us know if you could use different versions!
 
 ## Usage
 -----
