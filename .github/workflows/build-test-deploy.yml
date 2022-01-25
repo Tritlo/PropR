@@ -41,7 +41,9 @@ jobs:
     - name: Install ghc/cabal
       run: |
         ghcup install ghc ${{ matrix.ghc }}
+        ghcup set ghc ${{ matrix.ghc }}
         ghcup install cabal ${{ matrix.cabal }}
+        ghcup set cabal ${{ matrix.cabal }}
       shell: bash
 
     - name: Cache
