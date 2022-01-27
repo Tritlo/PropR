@@ -1,5 +1,6 @@
 [![Build, test, and deploy](https://github.com/Tritlo/PropR/actions/workflows/build-test-deploy.yml/badge.svg)](https://github.com/Tritlo/PropR/actions/workflows/build-test-deploy.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-hotpink.svg)](https://github.com/Tritlo/PropR/blob/master/LICENSE)
+[![DOI](https://zenodo.org/badge/315950874.svg)](https://zenodo.org/badge/latestdoi/315950874)
 
 # PropR: Property-based Program repair using GHC 🐣
 
