@@ -39,7 +39,13 @@ This program requires version `3.4` or higher of `cabal`, and version `8.10`  of
 A complete environment required to run (minus the `QuickCheck`)
 is defined in `shell.nix`, and can be activated using `nix-shell`, if installed.
 
-**MacOS** users have to use `cabal configure --enable-optimization --enable-executable-dynamic`. Windows users might find some help [here](https://www.linux.org/pages/download/).
+**MacOS** and other users whose installation does not do dynamic linking by default have to use `cabal configure --enable-optimization --enable-executable-dynamic`. 
+Otherwise you might run into
+```
+GHCERROR: cannot find object file ‘[...]/BrokenModule.dyn_o’ while linking an interpreted expression
+```
+
+Windows users might find some help [here](https://www.linux.org/pages/download/).
 
 To run the program, ensure that the `check-helpers` library is installed by running
 `$ cabal install --lib check-helpers`. You can then run
