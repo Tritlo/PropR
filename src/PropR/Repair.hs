@@ -60,13 +60,6 @@ import Data.Tree (flatten)
 import qualified Data.Vector as V
 import Debug.Trace (traceShowId)
 import Desugar (deSugarExpr)
-import PropR.Check
-import PropR.Configuration
-import PropR.Eval
-import PropR.Plugin (HoleFitState, resetHoleFitCache, resetHoleFitList)
-import PropR.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr, wrapExpr)
-import PropR.Types
-import PropR.Util
 import Exception
 import FV (fvVarSet)
 import GHC
@@ -75,6 +68,13 @@ import GHC.Prim (unsafeCoerce#)
 import GhcPlugins
 import Numeric (showHex)
 import PrelNames (mkMainModule, mkMainModule_)
+import PropR.Check
+import PropR.Configuration
+import PropR.Eval
+import PropR.Plugin (HoleFitState, resetHoleFitCache, resetHoleFitList)
+import PropR.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr, wrapExpr)
+import PropR.Types
+import PropR.Util
 import StringBuffer (stringToStringBuffer)
 import System.CPUTime (getCPUTime)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
@@ -192,7 +192,7 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
                     )
                     hasHoles
 
-            recur <- zip (map (L loc . fst) filled) . map snd <$> getHoleFits' plugRef (n -1) (map snd filled)
+            recur <- zip (map (L loc . fst) filled) . map snd <$> getHoleFits' plugRef (n - 1) (map snd filled)
             let repls = map (second (reverse . map (map snd . snd))) recur >>= uncurry replacements
                 procced :: [(Int, HsExpr GhcPs)]
                 procced = map ((0,) . unLoc . snd) repls
@@ -338,10 +338,11 @@ splitProps desc@ProbDesc {progProblem = EProb {..}, ..} = do
   return $ case res of
     Right True -> map Right e_props
     Right False -> map Left e_props
-    Left results -> zipWith resToEither  results e_props
-  where resToEither ::Bool -> EProp -> Either EProp EProp
-        resToEither False = Left
-        resToEither True = Right
+    Left results -> zipWith resToEither results e_props
+  where
+    resToEither :: Bool -> EProp -> Either EProp EProp
+    resToEither False = Left
+    resToEither True = Right
 splitProps _ = error "External fixes not supported!"
 
 -- | Returns the props that fail for the given program, without having a
@@ -480,7 +481,7 @@ findEvaluatedHoles
                 Just iv_ind
                   | Just e@(e_loc, _) <- sfe V.!? iv_ind,
                     isGoodSrcSpan e_loc ->
-                    Just e
+                      Just e
                 _ -> Nothing
               where
                 sf_locs = map getLoc $ flattenExpr iv_expr
@@ -562,7 +563,7 @@ generateFixCandidates
           where
             toCands ((loc, hole_expr), [fits])
               | isGoodSrcSpan loc =
-                map (Map.singleton loc) $ nubSort fits
+                  map (Map.singleton loc) $ nubSort fits
             -- We ignore the spans than are bad or unhelpful.
             toCands ((loc, _), [_]) = []
             toCands ((_, hole_expr), multi_fits) =
@@ -638,7 +639,7 @@ closeEProb prob@EProb {..} = prob {e_prog = n_prog, e_props = n_props, e_prop_si
         where
           dropWildCards :: Int -> LHsType GhcPs -> (Int, LHsType GhcPs)
           dropWildCards 0 t = (0, t)
-          dropWildCards n (L _ (HsFunTy NoExtField (L _ (HsWildCardTy NoExtField)) rty)) = dropWildCards (n -1) rty
+          dropWildCards n (L _ (HsFunTy NoExtField (L _ (HsWildCardTy NoExtField)) rty)) = dropWildCards (n - 1) rty
           dropWildCards n t = (n, t)
           (drpd, nty) = dropWildCards num_dropped ty
           num_dropped = maximum $ map length dropped

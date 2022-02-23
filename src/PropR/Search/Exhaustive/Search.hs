@@ -48,12 +48,12 @@ exhaustiveRepair r@ExhaustiveConf {..} desc@ProbDesc {..} = do
   let isFixed (Right x) = x
       isFixed (Left ps) = and ps
       loop ::
-        -- | The seen fixes, to remove duplicates and cached items
+        -- The seen fixes, to remove duplicates and cached items
         Set EFix ->
-        -- | The fixes to check, a (lazy) list of changes to test.
+        -- The fixes to check, a (lazy) list of changes to test.
         -- A check is a bunch of changes, hence a list too. The lay list is sorted ascending in length, the 1-Change entries are in the first list of list, the 2 Change entries are in the second list of list ...
         [[EFix]] ->
-        -- | Current depth of levels, just for better debugging and logging
+        -- Current depth of levels, just for better debugging and logging
         Int ->
         IO (Set EFix) -- The results found within a certain time-budget
       loop _ [] _ = return Set.empty -- Initial Case on creation, the first set of changes is the empty list. Also invoked if we exhaust the exhaustive search.

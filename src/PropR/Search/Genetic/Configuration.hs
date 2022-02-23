@@ -11,9 +11,9 @@ module PropR.Search.Genetic.Configuration where
 import Data.Default
 import Data.Maybe (fromMaybe)
 import Deriving.Aeson
+import GHC.Generics
 import PropR.Configuration.Materializeable
 import PropR.Types (EProblem, ExprFitCand)
-import GHC.Generics
 
 -- ===========                 ==============
 -- ===      Genetic Configurations        ===
@@ -38,7 +38,7 @@ data GeneticConfiguration = GConf
     -- Default 100% Elitism Selection will be performed (legacy-behaviour).
     -- Remaining non-elite elements for the next generation are chosen at random.
     -- This value is completely omitted in case of Tournament-Selection.
-    elitismRate :: Double, 
+    elitismRate :: Double,
     -- | Nothing to not do Tournament Selection, existing Conf will use Tournament instead (See below for more info)
     tournamentConfiguration :: Maybe TournamentConfiguration,
     -- | Nothing to disable IslandEvolution, existing Conf will run Island Evolution (See below for more Info)

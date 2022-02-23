@@ -26,13 +26,13 @@ module PropR.Traversals where
 
 import Control.Comonad.Store.Class (ComonadStore (peek, pos))
 import Control.Lens (Plated (..), contexts, contextsOf, transform, transformOf, universe, universeOf)
+import Data.Char (isAlphaNum, ord)
 import Data.Data (Data)
 import Data.Data.Lens (uniplate)
 import Data.List (intercalate)
 import Data.Map (Map, member, (!))
 import GHC
 import GhcPlugins
-import Data.Char (isAlphaNum, ord)
 
 -- TODO: This doesn't recurse into (L _ (HsWrap _ _ v)), because there's no located expressions in v!
 
@@ -60,8 +60,11 @@ wrapExpr repl_loc trans =
 -- the expression "holey". Which is pronounced holy.
 -- Could also be named `perforate`, `stigmatize` or
 -- `spindle`. See https://twitter.com/tritlo/status/1367202546415206400
-sanctifyExpr :: (Data (HsExpr id), HasOccName (IdP id)) =>
-               XUnboundVar id -> LHsExpr id -> [(SrcSpan, LHsExpr id)]
+sanctifyExpr ::
+  (Data (HsExpr id), HasOccName (IdP id)) =>
+  XUnboundVar id ->
+  LHsExpr id ->
+  [(SrcSpan, LHsExpr id)]
 sanctifyExpr ext = map repl . contextsOf uniplate
   where
     repl ctxt = (loc, peek (L loc hole) ctxt)

@@ -18,13 +18,13 @@ import Data.Maybe (fromMaybe)
 import Data.Time.Format
 import Data.Time.LocalTime
 import Deriving.Aeson
+import GHC (ParsedModule, TypecheckedModule (TypecheckedModule))
 import PropR.Configuration.Materializeable
 import PropR.Search.Exhaustive.Configuration
 import PropR.Search.Genetic.Configuration
 import PropR.Search.PseudoGenetic.Configuration
 import PropR.Search.Random.Configuration
 import PropR.Types
-import GHC (ParsedModule, TypecheckedModule (TypecheckedModule))
 import System.FilePath ((</>))
 
 -- | Logging configuration
@@ -80,11 +80,11 @@ instance Default Configuration where
 -- "materialized" by filling in the gaps
 instance Materializeable Configuration where
   data Unmaterialized Configuration = UmConf
-    { -- | Configuration for the compilation and repair of programs
+    { -- Configuration for the compilation and repair of programs
       umCompileConfig :: Maybe (Unmaterialized CompileConfig),
       umOutputConfig :: Maybe (Unmaterialized OutputConfig),
       umLogConfig :: Maybe (Unmaterialized LogConfig),
-      -- | Configuration for the genetic repair algorithm.
+      -- Configuration for the genetic repair algorithm.
       --  Left if we're to use the PseudoGenConf, Right otherwise.
       -- Defaults to a Genetic Configuration.
       umSearchAlgorithm :: Maybe (Unmaterialized SearchAlgorithm),

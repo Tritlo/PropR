@@ -32,9 +32,6 @@ import qualified Data.Set as Set
 import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Debug.Trace (trace)
-import PropR.Configuration
-import PropR.Traversals (replaceExpr)
-import PropR.Types (EExpr, EFix, EProg, EProgFix, EProp, EType, LogLevel (..))
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
@@ -42,6 +39,9 @@ import qualified GHC.Stack as GHS
 import GhcPlugins (HasCallStack, HasOccName, Outputable (..), defaultUserStyle, fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, runSDoc, unsafeGlobalDynFlags)
 import Outputable (initSDocContext)
 import qualified Pretty
+import PropR.Configuration
+import PropR.Traversals (replaceExpr)
+import PropR.Types (EExpr, EFix, EProg, EProgFix, EProp, EType, LogLevel (..))
 import SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
@@ -102,7 +102,7 @@ logFormattedTime :: IO String
 logFormattedTime = do
   time <- getCurrentTime
   let format = "%Y-%m-%d %H:%M:%S"
-  --let format = "%HH:%MM:%SS"
+  -- let format = "%HH:%MM:%SS"
   -- TODO: Get the users TimeZone from IO or from Config ?
   let locale = defaultTimeLocale
   return (formatTime locale format time)
@@ -175,7 +175,7 @@ insertAt ::
   [a]
 insertAt _ a [] = [a]
 insertAt 0 a as = a : as
-insertAt n a (x : xs) = x : insertAt (n -1) a xs
+insertAt n a (x : xs) = x : insertAt (n - 1) a xs
 
 -- | Transforms time given in ns (as measured by "time") into a string
 showTime :: (Integer, Integer) -> String
@@ -264,7 +264,7 @@ saveToFile OutputConf {..} content path = do
     else do
       -- handle <- openFile path ReadWriteMode
       writeFile path content
-      --hClose handle
+      -- hClose handle
       return ()
 
 -- | Returns the current time as yyyy-mm-dd-HH-MM

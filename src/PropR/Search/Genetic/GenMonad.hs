@@ -19,6 +19,8 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
+import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
+import GhcPlugins (Outputable (..), liftIO)
 import PropR.Configuration
 import PropR.Eval (runGhc')
 import PropR.Repair (checkFixes, repairAttempt)
@@ -28,8 +30,6 @@ import PropR.Search.Genetic.Utils
 import PropR.Traversals (replaceExpr)
 import PropR.Types (EFix, EProblem (..), TestSuiteResult)
 import PropR.Util (applyFixToEProg, collectStats, eProgToEProgFix, mergeFixes, mergeFixes', progAtTy)
-import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
-import GhcPlugins (Outputable (..), liftIO)
 import System.Random
 
 -- ===========                                    ==============
@@ -121,8 +121,9 @@ instance Chromosome EFix where
     if null to_compute
       then return $ map snd done
       else do
-        res <- zipWith (\e f -> (e, basicFitness e f)) to_compute
-                 <$> unsafeComputePopResults to_compute
+        res <-
+          zipWith (\e f -> (e, basicFitness e f)) to_compute
+            <$> unsafeComputePopResults to_compute
         putCache (Map.fromList res `Map.union` fc)
         return $
           map (snd . snd) $

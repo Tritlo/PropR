@@ -21,13 +21,13 @@ import Data.Data.Lens (tinplate)
 import Data.Maybe (fromJust, isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import PropR.Configuration (CompileConfig (..))
-import PropR.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
-import PropR.Util (progAtTy, propVars, rdrNamePrint, rdrNameToStr)
 import FastString (fsLit)
 import GHC
 import GhcPlugins (occName)
 import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
+import PropR.Configuration (CompileConfig (..))
+import PropR.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
+import PropR.Util (progAtTy, propVars, rdrNamePrint, rdrNameToStr)
 import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
 
@@ -40,7 +40,8 @@ defaultQcConfig = QcConfig Nothing Nothing
 qcArgsExpr :: QcConfig -> LHsExpr GhcPs
 qcArgsExpr QcConfig {..}
   | Just shrinks <- maxShrinks,
-    Just successes <- maxSuccess = wrap2 "qcCheckArgsTestsMaxSeed" successes shrinks
+    Just successes <- maxSuccess =
+      wrap2 "qcCheckArgsTestsMaxSeed" successes shrinks
   | Just shrinks <- maxShrinks = wrap1 "qcCheckArgsMaxSeed" shrinks
   | Just successes <- maxSuccess = wrap1 "qcCheckArgsTestsSeed" successes
   | otherwise = wrap (tf "qcCheckArgsSeed")
@@ -48,10 +49,12 @@ qcArgsExpr QcConfig {..}
     wrap wrapped = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField wrapped (il $ fromIntegral seed)
     wrap1 funName arg = wrap (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf funName) (il $ fromIntegral arg))
     wrap2 funName arg1 arg2 =
-       wrap (noLoc $
-              HsPar NoExtField $ noLoc $
-              HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf funName) (il $ fromIntegral arg1)) (il $ fromIntegral arg2)
-              )
+      wrap
+        ( noLoc $
+            HsPar NoExtField $
+              noLoc $
+                HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf funName) (il $ fromIntegral arg1)) (il $ fromIntegral arg2)
+        )
 
 -- [Note] We had a version with no seed, qcCheckArgsMax and qcCheckArgs, but those are deprecated.
 -- the helper functions are still available in check-helpers.
@@ -197,7 +200,7 @@ testCheckExpr ::
   Maybe (LHsExpr GhcPs)
 testCheckExpr e_prog CompConf {..} extractors prop
   | Just _ <- prop_to_name prop =
-    Just $ noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
+      Just $ noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
   where
     prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid

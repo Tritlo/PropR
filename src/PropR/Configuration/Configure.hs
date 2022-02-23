@@ -22,10 +22,10 @@ import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map as Map
 import Data.Maybe (fromMaybe)
 import Data.Tuple (swap)
+import GHC.Generics (Generic)
 import PropR.Configuration.Materializeable
 import PropR.Configuration.Types
 import PropR.Types
-import GHC.Generics (Generic)
 import System.Directory (doesFileExist)
 import System.FilePath (takeExtension)
 import System.IO.Unsafe (unsafePerformIO)

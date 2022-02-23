@@ -8,11 +8,12 @@ module PropR.Search.Genetic.Search where
 import Control.Monad (foldM, forM)
 import qualified Control.Monad.Trans.Reader as R
 import Data.Function (on)
-import Data.List (partition, sortBy, sortOn, minimumBy, intercalate)
+import Data.List (intercalate, minimumBy, partition, sortBy, sortOn)
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock
+import GhcPlugins (liftIO)
 import PropR.Configuration (ProblemDescription (..))
 import PropR.Search.Genetic.Configuration
 import PropR.Search.Genetic.GenMonad
@@ -20,7 +21,6 @@ import PropR.Search.Genetic.Types
 import PropR.Search.Genetic.Utils
 import PropR.Types
 import PropR.Util
-import GhcPlugins (liftIO)
 
 -- ===========                 ==============
 -- ===           Genetic Search           ===
@@ -98,13 +98,13 @@ geneticSearch = collectStats $ do
   where
     geneticSearch' ::
       (Chromosome g) =>
-      -- | The remaining iterations to perform before abort, stops on 0
+      -- The remaining iterations to perform before abort, stops on 0
       Int ->
-      -- | The current time in Ms, used to check for timeout
+      -- The current time in Ms, used to check for timeout
       Int ->
-      -- | The (current) population on which to perform search on
+      -- The (current) population on which to perform search on
       [g] ->
-      -- | The results found, for which the fitness function is correct. Collected over all generations, ordered by generations ascending
+      -- The results found, for which the fitness function is correct. Collected over all generations, ordered by generations ascending
       GenMonad (Set g)
     -- Case A: Iterations Done, return empty results
     geneticSearch' 0 _ pop = do
@@ -154,10 +154,12 @@ geneticSearch = collectStats $ do
           popFitness <- fitnessMany nextPop
           let averageFitness = average popFitness
               (bestFitness, bestCand) = minimumBy (compare `on` fst) $ zip popFitness nextPop
-          logStr' VERBOSE ("Average Fitness of Generation " ++ show currentGen
+          logStr'
+            VERBOSE
+            ( "Average Fitness of Generation " ++ show currentGen
                 ++ " is "
                 ++ show (averageFitness)
-                )
+            )
           logStr' VERBOSE ("Best candidate so far with fitness " ++ show bestFitness ++ ":")
           liftIO $ logOut VERBOSE bestCand
           liftIO $ do
@@ -181,17 +183,17 @@ geneticSearch = collectStats $ do
                   else -- If we don't replace winners, just keep the population
                     return nextPop
               -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
-              recursiveResults <- geneticSearch' (n -1) (currentTime + timediff) nextPop'
+              recursiveResults <- geneticSearch' (n - 1) (currentTime + timediff) nextPop'
               return (winners `Set.union` recursiveResults)
     islandSearch ::
       (Chromosome g) =>
-      -- | The remaining iterations to perform before abort, stops on 0
+      -- The remaining iterations to perform before abort, stops on 0
       Int ->
-      -- | The current time in Ms, used to check for timeout
+      -- The current time in Ms, used to check for timeout
       Int ->
-      -- | The (current) populations, separated by island, on which to perform search on
+      -- The (current) populations, separated by island, on which to perform search on
       [[g]] ->
-      -- | The results found, for which the fitness function is "perfect"(==0). Collected over all generations and all Islands, ordered by generations ascending
+      -- The results found, for which the fitness function is "perfect"(==0). Collected over all generations and all Islands, ordered by generations ascending
       -- Case A: Iterations Done, return empty results
       GenMonad (Set g)
     islandSearch 0 _ _ = return Set.empty
@@ -263,7 +265,7 @@ geneticSearch = collectStats $ do
                           replacers <- mapM initialPopulation numReplacers
                           return (zipWith (++) replacers reducedPops)
               -- Run Genetic Search with New Pop,updated Timer, GenConf & Iterations - 1
-              recursiveResults <- islandSearch (n -1) (currentTime + timediff) nextPops'
+              recursiveResults <- islandSearch (n - 1) (currentTime + timediff) nextPops'
               return (winners `Set.union` recursiveResults)
     environmentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]
     environmentSelectedGeneration pop = do
@@ -289,19 +291,18 @@ geneticSearch = collectStats $ do
       mergedPop' <- sortPopByFitness shuffledMergedPop
       -- We select the top i% elite if specified in the configuration.
       if (elitismRate conf) > 1 || (elitismRate conf) < 0
-      then error "Received invalid elitismRate - aborting. ElitismRate must be in [0,1]"
-      else do
-        let
-            numElites = floor ((fromIntegral $ populationSize conf) * (elitismRate conf))
-            numRandies = (populationSize conf) - numElites
-            elites = take numElites mergedPop'
-            -- To not pick elites twice, we make a new non-elite pop to draw from
-            -- As the non-elite pop is taken from the shuffled pop, it is shuffled too.
-            nonElitePop = deleteMany elites shuffledMergedPop
-            -- We then take the remaining ones random
-            nonElites = take numRandies nonElitePop
-            nextPop = elites ++ nonElites
-        return nextPop
+        then error "Received invalid elitismRate - aborting. ElitismRate must be in [0,1]"
+        else do
+          let numElites = floor ((fromIntegral $ populationSize conf) * (elitismRate conf))
+              numRandies = (populationSize conf) - numElites
+              elites = take numElites mergedPop'
+              -- To not pick elites twice, we make a new non-elite pop to draw from
+              -- As the non-elite pop is taken from the shuffled pop, it is shuffled too.
+              nonElitePop = deleteMany elites shuffledMergedPop
+              -- We then take the remaining ones random
+              nonElites = take numRandies nonElitePop
+              nextPop = elites ++ nonElites
+          return nextPop
 
     tournamentSelectedGeneration :: (Chromosome g) => [g] -> GenMonad [g]
     tournamentSelectedGeneration pop = do
@@ -319,9 +320,9 @@ geneticSearch = collectStats $ do
       performMutation children'
     migrate ::
       Chromosome g =>
-      -- | The populations in which the migration will take place
+      -- The populations in which the migration will take place
       [[g]] ->
-      -- | The populations after migration, the very best species of every island are duplicated to the receiving island (intended behaviour)
+      -- The populations after migration, the very best species of every island are duplicated to the receiving island (intended behaviour)
       GenMonad [[g]]
     migrate islandPops = do
       conf <- R.ask
@@ -386,7 +387,7 @@ pickNByTournament 0 _ = return []
 pickNByTournament _ [] = return []
 pickNByTournament n gs = do
   champ <- pickByTournament gs
-  recursiveChampions <- pickNByTournament (n -1) gs
+  recursiveChampions <- pickNByTournament (n - 1) gs
   return (maybeToList champ ++ recursiveChampions)
 
 -- | Helper to perform mutation on a list of Chromosomes.
@@ -437,13 +438,13 @@ pickByTournament population =
   where
     pickByTournament' ::
       (Chromosome g) =>
-      -- | (Remaining) Tournament Rounds
+      -- (Remaining) Tournament Rounds
       Int ->
-      -- | Population from which to draw from
+      -- Population from which to draw from
       [g] ->
-      -- | Current Champion, Nothing if search just started or on missbehaviour
+      -- Current Champion, Nothing if search just started or on missbehaviour
       Maybe g ->
-      -- | Champion after the selection, Nothing on Empty Populations
+      -- Champion after the selection, Nothing on Empty Populations
       -- Case 1: We terminated and have a champion
       GenMonad (Maybe g)
     pickByTournament' 0 _ (Just champion) = return (Just champion)
@@ -461,7 +462,7 @@ pickByTournament population =
       putGen gen'
       if n > 1
         then do
-          recursiveChampion <- pickByTournament' (n -1) population curChamp
+          recursiveChampion <- pickByTournament' (n - 1) population curChamp
           fittest (maybeToList recursiveChampion ++ maybeToList curChamp ++ tParticipants)
         else do
           let newChamp = case curChamp of
@@ -477,13 +478,16 @@ fittest gs = do
   sorted <- sortPopByFitness gs
   return (listToMaybe sorted)
 
-
 -- | Prints the best elements of the population to VERBOSE level.
 -- TODO: Add the failing properties per each element.
-reportNearResults :: (Chromosome g) =>
-  [g]            -- ^ The (last) population to be printed from
-  -> Int         -- ^ Number of elements to be printed
-  -> GenMonad () -- ^ Stuff is just printed, but the fitness cache is utilized.
+reportNearResults ::
+  (Chromosome g) =>
+  -- | The (last) population to be printed from
+  [g] ->
+  -- | Number of elements to be printed
+  Int ->
+  -- | Stuff is just printed, but the fitness cache is utilized.
+  GenMonad ()
 reportNearResults pop n =
   do
     propNames <- map propToName . e_props . progProblem <$> liftDesc R.ask
@@ -493,7 +497,7 @@ reportNearResults pop n =
         toFailReason (Right True) = "It worked... shouldn't be here..."
         toFailReason (Left props) =
           let failing = map fst $ filter (not . snd) $ zip propNames props
-          in unwords failing
+           in unwords failing
     (failReasons :: [String]) <- map toFailReason <$> unsafeComputePopResults besties
     liftIO $ logStr VERBOSE ("Best-Fitted elements of the population were: ")
     liftIO $ mapM (\(fr, b) -> logStr VERBOSE fr >> logOut VERBOSE b) $ zip failReasons besties

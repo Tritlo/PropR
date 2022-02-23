@@ -25,13 +25,13 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
+import FastString (unpackFS)
+import GHC
+import GhcPlugins (Outputable)
 import PropR.Configuration (ProblemDescription (..))
 import PropR.Traversals (replaceExpr)
 import PropR.Types
 import PropR.Util (progAtTy, showUnsafe)
-import FastString (unpackFS)
-import GHC
-import GhcPlugins (Outputable)
 
 getFixBinds :: LHsExpr GhcPs -> LHsBinds GhcPs
 getFixBinds parsed =
@@ -63,7 +63,7 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nb =
           | n <- L dl (ValD x $ unLoc b),
             neq <- (/=) `on` showUnsafe,
             n `neq` d ->
-            Just (d, n)
+              Just (d, n)
         _ -> Nothing
     swap _ = Nothing
     swapDecl d = maybe d snd (swap d)

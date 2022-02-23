@@ -9,13 +9,13 @@ import Control.DeepSeq (NFData (..))
 import qualified Control.Monad.Trans.Reader as R
 import qualified Control.Monad.Trans.State.Lazy as ST
 import qualified Data.Map as Map
+import GHC (HsExpr (HsLet), NoExtField (NoExtField))
+import GhcPlugins (Outputable (..), noLoc)
 import PropR.Configuration
 import PropR.Eval (getExprFitCands, moduleToProb)
 import PropR.Search.Genetic.Configuration
 import PropR.Types
 import PropR.Util (undefVar)
-import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (Outputable (..), noLoc)
 import System.Random
 
 -- ===========                                    ==============
@@ -44,7 +44,7 @@ class (Ord g, Outputable g, NFData g) => Chromosome g where
     g ->
     -- | A fitness function, applicable to the Chromosome.
     GenMonad Double
-  
+
   -- Used to compute the results for a given population, ignoring
   -- the fitness cache. Mainly for reporting.
   unsafeComputePopResults :: [g] -> GenMonad [TestSuiteResult]

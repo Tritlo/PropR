@@ -21,6 +21,7 @@ import Control.Monad.IO.Class (liftIO)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
+import GHC (runGhc)
 import PropR.Configuration
 import PropR.Eval (runGhcWithCleanup)
 import PropR.Repair (checkFixes, findEvaluatedHoles, getHoleFits, processFits, repairAttempt, replacements)
@@ -28,7 +29,6 @@ import PropR.Search.Random.Configuration (RandomConf (..))
 import PropR.Traversals (replaceExpr)
 import PropR.Types
 import PropR.Util
-import GHC (runGhc)
 import System.CPUTime (getCPUTime)
 import System.Random.SplitMix (SMGen, mkSMGen, nextInteger)
 
@@ -53,13 +53,13 @@ randomRepair r@RandConf {..} desc@ProbDesc {..} = do
   randomRepair' start (mkSMGen $ fromIntegral seed) Map.empty
   where
     randomRepair' ::
-      -- | Currently passed time in pico-seconds
+      -- Currently passed time in pico-seconds
       Integer ->
-      -- | A premade Split-Mix Generator, to help with randomness
+      -- A premade Split-Mix Generator, to help with randomness
       SMGen ->
-      -- | Running Fix, to be changed randomly
+      -- Running Fix, to be changed randomly
       EFix ->
-      -- | Set of found fixes
+      -- Set of found fixes
       IO (Set EFix)
     randomRepair' start gen fix_so_far = do
       logOut AUDIT fix_so_far

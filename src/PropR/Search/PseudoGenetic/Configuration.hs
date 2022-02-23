@@ -10,8 +10,8 @@ module PropR.Search.PseudoGenetic.Configuration where
 import Data.Default
 import Data.Maybe
 import Deriving.Aeson
-import PropR.Configuration.Materializeable
 import GHC.Generics
+import PropR.Configuration.Materializeable
 
 -- | GenConf represents a set of configurations for the Pseudo Genetic Experiment
 data PseudoGenConf = PseudoGenConf

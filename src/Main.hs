@@ -17,6 +17,11 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.LocalTime (utc)
 import Data.Version (showVersion)
+import GHC (HsExpr (HsLet), NoExtField (..))
+import GhcPlugins (noLoc)
+import Options.Applicative
+import Options.Applicative.Types (readerAsk)
+import qualified Paths_PropR as PE (version)
 import PropR
 import PropR.Check (checkImports)
 import PropR.Diff
@@ -27,11 +32,6 @@ import PropR.Search.Genetic (geneticSearchPlusPostprocessing, runGenMonad)
 import PropR.Traversals (replaceExpr)
 import PropR.Types
 import PropR.Util
-import GHC (HsExpr (HsLet), NoExtField (..))
-import GhcPlugins (noLoc)
-import Options.Applicative
-import Options.Applicative.Types (readerAsk)
-import qualified Paths_PropR as PE (version)
 import System.Directory (createDirectory, doesDirectoryExist)
 import System.Environment (getArgs)
 import System.IO
@@ -205,4 +205,3 @@ main = do
         dirExists <- doesDirectoryExist dir'
         unless dirExists $ createDirectory dir'
         savePatchesToFiles oc diffs
-

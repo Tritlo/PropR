@@ -23,6 +23,8 @@ import Data.Maybe (mapMaybe)
 import Data.Ord (Down (Down))
 import Data.Set (Set)
 import qualified Data.Set as Set
+import GHC (HsExpr (HsLet), NoExtField (NoExtField))
+import GhcPlugins (Outputable (..), isSubspanOf, noLoc, pprPanic)
 import PropR.Configuration
 import PropR.Eval (getExprFitCands, runGhc')
 import PropR.Repair (checkFixes, findEvaluatedHoles, repairAttempt)
@@ -30,8 +32,6 @@ import PropR.Search.PseudoGenetic.Configuration
 import PropR.Traversals (replaceExpr)
 import PropR.Types
 import PropR.Util
-import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (Outputable (..), isSubspanOf, noLoc, pprPanic)
 
 -- |
 --   An Individual consists of a "Fix", that is a change to be applied,
@@ -133,9 +133,9 @@ pseudoGeneticRepair
             loop :: [(EFix, TestSuiteResult)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
-                do
-                  logStr INFO $ "Repair found after " ++ show n ++ " rounds!"
-                  return $ Set.fromList $ map fst $ successful gen
+                  do
+                    logStr INFO $ "Repair found after " ++ show n ++ " rounds!"
+                    return $ Set.fromList $ map fst $ successful gen
             loop _ rounds | rounds >= genRounds = return Set.empty
             loop attempt rounds = do
               let gen = individuals attempt
@@ -150,7 +150,7 @@ pseudoGeneticRepair
               mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) gen
               logStr AUDIT "NEXT GEN"
               mapM_ (logOut AUDIT . \g -> (fst g, fitness g)) new_gen
-              --let mapGen = if genPar then mapConcurrently else mapM
+              -- let mapGen = if genPar then mapConcurrently else mapM
               -- Concurrency at this level isn't safe: we can't share the
               -- ghc state safely between threads without weird issues.
               -- TODO: figure out how to run a totally separate GHC with

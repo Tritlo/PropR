@@ -6,11 +6,11 @@
 module PropR.Search.Genetic.Utils where
 
 import Data.List (delete)
+import GhcPlugins (HasCallStack, liftIO)
 import PropR.Search.Genetic.Configuration (GeneticConfiguration (..))
 import PropR.Search.Genetic.Types (GenMonad)
 import PropR.Types (LogLevel)
 import PropR.Util (logStr)
-import GhcPlugins (HasCallStack, liftIO)
 import System.Random (Random (randomR), RandomGen, uniformR)
 
 -- ===========                 ==============
@@ -89,7 +89,7 @@ pickRandomElements 0 g _ = ([], g)
 pickRandomElements _ g [] = ([], g)
 pickRandomElements n g as =
   let (asShuffled, g') = shuffle as g
-      (recursiveResults, g'') = pickRandomElements (n -1) g' as
+      (recursiveResults, g'') = pickRandomElements (n - 1) g' as
       x = head asShuffled
    in (x : recursiveResults, g'')
 
@@ -120,4 +120,4 @@ pickElementUniform xs g =
 
 deleteMany :: Eq a => [a] -> [a] -> [a]
 deleteMany [] xs = xs
-deleteMany (d:ds) xs = deleteMany ds (delete d xs)
+deleteMany (d : ds) xs = deleteMany ds (delete d xs)

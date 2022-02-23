@@ -11,8 +11,8 @@ module PropR.Search.Exhaustive.Configuration where
 import Data.Default
 import Data.Maybe (fromMaybe)
 import Deriving.Aeson
-import PropR.Configuration.Materializeable
 import GHC.Generics
+import PropR.Configuration.Materializeable
 
 --------------------------------------------------------------------------------
 ----                      Configuration                                   ------
