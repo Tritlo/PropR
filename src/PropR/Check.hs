@@ -31,13 +31,27 @@ import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
 import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
 
+data QcConfig = QcConfig {maxShrinks :: Maybe Int, maxSuccess :: Maybe Int, seed :: Int}
+
+defaultQcConfig :: Int -> QcConfig
+defaultQcConfig = QcConfig Nothing Nothing
+
 -- | Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
-qcArgsExpr :: Int -> Maybe Integer -> LHsExpr GhcPs
-qcArgsExpr seed Nothing = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsSeed") (il $ fromIntegral seed)
-qcArgsExpr seed (Just shrinks) =
-  noLoc $
-    HsPar NoExtField $
-      noLoc $ HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf "qcCheckArgsMaxSeed") (il $ fromIntegral seed)) (il shrinks)
+qcArgsExpr :: QcConfig -> LHsExpr GhcPs
+qcArgsExpr QcConfig {..}
+  | Just shrinks <- maxShrinks,
+    Just successes <- maxSuccess = wrap2 "qcCheckArgsTestsMaxSeed" successes shrinks
+  | Just shrinks <- maxShrinks = wrap1 "qcCheckArgsMaxSeed" shrinks
+  | Just successes <- maxSuccess = wrap1 "qcCheckArgsTestsSeed" successes
+  | otherwise = wrap (tf "qcCheckArgsSeed")
+  where
+    wrap wrapped = noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField wrapped (il $ fromIntegral seed)
+    wrap1 funName arg = wrap (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf funName) (il $ fromIntegral arg))
+    wrap2 funName arg1 arg2 =
+       wrap (noLoc $
+              HsPar NoExtField $ noLoc $
+              HsApp NoExtField (noLoc $ HsPar NoExtField $ noLoc $ HsApp NoExtField (tf funName) (il $ fromIntegral arg1)) (il $ fromIntegral arg2)
+              )
 
 -- [Note] We had a version with no seed, qcCheckArgsMax and qcCheckArgs, but those are deprecated.
 -- the helper functions are still available in check-helpers.
@@ -116,7 +130,7 @@ buildFixCheck cc seed EProb {..} prog_fixes =
   (ctxt, check_bind)
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
-    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed $ Just 0)
+    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ (defaultQcConfig seed) {maxShrinks = Just 0})
     nvbs =
       unionManyBags
         [ listToBag e_props,
@@ -289,7 +303,7 @@ buildCounterExampleCheck
     where
       (L bl (HsValBinds be vb)) = e_ctxt
       (ValBinds vbe vbs vsigs) = vb
-      qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr seed Nothing)
+      qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ defaultQcConfig seed)
       nvb = ValBinds vbe nvbs $ vsigs ++ nty
       nvbs =
         unionManyBags

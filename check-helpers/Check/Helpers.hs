@@ -21,18 +21,28 @@ import qualified Test.Tasty as Tasty
 import Test.Tasty.Ingredients
 import qualified Test.Tasty.Runners as TR
 
--- QuickCheck helpers
+-- QuickCheck helpers. We have to do this in this weird way because we're
+-- splicing the arguments directly into the AST.
 qcCheckArgs :: Args
 qcCheckArgs = stdArgs {chatty = False}
 
 qcCheckArgsMax :: Int -> Args
 qcCheckArgsMax ms = stdArgs {chatty = False, maxShrinks = ms}
 
+qcCheckArgsTests :: Int -> Args
+qcCheckArgsTests ts = stdArgs {chatty = False, maxSuccess = ts}
+
 qcCheckArgsSeed :: Int -> Args
 qcCheckArgsSeed seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, 0)}
 
 qcCheckArgsMaxSeed :: Int -> Int -> Args
-qcCheckArgsMaxSeed seed ms = stdArgs {chatty = False, replay = Just (mkQCGen seed, 0), maxShrinks = ms}
+qcCheckArgsMaxSeed ms seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, 0), maxShrinks = ms}
+
+qcCheckArgsTestsSeed :: Int -> Int -> Args
+qcCheckArgsTestsSeed ts seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, 0), maxSuccess = ts}
+
+qcCheckArgsTestsMaxSeed :: Int -> Int -> Int -> Args
+qcCheckArgsTestsMaxSeed ts ms seed = stdArgs {chatty = False, replay = Just (mkQCGen seed, 0), maxShrinks = ms, maxSuccess = ts}
 
 qcSuccess :: Result -> Bool
 qcSuccess = isSuccess
