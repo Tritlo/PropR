@@ -331,20 +331,23 @@ propCounterExamples ProbDesc {..} props = runGhc' cc' $ do
       "prop" /= take 4 (occNameString $ rdrNameOcc $ unLoc fid)
     isTastyProp _ = True
 
--- | Returns the props that are failing given a problem description.
-failingProps' :: ProblemDescription -> Ghc [EProp]
-failingProps' desc@ProbDesc {progProblem = EProb {..}, ..} = do
+-- | Split the props into failing props (left) and successful props (right)
+splitProps :: ProblemDescription -> Ghc [Either EProp EProp]
+splitProps desc@ProbDesc {progProblem = EProb {..}, ..} = do
   ~[res] <- liftIO $ checkFixes desc [eProgToEProgFixAtTy e_prog]
   return $ case res of
-    Right True -> []
-    Right False -> e_props
-    Left results -> map fst $ filter (not . snd) $ zip e_props results
-failingProps' _ = error "External fixes not supported!"
+    Right True -> map Right e_props
+    Right False -> map Left e_props
+    Left results -> zipWith resToEither  results e_props
+  where resToEither ::Bool -> EProp -> Either EProp EProp
+        resToEither False = Left
+        resToEither True = Right
+splitProps _ = error "External fixes not supported!"
 
 -- | Returns the props that fail for the given program, without having a
 -- proper description. DO NOT USE IF YOU HAVE A DESCRIPTION
 failingProps :: CompileConfig -> EProblem -> IO [EProp]
-failingProps cc prob = runGhc' cc $ failingProps' (fakeDesc [] cc prob)
+failingProps cc prob = fmap lefts <$> runGhc' cc $ splitProps (fakeDesc [] cc prob)
 
 fakeDesc :: [ExprFitCand] -> CompileConfig -> EProblem -> ProblemDescription
 fakeDesc efcs cc prob =
@@ -386,7 +389,9 @@ findEvaluatedHoles
     -- We can use the failing_props and the counter_examples to filter
     -- out locations that we know won't matter.
     liftIO $ logStr TRACE "Finding failing props..."
-    failing_props <- collectStats $ failingProps' desc
+    split_props <- collectStats $ splitProps desc
+    let failing_props = lefts split_props
+        successful_props = rights split_props
     liftIO $ logStr TRACE $ "Found " ++ show (length failing_props) ++ " failing props"
 
     liftIO $ logStr TRACE "Finding counter examples..."
@@ -396,7 +401,7 @@ findEvaluatedHoles
     let hasCE (p, Just ce) = Just (p, ce)
         hasCE _ = Nothing
         -- ps_w_ce = Properties with CounterExamples -> The Failing Properties
-        ps_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
+        failing_props_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
     -- We compute the locations that are touched by the failing counter-examples
     -- liftIO $ logStr TRACE "Tracing program..."
     -- This Method helps us to go resolve the traces per expressions touched by properties
@@ -446,8 +451,8 @@ findEvaluatedHoles
           . assigToExprProp
           . map (zip (zip [0 :: Int ..] id_prog) <$>)
           . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
-          . zip (zip [0 :: Int ..] ps_w_ce)
-          <$> traceTargets cc tp id_prog ps_w_ce
+          . zip (zip [0 :: Int ..] failing_props_w_ce)
+          <$> traceTargets cc tp id_prog failing_props_w_ce
 
     liftIO $ logStr TRACE $ "Got " ++ show (length traces_that_worked) ++ " traces that worked"
     liftIO $ mapM_ (logOut DEBUG) traces_that_worked
