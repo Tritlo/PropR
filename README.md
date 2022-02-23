@@ -53,6 +53,11 @@ To run the program, ensure that the `check-helpers` library is installed by runn
 ```
 $ cabal run propr -- examples/BrokenModule.hs
 ```
+or using a config:
+
+```
+$ cabal run propr -- --config resources/test_config.json --log-level TRACE examples/FourFixes.hs
+```
 
 Optionally, you can use Docker: 
 
