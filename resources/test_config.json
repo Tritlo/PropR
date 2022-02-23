@@ -31,14 +31,14 @@
   "search_algorithm": {
     "tag": "Genetic",
     "contents": {
-      "mutation_rate": 0.05,
-      "crossover_rate": 0.95,
-      "iterations": 50,
+      "mutation_rate": 0.1,
+      "crossover_rate": 0.4,
+      "iterations": 1000,
       "population_size": 64,
       "timeout_in_seconds": 300,
       "stop_on_results": true,
       "elitism_rate": 1,
-      "drop_rate": 0.05,
+      "drop_rate": 0.25,
       "max_fix_size_step": 1,
       "try_minimize_fixes": false,
       "replace_winners": true,
@@ -51,5 +51,5 @@
     "log_timestamp": true,
     "log_file": null
   },
-  "random_seed": 703039777
+  "random_seed": 703039772
 }

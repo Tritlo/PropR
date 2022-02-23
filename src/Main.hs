@@ -193,8 +193,9 @@ main = do
       isDir <- doesDirectoryExist target
       (t, diffs) <- time $ (if isDir then repairPackage else repairModule) conf target
 
-      mapM_ (putStrLn . colorizeDiff) diffs
       reportStats' TIMINGS
+      logStr INFO $ "Done! Repair search took (" ++ showTime t ++ ")"
+      mapM_ (putStrLn . colorizeDiff) diffs
 
       when (savePatches outputConfig) $ do
         -- Here we write the found solutions to respective files, we just number them 1 .. n
@@ -205,4 +206,3 @@ main = do
         unless dirExists $ createDirectory dir'
         savePatchesToFiles oc diffs
 
-      logStr INFO $ "Done! Repair search took (" ++ showTime t ++ ")"
