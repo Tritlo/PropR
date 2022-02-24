@@ -234,7 +234,8 @@ instance Materializeable CompileConfig where
       umAllowFunctionFits :: Maybe Bool,
       umExcludeTargets :: Maybe [String],
       umExtendDefaults :: Maybe Bool,
-      umFilterIncorrectFixes :: Maybe Bool
+      umFilterIncorrectFixes :: Maybe Bool,
+      umUseSpectrum :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -243,6 +244,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -284,7 +286,8 @@ instance Materializeable CompileConfig where
         allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits,
         excludeTargets = fromMaybe excludeTargets umExcludeTargets,
         extendDefaults = fromMaybe extendDefaults umExtendDefaults,
-        filterIncorrectFixes = fromMaybe filterIncorrectFixes umFilterIncorrectFixes
+        filterIncorrectFixes = fromMaybe filterIncorrectFixes umFilterIncorrectFixes,
+        useSpectrum = fromMaybe useSpectrum umUseSpectrum
       }
 
 -- | Configuration for the compilation itself
@@ -354,7 +357,11 @@ data CompileConfig = CompConf
     -- | With filter incorrect fixes set, we try to recover from incorrect fixes
     -- by checking the fixes one by one and seeing which ones compile. Without
     -- this flag, we simply fail on incorrect fixes.
-    filterIncorrectFixes :: Bool
+    filterIncorrectFixes :: Bool,
+    -- | Use spectrum turns on using spectral analysis to try to distinguish
+    -- the good parts and bad parts by using the difference between failing
+    -- and successful properties.
+    useSpectrum :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -382,7 +389,8 @@ instance Default CompileConfig where
         allowFunctionFits = True,
         excludeTargets = [],
         extendDefaults = False,
-        filterIncorrectFixes = True
+        filterIncorrectFixes = True,
+        useSpectrum = False
       }
 
 instance Default LogConfig where

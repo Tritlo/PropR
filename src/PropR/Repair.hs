@@ -378,7 +378,7 @@ findEvaluatedHoles ::
   IO [(SrcSpan, LHsExpr GhcPs)]
 findEvaluatedHoles
   desc@ProbDesc
-    { compConf = cc,
+    { compConf = cc@CompConf{..},
       progProblem = tp@EProb {..}
     } = runGhc' cc $ do
     liftIO $ logStr TRACE "Finding evaluated holes..."
@@ -438,25 +438,36 @@ findEvaluatedHoles
                 comb [] = error "expr with no traces!"
             resolve :: [(Int, [(Int, Trace)])] -> [(EExpr, [(EProp, Trace)])]
             resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map IntMap.!))
-
+        execTraces :: [(EProp, [RExpr])] -> Ghc [(EExpr, Map (EExpr, SrcSpan) Integer)]
+        execTraces props_w_ce =
+          liftIO $
+            -- If we want the full count, we need Map.unionsWith (+) here..., but
+            -- since we only care about whether or not it's 0, unions is enough,
+            -- since we only return non-zero invokes
+            map (second (Map.unions . map (toNonZeroInvokes . snd)))
+              -- The traces are per prop per expr, but we need a per expr per prop,
+              -- so we add indices and then use this custom transpose to get
+              -- the traces per expr. (See above)
+              . assigToExprProp
+              . map (zip (zip [0 :: Int ..] id_prog) <$>)
+              . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
+              . zip (zip [0 :: Int ..] props_w_ce)
+              <$> traceTargets cc tp id_prog props_w_ce
     -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
-    traces_that_worked :: [(EExpr, Map (EExpr, SrcSpan) Integer)] <-
-      liftIO $
-        -- If we want the full count, we need Map.unionsWith (+) here..., but
-        -- since we only care about whether or not it's 0, unions is enough,
-        -- since we only return non-zero invokes
-        map (second (Map.unions . map (toNonZeroInvokes . snd)))
-          -- The traces are per prop per expr, but we need a per expr per prop,
-          -- so we add indices and then use this custom transpose to get
-          -- the traces per expr. (See above)
-          . assigToExprProp
-          . map (zip (zip [0 :: Int ..] id_prog) <$>)
-          . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
-          . zip (zip [0 :: Int ..] failing_props_w_ce)
-          <$> traceTargets cc tp id_prog failing_props_w_ce
+    liftIO $ logStr TRACE "Running failing props..."
+    failing_traces_that_worked <- execTraces failing_props_w_ce
 
-    liftIO $ logStr TRACE $ "Got " ++ show (length traces_that_worked) ++ " traces that worked"
-    liftIO $ mapM_ (logOut DEBUG) traces_that_worked
+    liftIO $ logStr TRACE $ "Got " ++ show (length failing_traces_that_worked) ++ " failing traces that worked!"
+    liftIO $ mapM_ (logOut DEBUG) failing_traces_that_worked
+
+    success_traces <- if useSpectrum
+                      then do liftIO $ logStr TRACE "Running successful props..."
+                              str <- execTraces $ map (,[]) successful_props
+                              liftIO $ logStr TRACE $ "Got " ++ show (length str) ++ " success traces that worked!"
+                              liftIO $ mapM_ (logOut DEBUG) str
+                              return str
+                      else return []
+
     liftIO $ logStr TRACE "Finding non-zero holes from trace..."
 
     -- We then remove suggested holes that are unlikely to help (naively for now
@@ -485,14 +496,21 @@ findEvaluatedHoles
                 _ -> Nothing
               where
                 sf_locs = map getLoc $ flattenExpr iv_expr
-        sfec = case traces_that_worked of
-          ((e, _) : _) -> Just (V.fromList (sanctifyExpr noExtField e))
-          _ -> Nothing
-        non_zero_holes = Set.fromList $ concatMap fk traces_that_worked
+        non_zero_holes_failing = Set.fromList $ concatMap fk failing_traces_that_worked
+        non_zero_holes_success = Set.fromList $ concatMap fk success_traces
+        non_zero_hole_diff = (non_zero_holes_failing Set.\\ non_zero_holes_success)
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
-    let nzh = Set.toList non_zero_holes
-    liftIO $ logStr TRACE $ "Found " ++ show (length nzh) ++ " evaluated holes"
-    return nzh
+    liftIO $ logStr TRACE $ "Found " ++ show (Set.size non_zero_holes_failing) ++ " evaluated holes"
+
+    -- Note: we could also do this for partially failing properties, if we could
+    -- convince quickCheck to come up with non-counter-examples (examples?)
+    when useSpectrum $ do
+      liftIO $ logStr TRACE "Only in failing props:"
+      liftIO $ mapM_ (logOut TRACE) $ Set.toList non_zero_hole_diff
+    return $ Set.toList $ if not useSpectrum
+                          then non_zero_holes_failing
+                          else non_zero_hole_diff
+
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | This method tries to repair a given Problem.
