@@ -21,9 +21,10 @@ import Data.Data.Lens (tinplate)
 import Data.Maybe (fromJust, isJust, mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
+import Debug.Trace (trace, traceShow)
 import FastString (fsLit)
 import GHC
-import GhcPlugins (occName)
+import GhcPlugins (Outputable (ppr), occName, showSDocUnsafe)
 import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
 import PropR.Configuration (CompileConfig (..))
 import PropR.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
@@ -206,10 +207,19 @@ testCheckExpr e_prog CompConf {..} extractors prop
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid
     prop_to_name _ = Nothing
 
-    prop_name = fromJust $ prop_to_name prop
-
     prop_vars :: Set RdrName
     prop_vars = propVars prop
+
+    propPatVars :: LHsBind GhcPs -> Set RdrName
+    propPatVars (L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}) =
+      Set.fromList $ mapMaybe unPat $ concatMap m alts
+      where
+        m :: LMatch GhcPs (LHsExpr GhcPs) -> [LPat GhcPs]
+        m (L _ Match {..}) = m_pats
+        unPat (L _ (VarPat _ (L _ p))) = Just p
+        unPat _ = Nothing
+    prop_pats = propPatVars prop
+    prop_name = fromJust $ prop_to_name prop
 
     isQc = ((==) "prop" . take 4 . occNameString . rdrNameOcc . unLoc) prop_name
     extractor = if isQc then fst extractors else snd extractors
@@ -229,13 +239,11 @@ testCheckExpr e_prog CompConf {..} extractors prop
       noLoc $
         HsPar NoExtField $ apps (reverse $ filter (\(n, _, _) -> n `Set.member` prop_vars) e_prog)
       where
-        -- If there's no var, then we have to do the following
-        apps [] =
-          noLoc $
-            HsApp
-              NoExtField
-              (noLoc $ HsVar NoExtField prop_name)
-              (tf "expr__")
+        apps []
+          -- if we get no argument and the property doesn't have any argument
+          -- mentioned in the body of the function, we don't do anything
+          | Set.null (prop_pats `Set.intersection` prop_vars) = noLoc $ HsVar NoExtField prop_name
+          | otherwise = noLoc $ HsApp NoExtField (noLoc $ HsVar NoExtField prop_name) (tf "expr__")
         apps [(nm, _, _)] =
           noLoc $
             HsApp

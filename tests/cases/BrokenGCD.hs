@@ -26,6 +26,12 @@ gcd' a b =
     then gcd' (a - b) b
     else gcd' a (b - a)
 
+-- | Added 2022-02-28 to test #112.
+prop_5 = True
+
+prop_6 True = True
+prop_6 False = True
+
 main :: IO ()
 main = print "Unrelated main function"
 
