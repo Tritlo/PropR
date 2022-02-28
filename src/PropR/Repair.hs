@@ -529,8 +529,8 @@ findPropLocations
         -- for target, but we are interested in what was evaluated in the
         -- properties for all the targets.
         non_zero_evals = map Set.unions $ transpose non_zero_e_per_expr
-    liftIO $ logStr TRACE "Reconstituted:"
-    liftIO $ mapM_ (logOut TRACE) $ reconstitute used_props non_zero_evals
+    liftIO $ logStr DEBUG "Reconstituted:"
+    liftIO $ mapM_ (logOut DEBUG) $ reconstitute used_props non_zero_evals
     return $ reconstitute used_props non_zero_evals
 findPropLocations _ = error "Cannot find evaluated holes of external problems yet!"
 
