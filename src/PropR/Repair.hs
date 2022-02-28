@@ -414,24 +414,30 @@ findPropLocations
     liftIO $ logStr TRACE "Finding counter examples..."
     counter_examples <- liftIO $ collectStats $ propCounterExamples desc failing_props
     liftIO $ logStr TRACE $ "Found " ++ show (length counter_examples) ++ " counter examples"
-    let recombine (True : ts) (l : ls) rs = Left l : recombine ts ls rs
-        recombine (False : ts) ls (r : rs) = Right r : recombine ts ls rs
+    let recombine (Left _ : ts) (l : ls) rs = Left l : recombine ts ls rs
+        recombine (Right _ : ts) ls (r : rs) = Right r : recombine ts ls rs
         recombine _ _ _ = []
-        reconstitute (True : ts) (v : vs) = Left v : reconstitute ts vs
-        reconstitute (False : ts) (v : vs) = Right v : reconstitute ts vs
-        reconstitute _ _ = []
-
-        mbToEmpty (Just a) = a
-        mbToEmpty Nothing = []
 
         mergeEither :: Either a a -> a
         mergeEither (Left a) = a
         mergeEither (Right a) = a
         recombined =
           recombine
-            (map isLeft split_props)
-            (zip failing_props $ map mbToEmpty counter_examples)
-            (map (,[] :: [RExpr]) successful_props)
+            split_props
+            (zip failing_props counter_examples)
+            (map (,Just [] :: Maybe [RExpr]) successful_props)
+
+        -- We want to drop the left and rights and nothings, but still
+        -- remember where they were so we can build it back up after
+        -- evaluation
+        mix e | (e', Just a) <- mergeEither e = Just (e', a)
+        mix _ = Nothing
+
+        reconstitute (Left (_, Just _) : rs) (v : vs) = Left v : reconstitute rs vs
+        reconstitute (Right (_, Just _) : rs) (v : vs) = Right v : reconstitute rs vs
+        reconstitute (Left _ : rs) vs = Left Set.empty : reconstitute rs vs
+        reconstitute (Right _ : rs) vs = Right Set.empty : reconstitute rs vs
+        reconstitute _ _ = []
 
     -- We compute the locations that are touched by the failing counter-examples
     -- liftIO $ logStr TRACE "Tracing program..."
@@ -479,24 +485,14 @@ findPropLocations
               -- so we add indices and then use this custom transpose to get
               -- the traces per expr. (See above)
               . assigToExprProp
-              . map ((zip (zip [0 :: Int ..] id_prog) <$>))
-              . mapMaybe (\((i, (p, _)), tr) -> (((i, p),) <$> tr))
+              . map (zip (zip [0 :: Int ..] id_prog) <$>)
+              . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
               . zip (zip [0 :: Int ..] props_w_ce)
               <$> traceTargets cc tp id_prog props_w_ce
     -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
     liftIO $ logStr TRACE "Running props..."
-    traces <-
-      execTraces $
-        if useSpectrum
-          then map mergeEither recombined
-          else lefts recombined
-    -- TODO: does this ever happen?
-    when (useSpectrum && any ((/=) (length split_props) . length . snd) traces) $
-      error
-        ( "trace prop length mismatch! Got " ++ show (map length traces)
-            ++ " from "
-            ++ show (length split_props)
-        )
+    let used_props = if useSpectrum then recombined else filter (\r -> isLeft r && isJust (mix r)) recombined
+    traces <- execTraces $ mapMaybe mix used_props
 
     liftIO $ mapM_ (logOut DEBUG) traces
 
@@ -534,8 +530,8 @@ findPropLocations
         -- properties for all the targets.
         non_zero_evals = map Set.unions $ transpose non_zero_e_per_expr
     liftIO $ logStr TRACE "Reconstituted:"
-    liftIO $ mapM_ (logOut TRACE) $ reconstitute (map isLeft split_props) non_zero_evals
-    return $ (if useSpectrum then reconstitute (map isLeft split_props) else map Left) non_zero_evals
+    liftIO $ mapM_ (logOut TRACE) $ reconstitute used_props non_zero_evals
+    return $ reconstitute used_props non_zero_evals
 findPropLocations _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | This method tries to repair a given Problem.
