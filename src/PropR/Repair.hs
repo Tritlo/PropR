@@ -705,7 +705,7 @@ checkFixes'
   compile_check_only
   desc@ProbDesc
     { compConf = cc@CompConf {..},
-      progProblem = tp,
+      progProblem = tp@EProb {..},
       addConf = AddConf {..},
       ..
     }
@@ -781,7 +781,7 @@ checkFixes'
     return res
     where
       shouldInterpret = useInterpreted && assumeNoLoops
-      timeoutVal = fromIntegral timeout
+      timeoutVal = length e_props * fromIntegral timeout
 
       doesCompileBin :: DynFlags -> [EProgFix] -> Ghc [Bool]
       -- Wow, so applicative
@@ -939,7 +939,7 @@ checkFixes'
                   then do
                     -- We want the process to die in case we were wrong,
                     -- better than hanging.
-                    scheduleAlarm (1 + 10 * length checks * ceiling (fromIntegral timeoutVal / 1_000_000))
+                    scheduleAlarm (1 + 2 * length checks * ceiling (fromIntegral timeoutVal / 1_000_000))
                     howToRun (evf evalCheck checks)
                       >>= (<$ scheduleAlarm 0) -- We finished, so turn off the alarm
                       >>= \case
