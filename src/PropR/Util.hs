@@ -330,6 +330,15 @@ propVars prop = Set.fromList $ mapMaybe mbVar exprs
     exprs :: [LHsExpr GhcPs]
     exprs = universeOnOf tinplate uniplate prop
 
+propFunArgVars :: EProp -> Set RdrName
+propFunArgVars (L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}) =
+  Set.fromList $ mapMaybe unPat $ concatMap m alts
+  where
+    m :: LMatch GhcPs (LHsExpr GhcPs) -> [LPat GhcPs]
+    m (L _ Match {..}) = m_pats
+    unPat (L _ (VarPat _ (L _ p))) = Just p
+    unPat _ = Nothing
+
 -- We need all this to workaround GHC issue #367
 runInProc ::
   -- | The timeout to use

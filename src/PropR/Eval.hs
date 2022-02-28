@@ -984,8 +984,10 @@ exprToTraceModule CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
       | pname <- toName prop,
         "prop" /= take 4 pname,
         pvars <- propVars prop,
+        argvars <- propFunArgVars prop,
         fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
-        fts_to_use <- if null fts then fake_targets else fts =
+        fts_to_use <- if null fts && not (Set.null (pvars `Set.intersection` argvars))
+                      then fake_targets else fts =
         "checkTastyTree " ++ show timeout ++ " ("
           ++ pname
           ++ " "
@@ -996,8 +998,11 @@ exprToTraceModule CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
     toCall {- args start here -} prop args
       | pname <- toName prop,
         pvars <- propVars prop,
+        argvars <- propFunArgVars prop,
         fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
-        fts_to_use <- if null fts then fake_targets else fts =
+        fts_to_use <- if null fts && not (Set.null (pvars `Set.intersection` argvars))
+                      then fake_targets else fts =
+
         "fmap qcSuccess ("
           ++ "qcWRes "
           ++ show timeout

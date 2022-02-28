@@ -28,7 +28,7 @@ import GhcPlugins (Outputable (ppr), occName, showSDocUnsafe)
 import OccName (NameSpace, dataName, mkVarOcc, occNameString, tcName)
 import PropR.Configuration (CompileConfig (..))
 import PropR.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
-import PropR.Util (progAtTy, propVars, rdrNamePrint, rdrNameToStr)
+import PropR.Util (progAtTy, propVars, propFunArgVars, rdrNamePrint, rdrNameToStr)
 import RdrName (mkUnqual, mkVarUnqual, rdrNameOcc)
 import TcEvidence (idHsWrapper)
 
@@ -210,15 +210,7 @@ testCheckExpr e_prog CompConf {..} extractors prop
     prop_vars :: Set RdrName
     prop_vars = propVars prop
 
-    propPatVars :: LHsBind GhcPs -> Set RdrName
-    propPatVars (L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}) =
-      Set.fromList $ mapMaybe unPat $ concatMap m alts
-      where
-        m :: LMatch GhcPs (LHsExpr GhcPs) -> [LPat GhcPs]
-        m (L _ Match {..}) = m_pats
-        unPat (L _ (VarPat _ (L _ p))) = Just p
-        unPat _ = Nothing
-    prop_pats = propPatVars prop
+    prop_pats = propFunArgVars prop
     prop_name = fromJust $ prop_to_name prop
 
     isQc = ((==) "prop" . take 4 . occNameString . rdrNameOcc . unLoc) prop_name
