@@ -41,7 +41,7 @@ qcArgsExpr :: QcConfig -> LHsExpr GhcPs
 qcArgsExpr QcConfig {..}
   | Just shrinks <- maxShrinks,
     Just successes <- maxSuccess =
-      wrap2 "qcCheckArgsTestsMaxSeed" successes shrinks
+    wrap2 "qcCheckArgsTestsMaxSeed" successes shrinks
   | Just shrinks <- maxShrinks = wrap1 "qcCheckArgsMaxSeed" shrinks
   | Just successes <- maxSuccess = wrap1 "qcCheckArgsTestsSeed" successes
   | otherwise = wrap (tf "qcCheckArgsSeed")
@@ -200,7 +200,7 @@ testCheckExpr ::
   Maybe (LHsExpr GhcPs)
 testCheckExpr e_prog CompConf {..} extractors prop
   | Just _ <- prop_to_name prop =
-      Just $ noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
+    Just $ noLoc $ HsApp NoExtField (noLoc $ HsApp NoExtField (tf "fmap") extractor) subExpr
   where
     prop_to_name :: LHsBind GhcPs -> Maybe (Located RdrName)
     prop_to_name (L _ FunBind {fun_id = fid}) = Just fid

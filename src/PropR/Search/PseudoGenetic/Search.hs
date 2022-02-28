@@ -133,9 +133,9 @@ pseudoGeneticRepair
             loop :: [(EFix, TestSuiteResult)] -> Int -> IO (Set EFix)
             loop gen n
               | not (null $ successful gen) =
-                  do
-                    logStr INFO $ "Repair found after " ++ show n ++ " rounds!"
-                    return $ Set.fromList $ map fst $ successful gen
+                do
+                  logStr INFO $ "Repair found after " ++ show n ++ " rounds!"
+                  return $ Set.fromList $ map fst $ successful gen
             loop _ rounds | rounds >= genRounds = return Set.empty
             loop attempt rounds = do
               let gen = individuals attempt

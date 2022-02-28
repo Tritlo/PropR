@@ -406,17 +406,17 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             fromTPropD b@(L l FunBind {..})
               | t <- idType $ unLoc fun_id,
                 isTestTree t || isProp t (unLoc fun_id) =
-                  let res = [getOccName $ unLoc fun_id]
-                   in if isTestTree t
-                        then (res, mempty)
-                        else (mempty, res)
+                let res = [getOccName $ unLoc fun_id]
+                 in if isTestTree t
+                      then (res, mempty)
+                      else (mempty, res)
             fromTPropD b@(L l VarBind {..})
               | t <- idType var_id,
                 isTestTree t || isProp t var_id =
-                  let res = [getOccName var_id]
-                   in if isTestTree t
-                        then (res, mempty)
-                        else (mempty, res)
+                let res = [getOccName var_id]
+                 in if isTestTree t
+                      then (res, mempty)
+                      else (mempty, res)
             fromTPropD b@(L l AbsBinds {..}) = tjoin abs_binds
             fromTPropD _ = (mempty, mempty)
             isTestTree (TyConApp tt _) =
@@ -456,7 +456,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
           where
             fromLocalPackage name
               | Just mod <- nameModule_maybe name =
-                  mgElemModule mnames_after_local mod
+                mgElemModule mnames_after_local mod
             fromLocalPackage _ = False
             prop_var_names :: [Name]
             prop_var_names = filter ((`Set.member` prop_var_occs) . occName) top_lvl_names
@@ -489,14 +489,14 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                 len == length t_names,
                 exprs <- wp_expr targets_n_sigs,
                 tys <- map prog_ty sigs ->
-                  Just $
-                    EProb
-                      { e_ctxt = toCtxt valueDeclarations [],
-                        e_prog = zip3 targets tys exprs,
-                        e_module = Just mname,
-                        e_props = wrapped_props,
-                        e_prop_sigs = prop_sigs
-                      }
+                Just $
+                  EProb
+                    { e_ctxt = toCtxt valueDeclarations [],
+                      e_prog = zip3 targets tys exprs,
+                      e_module = Just mname,
+                      e_props = wrapped_props,
+                      e_prop_sigs = prop_sigs
+                    }
             _ | len <- length targets -> Nothing
           where
             t_names_set = Set.fromList t_names
@@ -541,7 +541,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             wrapProp :: LHsBind GhcPs -> [(LHsBind GhcPs, [Sig GhcPs])]
             wrapProp prop@(L l fb@FunBind {..})
               | Just num_cases <- unfoldedTasty Map.!? rdr_occ =
-                  concatMap toBind [0 .. (num_cases - 1)]
+                concatMap toBind [0 .. (num_cases - 1)]
               where
                 prop_vars = propVars prop
                 rdr_occ = rdrNameOcc (unLoc fun_id)
@@ -750,7 +750,7 @@ toNonZeroInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
       | any isOkBox xs,
         ms <- maximum $ map snd xs,
         ms > 0 =
-          Just ((ex, src), ms)
+        Just ((ex, src), ms)
     -- TODO: What does it mean in HPC if there are multiple labels here?
     only_max (src, xs) = Nothing
 
@@ -838,7 +838,7 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
                 fromValD (L l (ValD _ b@FunBind {..}))
                   | rdrNameToStr (unLoc fun_id) `elem` fake_target_names,
                     Just ex <- unFun b =
-                      Just (rdrNameToStr $ unLoc fun_id, ex)
+                    Just (rdrNameToStr $ unLoc fun_id, ex)
                 fromValD _ = Nothing
 
         -- We should for here in case it doesn't terminate, and modify
@@ -986,30 +986,30 @@ exprToTraceModule CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
         pvars <- propVars prop,
         fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
         fts_to_use <- if null fts then fake_targets else fts =
-          "checkTastyTree " ++ show timeout ++ " ("
-            ++ pname
-            ++ " "
-            ++ unwords (map (\(n, _, _) -> n) fts_to_use)
-            ++ " {- args start here -} "
-            ++ unwords args
-            ++ ")"
+        "checkTastyTree " ++ show timeout ++ " ("
+          ++ pname
+          ++ " "
+          ++ unwords (map (\(n, _, _) -> n) fts_to_use)
+          ++ " {- args start here -} "
+          ++ unwords args
+          ++ ")"
     toCall {- args start here -} prop args
       | pname <- toName prop,
         pvars <- propVars prop,
         fts <- filter (\(_, nm, _) -> nm `Set.member` pvars) fake_targets,
         fts_to_use <- if null fts then fake_targets else fts =
-          "fmap qcSuccess ("
-            ++ "qcWRes "
-            ++ show timeout
-            ++ " ("
-            ++ showUnsafe (qcArgsExpr $ defaultQcConfig seed)
-            ++ ") ("
-            ++ pname
-            ++ " "
-            ++ unwords (map (\(n, _, _) -> n) fts_to_use)
-            ++ " {- args start here -} "
-            ++ unwords args
-            ++ "))"
+        "fmap qcSuccess ("
+          ++ "qcWRes "
+          ++ show timeout
+          ++ " ("
+          ++ showUnsafe (qcArgsExpr $ defaultQcConfig seed)
+          ++ ") ("
+          ++ pname
+          ++ " "
+          ++ unwords (map (\(n, _, _) -> n) fts_to_use)
+          ++ " {- args start here -} "
+          ++ unwords args
+          ++ "))"
     checks :: String
     checks = intercalate ", " $ map (uncurry toCall) nas
 exprToTraceModule _ _ _ _ _ _ = error "External problems not supported yet!"

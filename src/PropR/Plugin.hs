@@ -94,15 +94,15 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                           inScope e_id
                             | e_name <- getName e_id,
                               e_occ <- occName e_id =
-                                isWiredInName e_name
-                                  || if isLocalId e_id
-                                    then -- A local variable is in scope if it's in the environment
-                                      inLocalRdrEnvScope e_name lcl_env
-                                    else -- A global variable is in scope if it's not shadowed by a local:
-                                    -- or if it's wired in.
+                              isWiredInName e_name
+                                || if isLocalId e_id
+                                  then -- A local variable is in scope if it's in the environment
+                                    inLocalRdrEnvScope e_name lcl_env
+                                  else -- A global variable is in scope if it's not shadowed by a local:
+                                  -- or if it's wired in.
 
-                                      not (null (lookupGlobalRdrEnv gbl_env e_occ))
-                                        && isNothing (lookupLocalRdrOcc lcl_env e_occ)
+                                    not (null (lookupGlobalRdrEnv gbl_env e_occ))
+                                      && isNothing (lookupLocalRdrOcc lcl_env e_occ)
                       case holeHash dflags defaults h >>= (cache Map.!?) . (num_calls,) of
                         Just cached | useCache -> liftIO $ do
                           modifyIORef' plugRef (fmap (cached :))
@@ -135,13 +135,13 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                                   occ <- greOccName elt,
                                   [_] <- lookupGlobalRdrEnv gbl_env occ,
                                   Nothing <- lookupLocalRdrOcc lcl_env occ =
-                                    True
+                                  True
                               isOk HoleFit {..}
                                 | GreHFCand elt <- hfCand,
                                   occ <- greOccName elt,
                                   [GRE {..}] <- lookupGlobalRdrEnv gbl_env occ,
                                   Just n <- lookupLocalRdrOcc lcl_env occ =
-                                    getLoc n == getLoc gre_name
+                                  getLoc n == getLoc gre_name
                               isOk HoleFit {..} | inScope hfId = True
                               isOk RawHoleFit {} = True
                               isOk x = False

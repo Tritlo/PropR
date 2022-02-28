@@ -63,7 +63,7 @@ applyFixes pm@ParsedModule {pm_parsed_source = (L lm hm@HsModule {..})} nb =
           | n <- L dl (ValD x $ unLoc b),
             neq <- (/=) `on` showUnsafe,
             n `neq` d ->
-              Just (d, n)
+            Just (d, n)
         _ -> Nothing
     swap _ = Nothing
     swapDecl d = maybe d snd (swap d)

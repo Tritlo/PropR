@@ -378,7 +378,7 @@ findEvaluatedHoles ::
   IO [(SrcSpan, LHsExpr GhcPs)]
 findEvaluatedHoles
   desc@ProbDesc
-    { compConf = cc@CompConf{..},
+    { compConf = cc@CompConf {..},
       progProblem = tp@EProb {..}
     } = runGhc' cc $ do
     liftIO $ logStr TRACE "Finding evaluated holes..."
@@ -460,13 +460,15 @@ findEvaluatedHoles
     liftIO $ logStr TRACE $ "Got " ++ show (length failing_traces_that_worked) ++ " failing traces that worked!"
     liftIO $ mapM_ (logOut DEBUG) failing_traces_that_worked
 
-    success_traces <- if useSpectrum
-                      then do liftIO $ logStr TRACE "Running successful props..."
-                              str <- execTraces $ map (,[]) successful_props
-                              liftIO $ logStr TRACE $ "Got " ++ show (length str) ++ " success traces that worked!"
-                              liftIO $ mapM_ (logOut DEBUG) str
-                              return str
-                      else return []
+    success_traces <-
+      if useSpectrum
+        then do
+          liftIO $ logStr TRACE "Running successful props..."
+          str <- execTraces $ map (,[]) successful_props
+          liftIO $ logStr TRACE $ "Got " ++ show (length str) ++ " success traces that worked!"
+          liftIO $ mapM_ (logOut DEBUG) str
+          return str
+        else return []
 
     liftIO $ logStr TRACE "Finding non-zero holes from trace..."
 
@@ -492,7 +494,7 @@ findEvaluatedHoles
                 Just iv_ind
                   | Just e@(e_loc, _) <- sfe V.!? iv_ind,
                     isGoodSrcSpan e_loc ->
-                      Just e
+                    Just e
                 _ -> Nothing
               where
                 sf_locs = map getLoc $ flattenExpr iv_expr
@@ -507,10 +509,11 @@ findEvaluatedHoles
     when useSpectrum $ do
       liftIO $ logStr TRACE "Only in failing props:"
       liftIO $ mapM_ (logOut TRACE) $ Set.toList non_zero_hole_diff
-    return $ Set.toList $ if not useSpectrum
-                          then non_zero_holes_failing
-                          else non_zero_hole_diff
-
+    return $
+      Set.toList $
+        if not useSpectrum
+          then non_zero_holes_failing
+          else non_zero_hole_diff
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | This method tries to repair a given Problem.
@@ -581,7 +584,7 @@ generateFixCandidates
           where
             toCands ((loc, hole_expr), [fits])
               | isGoodSrcSpan loc =
-                  map (Map.singleton loc) $ nubSort fits
+                map (Map.singleton loc) $ nubSort fits
             -- We ignore the spans than are bad or unhelpful.
             toCands ((loc, _), [_]) = []
             toCands ((_, hole_expr), multi_fits) =
