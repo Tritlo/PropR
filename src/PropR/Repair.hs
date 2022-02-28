@@ -41,7 +41,7 @@ import qualified Data.ByteString.Char8 as BSC
 import Data.Char (isAlphaNum)
 import Data.Default
 import Data.Dynamic (fromDyn)
-import Data.Either (lefts, rights)
+import Data.Either (isLeft, lefts, rights)
 import Data.Foldable (find)
 import Data.Function (on)
 import Data.Functor (($>), (<&>))
@@ -54,11 +54,12 @@ import qualified Data.List as L
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, fromJust, fromMaybe, isJust, mapMaybe)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (flatten)
 import qualified Data.Vector as V
-import Debug.Trace (traceShowId)
+import Debug.Trace (traceShow, traceShowId)
 import Desugar (deSugarExpr)
 import Exception
 import FV (fvVarSet)
@@ -380,6 +381,20 @@ findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc@CompConf {..},
       progProblem = tp@EProb {..}
+    } = Set.toList . Set.unions . lefts <$> findPropLocations desc
+findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
+
+-- | Finds the locations in the program that are evaluated by tests
+-- and returns those as programs with holes at that location as a list
+-- per property, wrapped in an Either where Left indicates it was a failing
+-- property and Right indicates that it succeeded.
+findPropLocations ::
+  ProblemDescription ->
+  IO [Either (Set (SrcSpan, LHsExpr GhcPs)) (Set (SrcSpan, LHsExpr GhcPs))]
+findPropLocations
+  desc@ProbDesc
+    { compConf = cc@CompConf {..},
+      progProblem = tp@EProb {..}
     } = runGhc' cc $ do
     liftIO $ logStr TRACE "Finding evaluated holes..."
     -- We apply the fixes to all of the contexts, and all of the contexts
@@ -393,16 +408,31 @@ findEvaluatedHoles
     split_props <- collectStats $ splitProps desc
     let failing_props = lefts split_props
         successful_props = rights split_props
+
     liftIO $ logStr TRACE $ "Found " ++ show (length failing_props) ++ " failing props"
 
     liftIO $ logStr TRACE "Finding counter examples..."
     counter_examples <- liftIO $ collectStats $ propCounterExamples desc failing_props
     liftIO $ logStr TRACE $ "Found " ++ show (length counter_examples) ++ " counter examples"
+    let recombine (True : ts) (l : ls) rs = Left l : recombine ts ls rs
+        recombine (False : ts) ls (r : rs) = Right r : recombine ts ls rs
+        recombine _ _ _ = []
+        reconstitute (True : ts) (v : vs) = Left v : reconstitute ts vs
+        reconstitute (False : ts) (v : vs) = Right v : reconstitute ts vs
+        reconstitute _ _ = []
 
-    let hasCE (p, Just ce) = Just (p, ce)
-        hasCE _ = Nothing
-        -- ps_w_ce = Properties with CounterExamples -> The Failing Properties
-        failing_props_w_ce = mapMaybe hasCE $ zip failing_props counter_examples
+        mbToEmpty (Just a) = a
+        mbToEmpty Nothing = []
+
+        mergeEither :: Either a a -> a
+        mergeEither (Left a) = a
+        mergeEither (Right a) = a
+        recombined =
+          recombine
+            (map isLeft split_props)
+            (zip failing_props $ map mbToEmpty counter_examples)
+            (map (,[] :: [RExpr]) successful_props)
+
     -- We compute the locations that are touched by the failing counter-examples
     -- liftIO $ logStr TRACE "Tracing program..."
     -- This Method helps us to go resolve the traces per expressions touched by properties
@@ -438,46 +468,46 @@ findEvaluatedHoles
                 comb [] = error "expr with no traces!"
             resolve :: [(Int, [(Int, Trace)])] -> [(EExpr, [(EProp, Trace)])]
             resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map IntMap.!))
-        execTraces :: [(EProp, [RExpr])] -> Ghc [(EExpr, Map (EExpr, SrcSpan) Integer)]
+        execTraces :: [(EProp, [RExpr])] -> Ghc [(EExpr, [Map (EExpr, SrcSpan) Integer])]
         execTraces props_w_ce =
           liftIO $
             -- If we want the full count, we need Map.unionsWith (+) here..., but
             -- since we only care about whether or not it's 0, unions is enough,
             -- since we only return non-zero invokes
-            map (second (Map.unions . map (toNonZeroInvokes . snd)))
+            map (second (map (toNonZeroInvokes . snd)))
               -- The traces are per prop per expr, but we need a per expr per prop,
               -- so we add indices and then use this custom transpose to get
               -- the traces per expr. (See above)
               . assigToExprProp
-              . map (zip (zip [0 :: Int ..] id_prog) <$>)
-              . mapMaybe (\((i, (p, _)), tr) -> ((i, p),) <$> tr)
+              . map ((zip (zip [0 :: Int ..] id_prog) <$>))
+              . mapMaybe (\((i, (p, _)), tr) -> (((i, p),) <$> tr))
               . zip (zip [0 :: Int ..] props_w_ce)
               <$> traceTargets cc tp id_prog props_w_ce
     -- traces that worked are all non-empty traces that are sufficiently mapped to exprs and props
-    liftIO $ logStr TRACE "Running failing props..."
-    failing_traces_that_worked <- execTraces failing_props_w_ce
+    liftIO $ logStr TRACE "Running props..."
+    traces <-
+      execTraces $
+        if useSpectrum
+          then map mergeEither recombined
+          else lefts recombined
+    -- TODO: does this ever happen?
+    when (useSpectrum && any ((/=) (length split_props) . length . snd) traces) $
+      error
+        ( "trace prop length mismatch! Got " ++ show (map length traces)
+            ++ " from "
+            ++ show (length split_props)
+        )
 
-    liftIO $ logStr TRACE $ "Got " ++ show (length failing_traces_that_worked) ++ " failing traces that worked!"
-    liftIO $ mapM_ (logOut DEBUG) failing_traces_that_worked
-
-    success_traces <-
-      if useSpectrum
-        then do
-          liftIO $ logStr TRACE "Running successful props..."
-          str <- execTraces $ map (,[]) successful_props
-          liftIO $ logStr TRACE $ "Got " ++ show (length str) ++ " success traces that worked!"
-          liftIO $ mapM_ (logOut DEBUG) str
-          return str
-        else return []
+    liftIO $ mapM_ (logOut DEBUG) traces
 
     liftIO $ logStr TRACE "Finding non-zero holes from trace..."
 
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
-    let fk :: (EExpr, Map (EExpr, SrcSpan) Integer) -> [(SrcSpan, LHsExpr GhcPs)]
-        fk (expr, invokes) | Map.null invokes = []
-        fk (expr, invokes) = mapMaybe toExprHole $ Map.keys invokes
+    let fk :: EExpr -> Map (EExpr, SrcSpan) Integer -> [(SrcSpan, LHsExpr GhcPs)]
+        fk expr invokes | Map.null invokes = []
+        fk expr invokes = mapMaybe toExprHole $ Map.keys invokes
           where
             sfe = V.fromList (sanctifyExpr noExtField expr)
             toExprHole (iv_expr, iv_loc) =
@@ -498,23 +528,15 @@ findEvaluatedHoles
                 _ -> Nothing
               where
                 sf_locs = map getLoc $ flattenExpr iv_expr
-        non_zero_holes_failing = Set.fromList $ concatMap fk failing_traces_that_worked
-        non_zero_holes_success = Set.fromList $ concatMap fk success_traces
-        non_zero_hole_diff = (non_zero_holes_failing Set.\\ non_zero_holes_success)
-    -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
-    liftIO $ logStr TRACE $ "Found " ++ show (Set.size non_zero_holes_failing) ++ " evaluated holes"
-
-    -- Note: we could also do this for partially failing properties, if we could
-    -- convince quickCheck to come up with non-counter-examples (examples?)
-    when useSpectrum $ do
-      liftIO $ logStr TRACE "Only in failing props:"
-      liftIO $ mapM_ (logOut TRACE) $ Set.toList non_zero_hole_diff
-    return $
-      Set.toList $
-        if not useSpectrum
-          then non_zero_holes_failing
-          else non_zero_hole_diff
-findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
+    let non_zero_e_per_expr = map (\(e, ts) -> map (Set.fromList . fk e) ts) traces
+        -- We have to do some shenaningans because we get a list with an entry
+        -- for target, but we are interested in what was evaluated in the
+        -- properties for all the targets.
+        non_zero_evals = map Set.unions $ transpose non_zero_e_per_expr
+    liftIO $ logStr TRACE "Reconstituted:"
+    liftIO $ mapM_ (logOut TRACE) $ reconstitute (map isLeft split_props) non_zero_evals
+    return $ (if useSpectrum then reconstitute (map isLeft split_props) else map Left) non_zero_evals
+findPropLocations _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | This method tries to repair a given Problem.
 -- It first creates the program with holes in it and runs it against the properties.
