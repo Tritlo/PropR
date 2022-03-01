@@ -235,7 +235,8 @@ instance Materializeable CompileConfig where
       umExcludeTargets :: Maybe [String],
       umExtendDefaults :: Maybe Bool,
       umFilterIncorrectFixes :: Maybe Bool,
-      umUseSpectrum :: Maybe Bool
+      umUseSpectrum :: Maybe Bool,
+      umEvaluatedLeavesOnly :: Maybe Bool
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -244,6 +245,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -287,7 +289,8 @@ instance Materializeable CompileConfig where
         excludeTargets = fromMaybe excludeTargets umExcludeTargets,
         extendDefaults = fromMaybe extendDefaults umExtendDefaults,
         filterIncorrectFixes = fromMaybe filterIncorrectFixes umFilterIncorrectFixes,
-        useSpectrum = fromMaybe useSpectrum umUseSpectrum
+        useSpectrum = fromMaybe useSpectrum umUseSpectrum,
+        evaluatedLeavesOnly = fromMaybe evaluatedLeavesOnly umEvaluatedLeavesOnly
       }
 
 -- | Configuration for the compilation itself
@@ -361,7 +364,10 @@ data CompileConfig = CompConf
     -- | Use spectrum turns on using spectral analysis to try to distinguish
     -- the good parts and bad parts by using the difference between failing
     -- and successful properties.
-    useSpectrum :: Bool
+    useSpectrum :: Bool,
+    -- | Leaves only changes the fault-localization to only focus on the
+    -- leaves of targets.
+    evaluatedLeavesOnly :: Bool
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -390,7 +396,8 @@ instance Default CompileConfig where
         excludeTargets = [],
         extendDefaults = False,
         filterIncorrectFixes = True,
-        useSpectrum = False
+        useSpectrum = False,
+        evaluatedLeavesOnly = False
       }
 
 instance Default LogConfig where
