@@ -339,6 +339,52 @@ propFunArgVars (L _ FunBind {fun_matches = MG {mg_alts = (L _ alts)}}) =
     unPat (L _ (VarPat _ (L _ p))) = Just p
     unPat _ = Nothing
 
+-- | Leaves only takes in a set of source locations and compacts it by removing
+--   any locations that contain the locations, i.e. if we have
+--   ```
+--    pair = (1,2)
+--    pair = _24_14_25
+--    pair = (_24_21_22,2)
+--   ```
+-- we discard the outer expression _24_14_25.
+-- This helps us distinguish disjoint expressions
+leavesOnly :: Set (SrcSpan, LHsExpr GhcPs) -> Set (SrcSpan, LHsExpr GhcPs)
+leavesOnly locs
+  | Set.size locs <= 1 = locs
+  | otherwise =
+    Set.fromList $
+      map (\span -> (span, mp Map.! span)) $
+        leavesOnly' $ map fst $ Set.toList locs
+  where
+    mp = Map.fromList $ Set.toList locs
+    leavesOnly' (span : spans)
+      | any (flip isSubspanOf span) spans = leavesOnly' spans
+      | otherwise = span : leavesOnly' spans
+    leavesOnly' [] = []
+
+-- | Disjoint leaves props finds the disjoint sets of properties by leaves,
+-- meaning that each property in each lists shares an evaluated leaf with
+-- each other property in the list.
+-- I.e. if p_1 evals the leaves {b}
+-- and     p_2 evals the leaves {c}
+-- and     p_3 evals the leaves {b,c}
+-- the result will be [[p_1,p_3], [p_2,p_3], [p_3,p_1,p_2]]
+-- Note: the sets are duplicated, once for each property.
+disjointLeavesProps ::
+  [Either (EProp, Set (SrcSpan, LHsExpr GhcPs)) (EProp, Set (SrcSpan, LHsExpr GhcPs))] ->
+  [[Either (EProp, Set (SrcSpan, LHsExpr GhcPs)) (EProp, Set (SrcSpan, LHsExpr GhcPs))]]
+disjointLeavesProps [] = []
+disjointLeavesProps props_w_res = go [] [] compacted
+  where
+    mapLRS f e@(Left (_, r)) = (e, f r)
+    mapLRS f e@(Right (_, r)) = (e, f r)
+    compacted = map (mapLRS leavesOnly) props_w_res
+    go sofar _ [] = map (map fst) $ reverse sofar
+    go sofar before (b@(e, c) : compacted) = go (s : sofar) (b : before) compacted
+      where
+        others = before ++ compacted
+        s = b : filter (not . Set.null . Set.intersection c . snd) others
+
 -- We need all this to workaround GHC issue #367
 runInProc ::
   -- | The timeout to use

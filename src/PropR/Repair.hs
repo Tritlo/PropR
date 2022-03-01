@@ -381,7 +381,7 @@ findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc@CompConf {..},
       progProblem = tp@EProb {..}
-    } = Set.toList . Set.unions . lefts <$> findPropLocations desc
+    } = Set.toList . Set.unions . map snd . lefts <$> findPropLocations desc
 findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems yet!"
 
 -- | Finds the locations in the program that are evaluated by tests
@@ -390,7 +390,7 @@ findEvaluatedHoles _ = error "Cannot find evaluated holes of external problems y
 -- property and Right indicates that it succeeded.
 findPropLocations ::
   ProblemDescription ->
-  IO [Either (Set (SrcSpan, LHsExpr GhcPs)) (Set (SrcSpan, LHsExpr GhcPs))]
+  IO [Either (EProp, Set (SrcSpan, LHsExpr GhcPs)) (EProp, Set (SrcSpan, LHsExpr GhcPs))]
 findPropLocations
   desc@ProbDesc
     { compConf = cc@CompConf {..},
@@ -433,10 +433,10 @@ findPropLocations
         mix e | (e', Just a) <- mergeEither e = Just (e', a)
         mix _ = Nothing
 
-        reconstitute (Left (_, Just _) : rs) (v : vs) = Left v : reconstitute rs vs
-        reconstitute (Right (_, Just _) : rs) (v : vs) = Right v : reconstitute rs vs
-        reconstitute (Left _ : rs) vs = Left Set.empty : reconstitute rs vs
-        reconstitute (Right _ : rs) vs = Right Set.empty : reconstitute rs vs
+        reconstitute (Left (p, Just _) : rs) (v : vs) = Left (p, v) : reconstitute rs vs
+        reconstitute (Right (p, Just _) : rs) (v : vs) = Right (p, v) : reconstitute rs vs
+        reconstitute (Left (p, _) : rs) vs = Left (p, Set.empty) : reconstitute rs vs
+        reconstitute (Right (p, _) : rs) vs = Right (p, Set.empty) : reconstitute rs vs
         reconstitute _ _ = []
 
     -- We compute the locations that are touched by the failing counter-examples
