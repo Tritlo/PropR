@@ -218,6 +218,7 @@ instance Materializeable CompileConfig where
   data Unmaterialized CompileConfig = UmCompConf
     { umImportStmts :: Maybe [String],
       umPackages :: Maybe [String],
+      umExtensions:: Maybe [String],
       umHoleLvl :: Maybe Int,
       umHoleDepth :: Maybe Int,
       umUnfoldTastyTests :: Maybe Bool,
@@ -264,12 +265,14 @@ instance Materializeable CompileConfig where
       Nothing
       Nothing
       Nothing
+      Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
     CompConf
       { importStmts = fromMaybe importStmts umImportStmts,
         packages = fromMaybe packages umPackages,
+        extensions = fromMaybe extensions umExtensions,
         holeLvl = fromMaybe holeLvl umHoleLvl,
         holeDepth = fromMaybe holeDepth umHoleDepth,
         modBase = fromMaybe modBase umModBase,
@@ -296,6 +299,8 @@ data CompileConfig = CompConf
     importStmts :: [String],
     -- | a list of packages used for the compilation
     packages :: [String],
+    -- | a list of extensions used for the compilation
+    extensions :: [String],
     -- | Base path to use for modules, if available
     modBase :: [FilePath],
     -- | Any additional targets to include
@@ -374,6 +379,7 @@ instance Default CompileConfig where
       { holeLvl = 0,
         holeDepth = 1,
         packages = ["base"],
+        extensions = [],
         importStmts = [],
         unfoldTastyTests = True,
         modBase = [],

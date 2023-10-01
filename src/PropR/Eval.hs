@@ -36,7 +36,7 @@ import Control.Monad (forM, forM_, unless, void, when, zipWithM_, (>=>))
 import qualified CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
-import Data.Char (isAlphaNum)
+import Data.Char (isAlphaNum, toLower)
 import Data.Data.Lens (template, tinplate, uniplate)
 import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
@@ -60,6 +60,7 @@ import GHC.LanguageExtensions (Extension (ExtendedDefaultRules, PartialTypeSigna
 import GHC.Paths (libdir)
 import GHC.Prim (unsafeCoerce#)
 import GhcPlugins hiding (exprType)
+import qualified GhcPlugins as GHCP
 import Numeric (showHex)
 import PrelNames (pRELUDE_NAME, toDynName)
 import PropR.Check
@@ -85,6 +86,9 @@ import Trace.Hpc.Mix
 import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix, tixModuleName)
 import Trace.Hpc.Util (HpcPos, fromHpcPos)
 import TyCoRep
+import GHC.LanguageExtensions.Type
+import qualified EnumSet as ES
+
 
 -- Configuration and GHC setup
 
@@ -121,6 +125,17 @@ config lvl sflags =
 toPkg :: String -> PackageFlag
 toPkg str = ExposePackage ("-package " ++ str) (PackageArg str) (ModRenaming True [])
 
+toExt :: String -> Extension
+toExt ext = case extMap Map.!? (map toLower ext) of
+             Just e -> e
+             Nothing -> error ("Extension " ++ ext ++ " not found!")
+
+-- Ugly but eh
+extMap :: Map String Extension
+extMap = Map.fromList $ map (\e -> (map toLower $ show e, e)) allExts
+ where allExts :: [Extension]
+       allExts = [minBound .. maxBound]
+
 -- | Initializes the context and the hole fit plugin with no
 -- expression fit candidates
 initGhcCtxt :: CompileConfig -> Ghc (IORef HoleFitState)
@@ -146,7 +161,8 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
           { packageFlags =
               packageFlags flags
                 ++ map toPkg (checkPackages ++ packages),
-            staticPlugins = sPlug : staticPlugins flags
+            staticPlugins = sPlug : staticPlugins flags,
+            extensionFlags = ES.fromList (ES.toList (extensionFlags flags) ++ map toExt extensions)
           }
       sPlug =
         StaticPlugin $
