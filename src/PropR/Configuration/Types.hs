@@ -231,6 +231,7 @@ instance Materializeable CompileConfig where
       umParChecks :: Maybe Bool,
       umUseInterpreted :: Maybe Bool,
       umTimeout :: Maybe Integer,
+      umNoTimeout :: Maybe Bool,
       umPrecomputeFixes :: Maybe Bool,
       umKeepLoopingFixes :: Maybe Bool,
       umAllowFunctionFits :: Maybe Bool,
@@ -246,6 +247,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -287,6 +289,7 @@ instance Materializeable CompileConfig where
         parChecks = fromMaybe parChecks umParChecks,
         useInterpreted = fromMaybe useInterpreted umUseInterpreted,
         timeout = fromMaybe timeout umTimeout,
+        noTimeout = fromMaybe noTimeout umNoTimeout,
         precomputeFixes = fromMaybe precomputeFixes umPrecomputeFixes,
         keepLoopingFixes = fromMaybe keepLoopingFixes umKeepLoopingFixes,
         allowFunctionFits = fromMaybe allowFunctionFits umAllowFunctionFits,
@@ -347,6 +350,9 @@ data CompileConfig = CompConf
     -- | Set the timeout in microseconds for each heck, after which we assume the
     -- check is in an infinte loop.
     timeout :: Integer,
+    -- | If no_timeout is set, we ignore the timeout parameter and disable
+    -- timeouts.
+    noTimeout :: Bool,
     -- | Whether or not we're allowed to precompute the fixes at the beginning.
     -- Better in most cases, but can slow down if we have big programs and aren't
     -- considering all of it (e.t. random search). Might interfere with
@@ -397,6 +403,7 @@ instance Default CompileConfig where
         randomizeHiDir = True,
         useInterpreted = True,
         timeout = 1_000_000,
+        noTimeout = False,
         precomputeFixes = True,
         keepLoopingFixes = False,
         allowFunctionFits = True,

@@ -34,7 +34,7 @@ import Constraint
 import Control.Arrow (first, second, (***))
 import Control.Concurrent (getNumCapabilities, threadDelay, threadWaitRead)
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (forM_, void, when, (>=>))
+import Control.Monad (forM_, void, when, (>=>), unless)
 import qualified Data.Bifunctor
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BSC
@@ -939,9 +939,11 @@ checkFixes'
                   then do
                     -- We want the process to die in case we were wrong,
                     -- better than hanging.
-                    scheduleAlarm (1 + 2 * length checks * ceiling (fromIntegral timeoutVal / 1_000_000))
+                    unless noTimeout $
+                        void $ scheduleAlarm (1 + 2 * length checks * ceiling (fromIntegral timeoutVal / 1_000_000))
                     howToRun (evf evalCheck checks)
-                      >>= (<$ scheduleAlarm 0) -- We finished, so turn off the alarm
+                      >>= (\r -> do unless noTimeout (void $ scheduleAlarm 0)
+                                    return r) -- We finished, so turn off the alarm
                       >>= \case
                         Just res ->
                           (res <$) $
