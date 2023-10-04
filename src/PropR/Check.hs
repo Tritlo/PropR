@@ -34,8 +34,8 @@ import TcEvidence (idHsWrapper)
 
 data QcConfig = QcConfig {maxShrinks :: Maybe Int, maxSuccess :: Maybe Int, seed :: Int}
 
-defaultQcConfig :: Int -> QcConfig
-defaultQcConfig = QcConfig Nothing Nothing
+defaultQcConfig :: Int -> Int -> QcConfig
+defaultQcConfig checks = QcConfig Nothing (Just checks)
 
 -- | Manual HsExpr for `stdArgs { chatty = False, maxShrinks = 0}`
 qcArgsExpr :: QcConfig -> LHsExpr GhcPs
@@ -134,7 +134,7 @@ buildFixCheck cc seed EProb {..} prog_fixes =
   (ctxt, check_bind)
   where
     (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
-    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ (defaultQcConfig seed) {maxShrinks = Just 0})
+    qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ (defaultQcConfig (qcChecks cc) seed) {maxShrinks = Just 0})
     nvbs =
       unionManyBags
         [ listToBag e_props,
@@ -306,7 +306,7 @@ buildCounterExampleCheck
     where
       (L bl (HsValBinds be vb)) = e_ctxt
       (ValBinds vbe vbs vsigs) = vb
-      qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ defaultQcConfig seed)
+      qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ defaultQcConfig qcChecks seed)
       nvb = ValBinds vbe nvbs $ vsigs ++ nty
       nvbs =
         unionManyBags

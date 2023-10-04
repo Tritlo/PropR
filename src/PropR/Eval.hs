@@ -1023,7 +1023,7 @@ exprToTraceModule CompConf {..} EProb {..} seed mname fake_targets ps_w_ce =
           ++ "qcWRes "
           ++ show timeout
           ++ " ("
-          ++ showUnsafe (qcArgsExpr $ defaultQcConfig seed)
+          ++ showUnsafe (qcArgsExpr $ defaultQcConfig qcChecks seed)
           ++ ") ("
           ++ pname
           ++ " "

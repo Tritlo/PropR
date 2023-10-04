@@ -223,6 +223,7 @@ instance Materializeable CompileConfig where
       umHoleDepth :: Maybe Int,
       umUnfoldTastyTests :: Maybe Bool,
       umModBase :: Maybe [FilePath],
+      umQcChecks :: Maybe Int,
       umAdditionalTargets :: Maybe [FilePath],
       umTempDirBase :: Maybe FilePath,
       umRandomizeHpcDir :: Maybe Bool,
@@ -266,6 +267,7 @@ instance Materializeable CompileConfig where
       Nothing
       Nothing
       Nothing
+      Nothing
 
   override c Nothing = c
   override CompConf {..} (Just UmCompConf {..}) =
@@ -276,6 +278,7 @@ instance Materializeable CompileConfig where
         holeLvl = fromMaybe holeLvl umHoleLvl,
         holeDepth = fromMaybe holeDepth umHoleDepth,
         modBase = fromMaybe modBase umModBase,
+        qcChecks = fromMaybe qcChecks umQcChecks,
         unfoldTastyTests = fromMaybe unfoldTastyTests umUnfoldTastyTests,
         additionalTargets = fromMaybe additionalTargets umAdditionalTargets,
         tempDirBase = fromMaybe tempDirBase umTempDirBase,
@@ -303,6 +306,9 @@ data CompileConfig = CompConf
     extensions :: [String],
     -- | Base path to use for modules, if available
     modBase :: [FilePath],
+    -- | How many QuickCheck checks are run before accepting as true,
+    -- defaults to 1 000
+    qcChecks :: Int,
     -- | Any additional targets to include
     additionalTargets :: [FilePath],
     -- | The "level" and "depth" of the holes, see general notes on this.
@@ -383,6 +389,7 @@ instance Default CompileConfig where
         importStmts = [],
         unfoldTastyTests = True,
         modBase = [],
+        qcChecks = 1000,
         additionalTargets = [],
         tempDirBase = "." </> "temp_dir",
         parChecks = True,
