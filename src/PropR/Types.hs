@@ -25,7 +25,6 @@
 -- - "Wc": WildCard, for our purposes the "holes"
 module PropR.Types where
 
-import Constraint (Cts)
 import Control.DeepSeq (NFData (..))
 import Data.Aeson
 import Data.Default
@@ -34,8 +33,9 @@ import Data.Graph (Tree)
 import Data.Map (Map, differenceWith)
 import GHC
 import GHC.Generics
-import Outputable (Outputable (ppr), showSDocUnsafe, text, (<+>))
-import qualified Outputable as O
+import GHC.Utils.Outputable (Outputable (ppr), showSDocUnsafe, text, (<+>))
+import GHC.Tc.Types.Constraint (CtEvidence, Cts)
+import qualified GHC.Utils.Outputable as O
 import Trace.Hpc.Mix (BoxLabel)
 
 -- |
@@ -115,13 +115,18 @@ instance Outputable EProblem where
   ppr EProb {..} =
     text "EProblem {"
       <+> (text "props:" <+> ppr e_props)
-      <+> (text "ctxt:" <+> ppr e_ctxt)
+      <+> (text "ctxt:" <+> ppr (unXRec @GhcPs e_ctxt))
       <+> (text "prog: " <+> ppr e_prog)
       <+> text "}"
   ppr ExProb {..} =
     text "ExProblem {"
       <+> (text "target: " <+> ppr ex_targets)
       <+> text "}"
+
+instance Ord SrcSpan where
+  compare (RealSrcSpan a _) (RealSrcSpan b _) = compare a b
+  compare a b = compare (show a) (show b)
+
 
 -- | ExprFitCands are used by the plugin to check whether an expression could fit
 -- a given hole. Since they are not supported within the HoleFit framework, we

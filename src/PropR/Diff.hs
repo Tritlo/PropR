@@ -16,7 +16,6 @@
 -- - pp: PrettyPrint
 module PropR.Diff where
 
-import Bag (bagToList)
 import Control.Exception (assert)
 import Data.Function (on)
 import Data.List (groupBy, intercalate, sortBy, sortOn)
@@ -25,9 +24,10 @@ import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import FastString (unpackFS)
 import GHC
-import GhcPlugins (Outputable)
+import GHC.Plugins (Outputable, unhelpfulSpanFS)
+import GHC.Data.FastString (unpackFS)
+import GHC.Data.Bag (bagToList)
 import PropR.Configuration (ProblemDescription (..))
 import PropR.Traversals (replaceExpr)
 import PropR.Types
@@ -39,15 +39,15 @@ getFixBinds parsed =
   -- but it never hurts to check
   assert (check parsed) $
     let ExprWithTySig _ par _ = unLoc parsed
-        HsPar _ let' = unLoc par
-        HsLet _ bs _ = unLoc let'
-        HsValBinds _ vbs = unLoc bs
+        HsPar _ _ let' _ = unLoc par
+        HsLet _ _ bs _ _ = unLoc let'
+        HsValBinds _ vbs = bs
         ValBinds _ lbs _ = vbs
      in -- but it never hurts to check.
         lbs
   where
     -- The below pattern is the only one we expect and accept.
-    check (L _ (ExprWithTySig _ (L _ (HsPar _ (L _ (HsLet _ (L _ (HsValBinds _ ValBinds {})) _)))) _)) = True
+    check (L _ (ExprWithTySig _ (L _ (HsPar _ _ (L _ (HsLet _ _ (HsValBinds _ ValBinds {}) _ _)) _ )) _)) = True
     check _ = False
 
 applyFixes :: ParsedModule -> LHsBinds GhcPs -> (ParsedModule, [RFix])
@@ -92,7 +92,7 @@ colorizeDiff = unlines . map color . lines
     nocolor = "\x1b[0m"
 
 ppFix :: LHsExpr GhcPs -> EFix -> String
-ppFix expr fixes = curry ppDiff expr $ replaceExpr fixes expr
+ppFix expr fixes = curry ppDiff (reLoc expr) $ reLoc $ replaceExpr fixes expr
 
 -- | Pretty print a fix by adding git like '+' and '-' to each line.
 ppDiff :: Outputable e => (Located e, Located e) -> String
@@ -113,7 +113,7 @@ ppDiff' p@(L o1 d, L o2 d') =
     header = case lines $ showUnsafe d of
       f : _ -> ' ' : if length f > 33 then take 30 f ++ "..." else f
       _ -> ""
-    range (RealSrcSpan rs1) (RealSrcSpan rs2) =
+    range (RealSrcSpan rs1 _) (RealSrcSpan rs2 _) =
       "@@ " ++ '-' : show s1 ++ ',' : d'' ++ ' ' : '+' : show s2 ++ ',' : d'' ++ " @@" ++ header
       where
         d'' = show $ length diffs
@@ -134,8 +134,9 @@ ppDiffHeader (L o1 d, L o2 d') =
   where
     f_a = "a/" ++ toLoc o1
     f_b = "b/" ++ toLoc o2
-    toLoc (RealSrcSpan rs) = unpackFS $ srcSpanFile rs
-    toLoc (UnhelpfulSpan s) = unpackFS s
+
+toLoc (RealSrcSpan rs _) = unpackFS $ srcSpanFile rs
+toLoc (UnhelpfulSpan s) = unpackFS $ unhelpfulSpanFS s
 
 ppDiffs :: Outputable e => [(Located e, Located e)] -> String
 ppDiffs diffs = intercalate "\n" $ map sameFDiffs byLoc
@@ -144,12 +145,12 @@ ppDiffs diffs = intercalate "\n" $ map sameFDiffs byLoc
     sameFDiffs _ = []
     byLoc = groupBy ((==) `on` dToLoc) $ sortOn dToLoc diffs
     dToLoc (L o _, _) = toLoc o
-    toLoc (RealSrcSpan rs) = unpackFS $ srcSpanFile rs
-    toLoc (UnhelpfulSpan s) = unpackFS s
 
 fixesToDiffs :: ProblemDescription -> Set EFix -> [String]
 fixesToDiffs desc@ProbDesc {probModule = Just TypecheckedModule {..}} fixes =
-  map (ppDiffs . snd . applyFixes tm_parsed_module . getFixBinds) fixProgs
+  map (ppDiffs . map (\(a,b) -> (reLoc a, reLoc b))
+               . snd 
+               . applyFixes tm_parsed_module . getFixBinds) fixProgs
   where
     ProbDesc {..} = desc
     EProb {..} = progProblem

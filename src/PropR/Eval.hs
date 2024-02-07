@@ -24,8 +24,7 @@
 -- 4. Configuration for this and other parts of the project
 module PropR.Eval where
 
-import Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag, mapMaybeBag, unitBag)
-import Constraint
+import GHC.Data.Bag (Bag, bagToList, concatBag, concatMapBag, emptyBag, listToBag, mapBag, mapMaybeBag, unitBag)
 import Control.Applicative (Const)
 import Control.Arrow (second, (***))
 import Control.Concurrent (threadDelay)
@@ -33,7 +32,7 @@ import Control.Concurrent.Async (mapConcurrently)
 import Control.Lens (Getting, to, universeOf, universeOn, universeOnOf)
 import Control.Lens.Combinators (Fold)
 import Control.Monad (forM, forM_, unless, void, when, zipWithM_, (>=>))
-import qualified CoreUtils
+import qualified GHC.Core.Utils as CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
 import Data.Char (isAlphaNum, toLower)
@@ -49,28 +48,28 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock (getCurrentTime)
 import Data.Tree (Tree (Node, rootLabel), flatten)
-import Desugar (deSugarExpr)
-import DsExpr (dsLExpr, dsLExprNoLP)
-import DsMonad (initDsTc, initDsWithModGuts)
-import DynFlags
-import ErrUtils (ErrMsg (errMsgSeverity), errMsgSpan, pprErrMsgBagWithLoc)
-import FV (fvVarSet)
+import GHC.HsToCore (deSugarExpr)
+import GHC.HsToCore.Expr (dsLExpr)
+import GHC.HsToCore.Monad (initDsTc, initDsWithModGuts)
+import GHC.Types.Error (errMsgSeverity, errMsgSpan, MessageClass(..))
+
+import GHC.Utils.FV (fvVarSet)
 import GHC
 import GHC.LanguageExtensions (Extension (ExtendedDefaultRules, PartialTypeSignatures))
 import GHC.Paths (libdir)
-import GHC.Prim (unsafeCoerce#)
-import GhcPlugins hiding (exprType)
-import qualified GhcPlugins as GHCP
+import GHC.Exts (unsafeCoerce#)
+import GHC.Plugins hiding (exprType)
+import qualified GHC.Plugins as GHCP
 import Numeric (showHex)
-import PrelNames (pRELUDE_NAME, toDynName)
+import GHC.Builtin.Names (pRELUDE_NAME, toDynName)
 import PropR.Check
 import PropR.Configuration
 import PropR.Plugin
 import PropR.Traversals (flattenExpr)
 import PropR.Types
 import PropR.Util
-import RnExpr (rnLExpr)
-import StringBuffer (stringToStringBuffer)
+import GHC.Rename.Expr (rnLExpr)
+import GHC.Data.StringBuffer (stringToStringBuffer)
 import System.Directory (createDirectoryIfMissing, doesDirectoryExist, doesFileExist, makeAbsolute, removeDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (ExitCode (..))
 import System.FilePath
@@ -79,15 +78,15 @@ import System.Posix.Process
 import System.Posix.Signals
 import System.Process
 import qualified System.Timeout (timeout)
-import TcExpr (tcInferSigma)
-import TcHoleErrors (HoleFit (..), TypedHole (..))
-import TcSimplify (captureTopConstraints)
+import GHC.Tc.Gen.App (tcInferSigma)
+import GHC.Tc.Errors.Hole.FitTypes (HoleFit (..), TypedHole (..))
+import GHC.Tc.Solver (captureTopConstraints)
 import Trace.Hpc.Mix
 import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix, tixModuleName)
 import Trace.Hpc.Util (HpcPos, fromHpcPos)
-import TyCoRep
+import GHC.Core.TyCo.Rep
 import GHC.LanguageExtensions.Type
-import qualified EnumSet as ES
+import qualified GHC.Data.EnumSet as ES
 
 
 -- Configuration and GHC setup

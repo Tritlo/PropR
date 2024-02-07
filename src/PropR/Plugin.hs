@@ -10,22 +10,28 @@
 -- expressions in GHC. It also introduces heuristic caching.
 module PropR.Plugin where
 
-import Bag (unionBags)
-import Constraint
 import Control.Arrow (first, second)
 import Control.Monad (filterM)
 import Data.IORef (modifyIORef', newIORef, readIORef, writeIORef)
 import qualified Data.Map as Map
 import Data.Maybe (isJust, isNothing)
-import GhcPlugins
+import GHC.Plugins
+import qualified GHC.Data.Bag as Bag
+import GHC.Tc.Types.Constraint
 import PropR.Configuration (CompileConfig (CompConf))
 import PropR.Types (ExprFitCand (..), LogLevel (..))
 import PropR.Util (logOut, logStr, traceOut)
-import TcHoleErrors
-import TcRnMonad
-import TyCoFVs (tyCoFVsOfTypes)
+import GHC.Tc.Types
+import GHC.Tc.Errors.Hole
+import GHC.Tc.Utils.TcType (tyCoFVsOfTypes)
+import GHC.Tc.Utils.Monad
+import GHC.Driver.Session (initDefaultSDocContext)
+import Data.IORef
 
 type HoleHash = (RealSrcSpan, String)
+
+instance {-# OVERLAPPING #-} Outputable HoleHash where
+  ppr (sp, str) = cat [ppr sp,text str]
 
 -- We're running the same checks over and over again, so we make the (possibly
 -- unsafe) assumption  that if we're looking for fits for the same type at the
@@ -48,10 +54,10 @@ initialHoleFitState :: HoleFitState
 initialHoleFitState = (Map.empty, [])
 
 -- | Provides a heuristic Hash for the Typed holes, used for lookup in Caching.
-holeHash :: DynFlags -> Maybe [Type] -> TypedHole -> Maybe HoleHash
-holeHash df defaults TyH {tyHCt = Just ct} =
-  Just (ctLocSpan $ ctLoc ct, showSDocOneLine df $ ppr (defaults, ctPred ct))
-holeHash _ _ _ = Nothing
+holeHash :: Maybe [Type] -> TypedHole -> Maybe HoleHash
+holeHash defaults TypedHole {th_hole = Just hole} =
+  Just (ctLocSpan $ hole_loc hole, showSDocUnsafe $ ppr (defaults, hole_ty hole))
+holeHash _ _ = Nothing
 
 synthPlug :: CompileConfig -> Bool -> [ExprFitCand] -> IORef HoleFitState -> Plugin
 synthPlug CompConf {..} useCache local_exprs plugRef =
@@ -71,10 +77,10 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                         -- We change the defaults, so they must be included
                         -- in the hash.
                         defaults <- tcg_default <$> getGblEnv
-                        case holeHash dflags defaults h >>= (cache Map.!?) . (num_calls,) of
+                        case holeHash defaults h >>= (cache Map.!?) . (num_calls,) of
                           Just r | useCache -> liftIO $ do
                             logStr DEBUG "CACHE HIT"
-                            logOut DEBUG $ holeHash dflags defaults h
+                            logOut DEBUG $ holeHash defaults h
                             logOut DEBUG (num_calls, h)
                             logOut DEBUG r
                             return []
@@ -87,8 +93,8 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                       writeTcRef iref (num_calls + 1)
                       gbl_env <- getGlobalRdrEnv
                       let lcl_env =
-                            case tyHCt h of
-                              Just ct -> tcl_rdr $ ctLocEnv (ctEvLoc (ctEvidence ct))
+                            case th_hole h of
+                              Just (Hole{..}) -> ctl_rdr $ ctLocEnv hole_loc
                               _ -> emptyLocalRdrEnv
                           -- A name is in scope if it's in the local or global environment
                           inScope e_id
@@ -101,31 +107,30 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                                   else -- A global variable is in scope if it's not shadowed by a local:
                                   -- or if it's wired in.
 
-                                    not (null (lookupGlobalRdrEnv gbl_env e_occ))
+                                    not (null (lookupGRE gbl_env (LookupOccName e_occ SameNameSpace)))
                                       && isNothing (lookupLocalRdrOcc lcl_env e_occ)
-                      case holeHash dflags defaults h >>= (cache Map.!?) . (num_calls,) of
+                      case holeHash defaults h >>= (cache Map.!?) . (num_calls,) of
                         Just cached | useCache -> liftIO $ do
                           modifyIORef' plugRef (fmap (cached :))
                           return []
                         _ -> do
                           -- Bump the number of times this plugin has been called, used
                           -- to make sure we only check expression fits once.
-                          exprs <- case tyHCt h of
+                          exprs <- case th_hole h of
                             -- We only do fits for non-refinement hole fits, i.e. the first time the plugin is called.
-                            Just ct | num_calls == 0 -> do
+                            Just hole@(Hole{..}) | num_calls == 0 -> do
                               -- Since ExprFitCands are not supported in GHC yet  we manually implement them here by
                               -- checking that all the variables in the expression are in scope and that the type matches.
                               let in_scope_exprs = filter (all inScope . efc_ids) local_exprs
-                                  hole_ty = ctPred ct
                                   -- An expression candidate fits if its type matches and there are no unsolved
                                   -- wanted constraints afterwards.
                                   checkExprCand :: ExprFitCand -> TcM Bool
                                   checkExprCand EFC {efc_ty = Nothing} = return False
                                   checkExprCand EFC {efc_ty = Just e_ty, efc_wc = rcts} =
-                                    fst <$> withoutUnification fvs (tcCheckHoleFit h {tyHRelevantCts = cts} hole_ty e_ty)
+                                    fst <$> withoutUnification fvs (tcCheckHoleFit h {th_relevant_cts = cts} hole_ty e_ty)
                                     where
                                       fvs = tyCoFVsOfTypes [hole_ty, e_ty]
-                                      cts = tyHRelevantCts h `unionBags` rcts
+                                      cts = th_relevant_cts h `Bag.unionBags`  (Bag.mapBag ctEvidence rcts)
                               map efc_cand <$> filterM checkExprCand in_scope_exprs
                             _ -> return []
 
@@ -133,22 +138,22 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                               isOk HoleFit {..}
                                 | GreHFCand elt <- hfCand,
                                   occ <- greOccName elt,
-                                  [_] <- lookupGlobalRdrEnv gbl_env occ,
+                                  [_] <- lookupGRE gbl_env (LookupOccName occ SameNameSpace),
                                   Nothing <- lookupLocalRdrOcc lcl_env occ =
                                   True
                               isOk HoleFit {..}
                                 | GreHFCand elt <- hfCand,
                                   occ <- greOccName elt,
-                                  [GRE {..}] <- lookupGlobalRdrEnv gbl_env occ,
+                                  [g@GRE {..}] <- lookupGRE gbl_env (LookupOccName occ SameNameSpace),
                                   Just n <- lookupLocalRdrOcc lcl_env occ =
-                                  getLoc n == getLoc gre_name
+                                  nameSrcSpan n == greSrcSpan g
                               isOk HoleFit {..} | inScope hfId = True
                               isOk RawHoleFit {} = True
                               isOk x = False
                           liftIO $ do
                             let packed = (h, fits)
                             modifyIORef' plugRef (fmap (packed :))
-                            case holeHash dflags defaults h of
+                            case holeHash defaults h of
                               Just hash | useCache -> do
                                 logStr DEBUG "CACHING"
                                 logOut DEBUG (num_calls, hash)

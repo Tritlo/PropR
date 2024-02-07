@@ -33,16 +33,19 @@ import Data.Time.Clock (diffUTCTime, getCurrentTime)
 import Data.Time.Format (defaultTimeLocale, formatTime)
 import Debug.Trace (trace)
 import GHC
+import qualified GHC.Data.Strict as Strict
 import GHC.IO.Unsafe (unsafePerformIO)
 import GHC.Stack (callStack, getCallStack, withFrozenCallStack)
 import qualified GHC.Stack as GHS
-import GhcPlugins (HasCallStack, HasOccName, Outputable (..), defaultUserStyle, fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, runSDoc, unsafeGlobalDynFlags)
-import Outputable (initSDocContext)
-import qualified Pretty
+import GHC.Plugins (HasCallStack, HasOccName, Outputable (..), defaultUserStyle,
+                    fsLit, mkVarUnqual, occName, occNameString, rdrNameOcc, runSDoc,
+                    showPprUnsafe)
+import GHC.Driver.Session (initSDocContext)
+import qualified GHC.Utils.Ppr as Pretty
 import PropR.Configuration
 import PropR.Traversals (replaceExpr)
 import PropR.Types (EExpr, EFix, EProg, EProgFix, EProp, EType, LogLevel (..))
-import SrcLoc
+import GHC.Types.SrcLoc
 import System.CPUTime (getCPUTime)
 import System.Directory (doesFileExist)
 import System.IO (appendFile, hClose, hFlush, stdout)
@@ -51,12 +54,16 @@ import System.Process (createPipe)
 import qualified System.Timeout
 import Text.Printf (printf)
 
+
+hsPar :: EExpr -> HsExpr GhcPs
+hsPar e = HsPar noAnn noHsTok e noHsTok
+
 progAtTy :: EExpr -> EType -> EExpr
 progAtTy e_prog@(L l _) e_ty =
-  noLoc $ ExprWithTySig NoExtField (noLoc $ HsPar NoExtField e_prog) e_ty
+  noLocA $ ExprWithTySig noAnn (noLocA $ hsPar e_prog) e_ty
 
 undefVar :: HsExpr GhcPs
-undefVar = HsVar NoExtField $ noLoc $ mkVarUnqual $ fsLit "undefined"
+undefVar = HsVar noExtField $ noLocA $ mkVarUnqual $ fsLit "undefined"
 
 -- | Removes whitespace before and after a string
 trim :: String -> String
@@ -95,7 +102,7 @@ logStr olvl str = do
     putStrLn finalMessage
 
 logOut :: (HasCallStack, Outputable p) => LogLevel -> p -> IO ()
-logOut olvl = withFrozenCallStack . logStr olvl . showUnsafe
+logOut olvl p = withFrozenCallStack $ logStr olvl $ showUnsafe p
 
 -- | Returns the current time as %Y-%m-%d %H:%M:%S in UTC-Timezone, this matches what Log4J does and helps with automatic reading of times.
 logFormattedTime :: IO String
@@ -108,18 +115,9 @@ logFormattedTime = do
   return (formatTime locale format time)
 
 showUnsafe :: Outputable p => p -> String
-showUnsafe = showSafe unsafeGlobalDynFlags
+showUnsafe = showPprUnsafe
 
-showSafe :: Outputable p => DynFlags -> p -> String
-showSafe dflags p =
-  Pretty.renderStyle s $ runSDoc d (initSDocContext dflags (defaultUserStyle dflags))
-  where
-    d = ppr p
-    s =
-      Pretty.style
-        { Pretty.lineLength = maxBound,
-          Pretty.ribbonsPerLine = 0
-        }
+showSafe _ = showUnsafe
 
 -- Prints a string, and then flushes, so that intermediate strings show up
 putStr' :: String -> IO ()
@@ -150,15 +148,16 @@ contextLet context l =
 -- which means we replace the actual filenames with "<interactive>".
 mkInteractive :: SrcSpan -> SrcSpan
 -- Case 1: We have a real source Span
-mkInteractive (RealSrcSpan rs) = RealSrcSpan $ mkRealSrcSpan ns ne
+mkInteractive (RealSrcSpan rs bf) = RealSrcSpan (mkRealSrcSpan ns ne) bf
   where
     -- Make a lookup for the old span but use the interactive for further computing
 
     UnhelpfulSpan ic = interactiveSrcSpan
+    fs = unhelpfulSpanFS ic
     rss = realSrcSpanStart rs
     rse = realSrcSpanEnd rs
-    ns = mkRealSrcLoc ic (srcLocLine rss) (srcLocCol rss)
-    ne = mkRealSrcLoc ic (srcLocLine rse) (srcLocCol rse)
+    ns = mkRealSrcLoc fs (srcLocLine rss) (srcLocCol rss)
+    ne = mkRealSrcLoc fs (srcLocLine rse) (srcLocCol rse)
 -- Case 2: The source span was interactive or other anyway
 mkInteractive (UnhelpfulSpan _) = interactiveSrcSpan
 
