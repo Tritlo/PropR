@@ -51,8 +51,10 @@ import Data.Tree (Tree (Node, rootLabel), flatten)
 import GHC.HsToCore (deSugarExpr)
 import GHC.HsToCore.Expr (dsLExpr)
 import GHC.HsToCore.Monad (initDsTc, initDsWithModGuts)
-import GHC.Types.Error (errMsgSeverity, errMsgSpan, MessageClass(..))
-
+import GHC.Types.Error (errMsgSeverity, errMsgSpan,
+                        MessageClass(..), getMessages, mkMessages,
+                        MsgEnvelope (..))
+import GHC.Driver.Errors.Types (ghcUnknownMessage)
 import GHC.Utils.FV (fvVarSet)
 import GHC
 import GHC.LanguageExtensions (Extension (ExtendedDefaultRules, PartialTypeSignatures))
@@ -78,15 +80,23 @@ import System.Posix.Process
 import System.Posix.Signals
 import System.Process
 import qualified System.Timeout (timeout)
-import GHC.Tc.Gen.App (tcInferSigma)
+import GHC.Tc.Gen.Expr (tcInferRho)
+
 import GHC.Tc.Errors.Hole.FitTypes (HoleFit (..), TypedHole (..))
 import GHC.Tc.Solver (captureTopConstraints)
+import GHC.Tc.Types.Constraint (WantedConstraints(..), Hole(..),
+                                Ct, ctEvidence, emptyWC)
+import GHC.Tc.Errors.Hole (relevantCtEvidence)
+import GHC.Utils.Logger (LogAction)
 import Trace.Hpc.Mix
 import Trace.Hpc.Tix (Tix (Tix), TixModule (..), readTix, tixModuleName)
 import Trace.Hpc.Util (HpcPos, fromHpcPos)
 import GHC.Core.TyCo.Rep
 import GHC.LanguageExtensions.Type
 import qualified GHC.Data.EnumSet as ES
+import GHC.Driver.Errors.Types
+import GHC.Types.Error (Severity(..), MessageClass(..))
+import GHC.Runtime.Context (InteractiveContext (..))
 
 
 -- Configuration and GHC setup
@@ -160,7 +170,6 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
           { packageFlags =
               packageFlags flags
                 ++ map toPkg (checkPackages ++ packages),
-            staticPlugins = sPlug : staticPlugins flags,
             extensionFlags = ES.fromList (ES.toList (extensionFlags flags) ++ map toExt extensions)
           }
       sPlug =
@@ -173,12 +182,21 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
   liftIO $ logStr TRACE "Setting DynFlags..."
   -- We might get "congestion" if multiple GHC threads are all making .mix files
 
+
   toLink <- setSessionDynFlags flags' {importPaths = importPaths flags' ++ modBase}
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
+  
+  liftIO $ logStr TRACE "Adding synth plugin..."
+  ghc_session <- getSession
+  let hscplgs = hsc_plugins ghc_session
+      hscplgs' = hscplgs {staticPlugins = sPlug : staticPlugins hscplgs}
+      ghc_session' = ghc_session {hsc_plugins = hscplgs'}
+  setSession ghc_session'
+
   liftIO $ logStr TRACE "Parsing imports..."
   imports <- addPreludeIfNotPresent <$> mapM (fmap IIDecl . parseImportDecl) importStmts
-  let toTarget mod_path = Target (TargetFile mod_path Nothing) True Nothing
+  let toTarget mod_path = Target (TargetFile mod_path Nothing) True (stringToUnitId mod_path) Nothing
   liftIO $ logStr TRACE "Adding additional targets..."
   mapM_ (addTarget . toTarget) additionalTargets
   liftIO $ logStr TRACE "Loading targets.."
@@ -226,20 +244,20 @@ getHoleFitsFromError ::
   IORef HoleFitState ->
   [SrcSpan] ->
   SourceError ->
-  Ghc (Either (Either ([ValsAndRefs], [ErrMsg]) [ValsAndRefs]) b)
+  Ghc (Either (Either ([ValsAndRefs], [GhcMessage]) [ValsAndRefs]) b)
 getHoleFitsFromError plugRef holeSpanList err =
   do
-    liftIO $ logOut DEBUG $ pprErrMsgBagWithLoc $ srcErrorMessages err
+    liftIO $ logStr DEBUG $ show $ mkSrcErr $ srcErrorMessages err
     res <- liftIO $ snd <$> readIORef plugRef
     when (null res) (printException err)
     let gs = groupBy (sameHole `on` fst) res
         allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)
         allFitsOfHole [] = error "no-holes!"
         valsAndRefs = map ((partition part . snd) . allFitsOfHole) gs
-    let msgs = srcErrorMessages err
+    let msgs = getMessages $ srcErrorMessages err
         errSpans =
           Set.fromList $
-            map errMsgSpan $ filter ((==) "SevError" . show . errMsgSeverity) $ bagToList msgs
+            map errMsgSpan $ filter ((==) SevError . errMsgSeverity) $ bagToList msgs
         -- There might be other erros present, which means that
         -- the hole was not sound (probably due to defaulting).
         -- We want to filter these out.
@@ -250,7 +268,7 @@ getHoleFitsFromError plugRef holeSpanList err =
       then do
         liftIO $ logStr TRACE "Additional errors detected, discarding"
         liftIO $ mapM_ (logOut DEBUG) valsAndRefs
-        return $ Left $ Left $ (valsAndRefs, otherErrors)
+        return $ Left $ Left $ (valsAndRefs, map errMsgDiagnostic otherErrors)
       else return $ Left $ Right valsAndRefs
   where
     noRes = ([], [])
@@ -259,9 +277,9 @@ getHoleFitsFromError plugRef holeSpanList err =
     part HoleFit {..} = hfRefLvl <= 0
     sameHole :: TypedHole -> TypedHole -> Bool
     sameHole
-      TyH {tyHCt = Just CHoleCan {cc_hole = h1}}
-      TyH {tyHCt = Just CHoleCan {cc_hole = h2}} =
-        holeOcc h1 == holeOcc h2
+      TypedHole {th_hole = Just Hole {hole_occ = h1}}
+      TypedHole {th_hole = Just Hole {hole_occ = h2}} =
+        h1 == h2
     sameHole _ _ = False
 
 addTargetGetModName :: Target -> Ghc ModuleName
@@ -287,8 +305,9 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
   let tdBase = baseTempDir </> modHash </> dropExtensions mod_path
       cc@CompConf {..} = baseCC {tempDirBase = tdBase}
 
-  let target_id = TargetFile mod_path Nothing
-      target = Target target_id True Nothing
+  let tuid = stringToUnitId mod_path
+      target_id = TargetFile mod_path Nothing
+      target = Target target_id True tuid Nothing
 
   -- Feed the given Module into GHC
   runGhc' cc {importStmts = importStmts ++ checkImports, randomizeHiDir = False} $ do
@@ -329,7 +348,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                 case hsmodName mod of
                   -- A truly unnamed module
                   Nothing -> (Nothing, "")
-                  Just (L (RealSrcSpan rsp) mname) ->
+                  Just (L l mname) | (RealSrcSpan rsp _) <- locA l ->
                     ( Just rsp,
                       case hsmodExports mod of
                         Nothing -> ""
@@ -353,15 +372,16 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                       ++ [mhead]
                       ++ drop (srcSpanEndLine rsp) contents
           liftIO $ writeFile fakeMainLoc $ unlines filtered
-          let fake_target_id = TargetFile fakeMainLoc Nothing
-              fake_target = Target fake_target_id True Nothing
+          let fake_tuid = stringToUnitId fakeMainLoc
+              fake_target_id = TargetFile fakeMainLoc Nothing
+              fake_target = Target fake_target_id True fake_tuid Nothing
 
           removeTarget target_id
           fake_mname <- addTargetGetModName fake_target
 
           setSessionDynFlags
             dflags
-              { mainModIs = mkModule mainUnitId fake_mname
+              { mainModuleNameIs = fake_mname
               }
           _ <- load LoadAllTargets
           return (fakeMainLoc, unwords ["import", fakeMname], fake_mname)
@@ -404,9 +424,9 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             fromSigD (L l (SigD _ s)) = Just (L l s)
             fromSigD _ = Nothing
 
-        toCtxt :: [LHsBind GhcPs] -> [LSig GhcPs] -> LHsLocalBinds GhcPs
+        toCtxt :: [LHsBind GhcPs] -> [LSig GhcPs] -> HsLocalBinds GhcPs
         toCtxt vals sigs =
-          noLoc $ HsValBinds NoExtField (ValBinds NoExtField (listToBag vals) (sigmaDeclarations ++ sigs))
+          HsValBinds noAnn (ValBinds mempty (listToBag vals) (sigmaDeclarations ++ sigs))
 
         tests :: Set OccName
         tests = tastyTests `Set.union` qcProps
@@ -432,7 +452,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                  in if isTestTree t
                       then (res, mempty)
                       else (mempty, res)
-            fromTPropD b@(L l AbsBinds {..}) = tjoin abs_binds
+            fromTPropD b@(L l (XHsBindsLR AbsBinds {..})) = tjoin abs_binds
             fromTPropD _ = (mempty, mempty)
             isTestTree (TyConApp tt _) =
               ((==) "TestTree" . occNameString . getOccName) tt
@@ -470,8 +490,8 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
         local_prop_var_names = filter fromLocalPackage prop_var_names
           where
             fromLocalPackage name
-              | Just mod <- nameModule_maybe name =
-                mgElemModule mnames_after_local mod
+              | Just mod <- nameModule_maybe name,
+                Just ms <- mgLookupModule mnames_after_local mod = True
             fromLocalPackage _ = False
             prop_var_names :: [Name]
             prop_var_names = filter ((`Set.member` prop_var_occs) . occName) top_lvl_names
@@ -531,8 +551,8 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             -- function being fixed  as the first argument.
 
             -- wrap prop helpers:
-            mkFid nocc (L l' (Unqual occ)) = L l' (Unqual (nocc occ))
-            mkFid nocc (L l' (Qual m occ)) = L l' (Qual m (nocc occ))
+            mkFid nocc (L l' (Unqual occ)) = L (l2l l') (Unqual (nocc occ))
+            mkFid nocc (L l' (Qual m occ)) = L (l2l l') (Qual m (nocc occ))
             mkFid _ b = b
 
             nmatches vars nfid mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' nalts}
@@ -546,10 +566,12 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                         o -> o
                 nalt alt = alt
                 nalts = map nalt alts
+                nvpat :: IdP GhcPs -> LPat GhcPs
                 nvpat t_name =
-                  noLoc $
-                    ParPat NoExtField $
-                      noLoc $ VarPat NoExtField $ noLoc t_name
+                    noLocA $
+                    (ParPat noAnn noHsTok 
+                      (noLocA $ VarPat noExtField $ noLocA t_name)
+                      noHsTok)
                 nvpats = map nvpat $ filter (`Set.member` vars) targets
             nmatches _ _ mg = mg
 
@@ -577,9 +599,8 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                         n_grhss g = g
                         nGRHSS (L l3 (GRHS x guards bod)) = L l3 (GRHS x guards nbod)
                           where
-                            nbod = noLoc $ HsApp ext nthapp (noLoc $ HsPar ext bod)
-                            ext = noExtField
-                            nthapp = noLoc $ HsPar ext (noLoc $ HsApp ext (tf "testTreeNthTest") (il $ fromIntegral i))
+                            nbod = noLocA $ HsApp noAnn nthapp (noLocA $ HsPar noAnn noHsTok bod noHsTok)
+                            nthapp = noLocA $ HsPar noAnn noHsTok (noLocA $ HsApp noAnn (tf "testTreeNthTest") (il $ fromIntegral i)) noHsTok
                         nGRHSS xg = xg
                     run_i_only mg = mg
             wrapProp prop@(L l fb@FunBind {..}) =
@@ -592,34 +613,37 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             wrapProp e = [(e, [])]
 
             -- We make a binding that uses PartialTypeSignatures
-            mkPropSig :: Set RdrName -> Located RdrName -> Located (IdP GhcPs) -> [Sig GhcPs]
+            mkPropSig :: Set RdrName -> LIdP GhcPs -> LIdP GhcPs -> [Sig GhcPs]
             mkPropSig vars nfid ofid = prop_sig
               where
                 prop_sig = case snd <$> prog_sig (unLoc ofid) of
                   -- We don't want to wrap wildcardTys any further
                   Just (TypeSig e _ wt) ->
                     [ TypeSig e [nfid] $ case wt of
-                        HsWC _ (HsIB _ (L _ (HsWildCardTy _))) -> wt
+                        HsWC _ (L _ (HsSig _ _ (L _ (HsWildCardTy _)))) -> wt
                         _ -> toWrapSig wt
                     ]
                   _ -> []
                 toWrapSig :: LHsSigWcType GhcPs -> LHsSigWcType GhcPs
-                toWrapSig (HsWC e (HsIB ix t)) = HsWC e (HsIB ix $ tyApps wtys)
+                toWrapSig (HsWC e (L hsl (HsSig hsx hsib t)))
+                    = HsWC e (L hsl $ HsSig hsx hsib $ tyApps wtys)
                   where
                     wtys :: [HsType GhcPs]
                     wtys = replicate (length $ filter (`Set.member` vars) targets) (HsWildCardTy NoExtField)
                     tyApps [] = t
-                    tyApps (ty : tys) = noLoc $ HsFunTy NoExtField (noLoc ty) (tyApps tys)
+                    tyApps (ty : tys) = 
+                        noLocA $ HsFunTy noAnn arr (noLocA ty) (tyApps tys)
+                      where arr = HsUnrestrictedArrow noHsUniTok
                 toWrapSig e = e
             wrapped_props :: [EProp]
             prop_sigs :: [LSig GhcPs]
             (wrapped_props, prop_sigs) =
-              second (concatMap (noLoc <$>)) $ unzip $ concatMap wrapProp props
+              second (concatMap (noLocA <$>)) $ unzip $ concatMap wrapProp props
 
             prog_binds :: LHsBindsLR GhcPs GhcPs
             prog_binds = listToBag $ mapMaybe f $ filter isTDef hsmodDecls
               where
-                f (L _ (ValD _ b)) = Just $ noLoc b
+                f (L _ (ValD _ b)) = Just $ noLocA b
                 f _ = Nothing
 
             prog_sig :: RdrName -> Maybe (RdrName, Sig GhcPs)
@@ -635,10 +659,10 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                   ( t_name,
                     -- If we don't have a type, we just make a
                     -- partial one.
-                    TypeSig NoExtField [noLoc t_name] $
+                    TypeSig noAnn [noLocA t_name] $
                       HsWC NoExtField $
-                        HsIB NoExtField $
-                          noLoc $ HsWildCardTy NoExtField
+                        noLocA $ HsSig NoExtField (HsOuterImplicit NoExtField) $
+                          noLocA $ HsWildCardTy NoExtField
                   )
 
             targets_n_sigs = mapMaybe prog_sig t_names
@@ -652,17 +676,15 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             wp_expr tns = map wp' t_names
               where
                 (t_names, sigs) = unzip tns
-                sigs' = map noLoc sigs
+                sigs' = map noLocA sigs
                 -- TODO: We should maybe take the transitive closure of
                 -- the binds here, *BUT* that would mean that the programs
                 -- (and therefore the locations) will be different. Hmm.
                 wp' :: RdrName -> LHsExpr GhcPs
-                wp' t_name = noLoc $ HsLet noExtField (noLoc lbs) (noLoc le)
+                wp' t_name = noLocA $ HsLet noAnn noHsTok lbs noHsTok le
                   where
-                    le = HsVar noExtField $ noLoc t_name
-                    lbs =
-                      HsValBinds noExtField $
-                        ValBinds noExtField prog_binds sigs'
+                    le = noLocA $ HsVar noExtField $ noLocA t_name
+                    lbs = HsValBinds noAnn $ ValBinds mempty prog_binds sigs'
 
         int_prob = case mb_target of
           Just t ->
@@ -720,9 +742,9 @@ runGhcWithCleanup CompConf {..} act = do
                   ( if randomizeHiDir
                       then tdBase </> "build"
                       else common </> "build"
-                  ),
-              log_action = logOutLogAction
+                  )
             }
+    pushLogHookM (\_ -> logOutLogAction)
     setSessionDynFlags dflags'
     defaultErrorHandler ((logStr GHCERR "ghc error: " >>) . logStr GHCERR) (FlushOut (return ())) act
   check <- doesDirectoryExist tdBase
@@ -730,16 +752,16 @@ runGhcWithCleanup CompConf {..} act = do
   return res
 
 logOutLogAction :: LogAction
-logOutLogAction dflags _ severity loc _ msgdoc =
+logOutLogAction _ mc loc msgdoc =
   do
-    let ll = case severity of
-          SevOutput -> DUMP
-          SevDump -> DUMP
-          SevInteractive -> INFO
-          SevInfo -> INFO
-          SevWarning -> INFO
-          SevFatal -> GHCERR
-          SevError -> GHCERR
+    let ll = case mc of
+          MCOutput -> DUMP
+          MCDump -> DUMP
+          MCInteractive -> INFO
+          MCInfo -> INFO
+          MCFatal -> GHCERR
+          MCDiagnostic SevWarning _ _ -> INFO
+          MCDiagnostic SevError _ _ -> GHCERR
     logStr ll ("GHC ERROR at " ++ showUnsafe loc)
     logOut ll msgdoc
 
@@ -754,6 +776,9 @@ traceTarget ::
   [RExpr] ->
   IO (Maybe TraceRes)
 traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
+
+instance Eq a => Ord (SrcSpanAnn' a) where
+  compare = compare `on` locA
 
 toNonZeroInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
 toNonZeroInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
@@ -783,7 +808,11 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
   runGhc' cc $ do
     liftIO $ logStr TRACE "Tracing targets..."
     seed <- liftIO newSeed
-    let traceHash = flip showHex "" $ abs $ hashString $ showUnsafe (exprs, ps_w_ce, seed)
+    let traceHash = flip showHex "" $ 
+                    abs $ hashString $
+                    showUnsafe exprs
+                    ++ concatMap (\(e,rs) -> showUnsafe e ++ show rs) ps_w_ce
+                    ++ show seed
         tempDir = tempDirBase </> "trace" </> traceHash
         the_f = tempDir </> ("FakeTraceTarget" ++ traceHash) <.> "hs"
     liftIO $ createDirectoryIfMissing True tempDir
@@ -814,8 +843,10 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
             libraryPaths = libraryPaths dynFlags ++ [tempDir]
           }
     now <- liftIO getCurrentTime
-    let tid = TargetFile the_f Nothing
-        target = Target tid True Nothing
+    let tuid :: UnitId
+        tuid = stringToUnitId the_f 
+        tid = TargetFile the_f Nothing
+        target = Target tid True tuid Nothing
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.
@@ -824,13 +855,13 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
     _ <-
       setSessionDynFlags $
         dynFlags
-          { mainModIs = mkModule mainUnitId target_name,
+          { mainModuleNameIs = target_name,
             mainFunIs = Just "main__",
             importPaths = importPaths dynFlags ++ modBase
           }
 
     liftIO $ logStr TRACE "Loading trace target..."
-    (_, errs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
+    (_, errs) <- tryGHCCaptureOutput (load (LoadUpTo $ mkModule tuid target_name))
     if not (null errs)
       then do
         liftIO $ logStr TRACE "Got an error while loading trace target!"
@@ -1040,7 +1071,7 @@ reportError p e = do
   liftIO $ do
     logStr ERROR "Compiling check failed with unexpected exception:"
     logStr ERROR (showUnsafe p)
-    logStr ERROR (unlines $ bagToList $ mapBag show $ srcErrorMessages e)
+    logStr ERROR (show $ mkSrcErr $ srcErrorMessages e)
   printException e
   error "UNEXPECTED EXCEPTION"
 
@@ -1058,7 +1089,7 @@ dynCompileParsedExpr parsed_expr = do
   let loc = getLoc parsed_expr
       to_dyn_expr =
         mkHsApp
-          (L loc . HsVar noExtField . L loc $ getRdrName toDynName)
+          (L loc $ HsVar noExtField $ L (l2l loc) $ getRdrName toDynName)
           parsed_expr
   hval <- compileParsedExpr to_dyn_expr
   return (unsafeCoerce# hval :: Dynamic)
@@ -1100,8 +1131,10 @@ justTcExpr :: EExpr -> Ghc (Maybe ((LHsExpr GhcTc, Type), WantedConstraints))
 justTcExpr parsed = do
   hsc_env <- getSession
   (_, res) <-
-    liftIO $
-      runTcInteractive hsc_env $ captureTopConstraints $ rnLExpr parsed >>= tcInferSigma . fst
+    liftIO $ runTcInteractive hsc_env $ captureTopConstraints $ do
+        (renamed,_) <- rnLExpr parsed
+        -- Was tcInferSigma?
+        tcInferRho renamed
   return res
 
 -- | We get the type of the given expression by desugaring it and getting the type
@@ -1171,7 +1204,8 @@ getExprFitCands expr_or_mod = do
   where
     toEsAnNames wc = map (\e -> (e, bagToList $ wc_simple wc, concatMap e_ids $ flattenExpr e))
     e_ids (L _ (HsVar _ v)) = [unLoc v]
-    e_ids (L _ (HsWrap _ w v)) = concatMap e_ids $ flattenExpr $ noLoc v
+    e_ids (L _ (XExpr (WrapExpr (HsWrap w v)))) =
+        concatMap e_ids $ flattenExpr $ noLocA v
     e_ids _ = []
     -- Vars are already in scope
     nonTriv :: LHsExpr GhcTc -> Bool
@@ -1181,38 +1215,15 @@ getExprFitCands expr_or_mod = do
     -- We'll get whatever expression is within the parenthesis
     -- or wrap anyway
     nonTriv (L _ HsPar {}) = False
-    nonTriv (L _ HsWrap {}) = False
+    nonTriv (L _ (XExpr (WrapExpr (HsWrap {})))) = False
     nonTriv _ = True
     finalize :: (LHsExpr GhcTc, [Ct], [Id]) -> Maybe Type -> ExprFitCand
-    finalize (e, _, rs) ty@Nothing = EFC (parenthesizeHsExpr appPrec e) emptyBag rs ty
+    finalize (e, _, rs) ty@Nothing = EFC (parenthesizeHsExpr appPrec e) [] rs ty
     finalize (e, wc, rs) ty@(Just expr_ty) =
-      EFC (parenthesizeHsExpr appPrec e) (listToBag (relevantCts expr_ty wc)) rs ty
-    -- Taken from TcHoleErrors, which is sadly not exported. Takes a type and
-    -- a list of constraints and filters out irrelvant constraints that do not
-    -- mention any typve variable in the type.
-    relevantCts :: Type -> [Ct] -> [Ct]
-    relevantCts expr_ty simples =
-      if isEmptyVarSet (fvVarSet expr_fvs')
-        then []
-        else filter isRelevant simples
-      where
-        ctFreeVarSet :: Ct -> VarSet
-        ctFreeVarSet = fvVarSet . tyCoFVsOfType . ctPred
-        expr_fvs' = tyCoFVsOfType expr_ty
-        expr_fv_set = fvVarSet expr_fvs'
-        anyFVMentioned :: Ct -> Bool
-        anyFVMentioned ct =
-          not $
-            isEmptyVarSet $
-              ctFreeVarSet ct `intersectVarSet` expr_fv_set
-        -- We filter out those constraints that have no variables (since
-        -- they won't be solved by finding a type for the type variable
-        -- representing the hole) and also other holes, since we're not
-        -- trying to find hole fits for many holes at once.
-        isRelevant ct =
-          not (isEmptyVarSet (ctFreeVarSet ct))
-            && anyFVMentioned ct
-            && not (isHoleCt ct)
+      EFC (parenthesizeHsExpr appPrec e) 
+          (relevantCtEvidence expr_ty $ map ctEvidence wc)
+          rs
+          ty
 
 -- | Provides a GHC without a ic_default set.
 -- IC is short for Interactive-Context (ic_default is set to empty list).
@@ -1236,17 +1247,17 @@ tryGHCCaptureOutput act = do
   msg_ref <- liftIO $ newIORef []
   dflags <- getSessionDynFlags
   let logAction :: LogAction
-      logAction _ _ sev loc _ msg
-        | SevFatal <- sev = log
-        | SevError <- sev = log
+      logAction _ mc loc msg
+        | MCFatal <- mc = log
+        | MCDiagnostic SevError _ _ <- mc = log
         | otherwise = reject
         where
           log = modifyIORef msg_ref ((locstr ++ " " ++ showSafe dflags msg) :)
           locstr = showSafe dflags loc
           reject = return ()
-  void $ setSessionDynFlags dflags {log_action = logAction}
+  void $ pushLogHookM (\_ -> logOutLogAction)
   res <- defaultErrorHandler (\err -> modifyIORef msg_ref (err :)) (FlushOut (return ())) act
   dflags' <- getSessionDynFlags
-  void $ setSessionDynFlags dflags' {log_action = log_action dflags}
+  void $ popLogHookM
   msgs <- reverse <$> liftIO (readIORef msg_ref)
   return (res, msgs)

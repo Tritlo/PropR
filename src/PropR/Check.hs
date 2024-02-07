@@ -140,11 +140,11 @@ buildFixCheck ::
   Int ->
   EProblem ->
   [EProgFix] ->
-  (LHsLocalBinds GhcPs, LHsBind GhcPs)
+  (HsLocalBinds GhcPs, LHsBind GhcPs)
 buildFixCheck cc seed EProb {..} prog_fixes =
   (ctxt, check_bind)
   where
-    (L bl (HsValBinds be (ValBinds vbe vbs vsigs))) = e_ctxt
+    HsValBinds be (ValBinds vbe vbs vsigs) = e_ctxt
     qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ (defaultQcConfig (qcChecks cc) seed) {maxShrinks = Just 0})
     nvbs =
       unionManyBags
@@ -153,7 +153,6 @@ buildFixCheck cc seed EProb {..} prog_fixes =
           if isJust e_module then emptyBag else vbs
         ]
     ctxt =
-      L bl $
         HsValBinds be $
           ValBinds vbe nvbs $
             if isJust e_module then e_prop_sigs else vsigs ++ e_prop_sigs
@@ -173,7 +172,7 @@ buildFixCheck cc seed EProb {..} prog_fixes =
       where
         eToBs fix = HsValBinds noAnn ebs
           where
-            ebs = ValBinds NoAnnSortKey (listToBag (expr_bs fix)) []
+            ebs = ValBinds mempty (listToBag (expr_bs fix)) []
         elpc = noLocA $ ExplicitList noAnn testsToCheck
         app :: LHsExpr GhcPs
         app = noLocA $ HsPar noAnn noHsTok (noLocA $ HsApp noAnn (tf "sequence") elpc) noHsTok
@@ -316,7 +315,7 @@ buildCounterExampleCheck
          )
   EProb {..} = (num_args, noLocA $ HsLet noAnn noHsTok ctxt noHsTok check_prog)
     where
-      (L bl (HsValBinds be vb)) = e_ctxt
+      HsValBinds be vb = e_ctxt
       (ValBinds vbe vbs vsigs) = vb
       qcb = baseFun (mkVarUnqual $ fsLit "qc__") (qcArgsExpr $ defaultQcConfig qcChecks seed)
       nvb = ValBinds vbe nvbs $ vsigs ++ nty
@@ -357,8 +356,6 @@ buildCounterExampleCheck
                     noAnn
                     (noLocA $ HsApp noAnn (tf "qcWithin") (il timeout))
                     (noLocA $ HsPar noAnn noHsTok b noHsTok)
-          aW g = g
-      addWithin malt = malt
       sq_ty :: LHsSigWcType GhcPs
       sq_ty =
         HsWC NoExtField $

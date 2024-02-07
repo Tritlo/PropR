@@ -38,8 +38,10 @@ import PropR.Types ()
 -- TODO: This doesn't recurse into (L _ (HsWrap _ _ v)), because there's no located expressions in v!
 
 -- | Get this expression and all subexpressions
-flattenExpr :: (id ~ GhcPs, Data (HsExpr id)) => LHsExpr id -> [LHsExpr id]
+flattenExpr :: (Data (HsExpr id), Data (XRec id (HsExpr id)))
+            => LHsExpr id -> [LHsExpr id]
 flattenExpr = universeOf uniplate
+
 
 
 -- | Replace all expressions in a given expression with those

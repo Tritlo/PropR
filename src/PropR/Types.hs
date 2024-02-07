@@ -62,7 +62,7 @@ data RProblem = RProb
 
 type EProp = LHsBind GhcPs
 
-type EContext = LHsLocalBinds GhcPs
+type EContext = HsLocalBinds GhcPs
 
 type EType = LHsSigWcType GhcPs
 
@@ -115,7 +115,7 @@ instance Outputable EProblem where
   ppr EProb {..} =
     text "EProblem {"
       <+> (text "props:" <+> ppr e_props)
-      <+> (text "ctxt:" <+> ppr (unXRec @GhcPs e_ctxt))
+      <+> (text "ctxt:" <+> ppr e_ctxt)
       <+> (text "prog: " <+> ppr e_prog)
       <+> text "}"
   ppr ExProb {..} =
@@ -133,7 +133,7 @@ instance Ord SrcSpan where
 -- do it manually in the plugin.
 data ExprFitCand = EFC
   { efc_cand :: LHsExpr GhcTc,
-    efc_wc :: Cts,
+    efc_wc :: [CtEvidence],
     efc_ids :: [Id],
     efc_ty :: Maybe Type
   }

@@ -130,7 +130,7 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                                     fst <$> withoutUnification fvs (tcCheckHoleFit h {th_relevant_cts = cts} hole_ty e_ty)
                                     where
                                       fvs = tyCoFVsOfTypes [hole_ty, e_ty]
-                                      cts = th_relevant_cts h `Bag.unionBags`  (Bag.mapBag ctEvidence rcts)
+                                      cts = th_relevant_cts h `Bag.unionBags` (Bag.listToBag rcts)
                               map efc_cand <$> filterM checkExprCand in_scope_exprs
                             _ -> return []
 
