@@ -19,8 +19,8 @@ import qualified Data.Map as Map
 import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
-import GHC (GhcPs, HsExpr, SrcSpan, isSubspanOf)
-import GhcPlugins (Outputable (..), liftIO)
+import GHC (GhcPs, HsExpr, SrcAnn, AnnListItem)
+import Control.Monad.IO.Class (liftIO)
 import PropR.Configuration
 import PropR.Eval (runGhc')
 import PropR.Repair (checkFixes, repairAttempt)
@@ -188,9 +188,10 @@ efixCrossover f_a f_b = do
     crossoverLists ::
       (RandomGen g) =>
       g ->
-      [(SrcSpan, HsExpr GhcPs)] ->
-      [(SrcSpan, HsExpr GhcPs)] ->
-      ([(SrcSpan, HsExpr GhcPs)], [(SrcSpan, HsExpr GhcPs)], g)
+      [(SrcAnn AnnListItem, HsExpr GhcPs)] ->
+      [(SrcAnn AnnListItem, HsExpr GhcPs)] ->
+      ([(SrcAnn AnnListItem, HsExpr GhcPs)],
+      [(SrcAnn AnnListItem, HsExpr GhcPs)], g)
     -- For empty chromosomes, there is no crossover possible
     crossoverLists gen [] [] = ([], [], gen)
     crossoverLists gen as bs =
@@ -211,7 +212,7 @@ minimizeFix bigFix = do
       reducedWinners' = Set.fromList $ map snd reducedWinners
   return reducedWinners'
   where
-    candidates :: Set (Set (SrcSpan, HsExpr GhcPs))
+    candidates :: Set (Set (SrcAnn AnnListItem, HsExpr GhcPs))
     candidates = Set.powerSet $ Set.fromDistinctAscList $ Map.toAscList bigFix
     candidateFixes :: [EFix]
     candidateFixes = map (Map.fromDistinctAscList . Set.toAscList) $ Set.toList candidates

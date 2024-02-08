@@ -47,21 +47,19 @@ flattenExpr = universeOf uniplate
 -- | Replace all expressions in a given expression with those
 -- found in the given map.
 replaceExpr :: (id ~ GhcPs, Data (HsExpr id))
-            => Map SrcSpan (HsExpr id) -> LHsExpr id -> LHsExpr id
+            => Map (SrcAnn AnnListItem) (HsExpr id) -> LHsExpr id -> LHsExpr id
 replaceExpr repls =
   transformOf uniplate $ \case
-    L loc _ | l <- locA loc,
-              l `member` repls -> L loc (repls ! l)
+    L loc _ | loc `member` repls -> L loc (repls ! loc)
     e -> e
 
 -- | Replace all expressions in a given expression with those
 -- found in the given map.
 wrapExpr :: (id ~ GhcPs, Data (HsExpr id))
-         => SrcSpan -> (HsExpr id -> HsExpr id) -> LHsExpr id -> LHsExpr id
+         => SrcAnn AnnListItem -> (HsExpr id -> HsExpr id) -> LHsExpr id -> LHsExpr id
 wrapExpr repl_loc trans =
   transformOf uniplate $ \case
-    L loc x | l <- locA loc,
-              l == repl_loc -> L loc (trans x)
+    L loc x | loc == repl_loc -> L loc (trans x)
     e -> e
 
 -- | All possible replacement of one variable with a hole, i.e. we are making
@@ -72,12 +70,12 @@ sanctifyExpr ::
   (id ~ GhcPs, Data (HsExpr id), HasOccName (IdP id)) =>
   XUnboundVar id ->
   LHsExpr id ->
-  [(SrcSpan, LHsExpr id)]
+  [(SrcAnn AnnListItem, LHsExpr id)]
 sanctifyExpr ext = map repl . contextsOf uniplate
   where
-    repl ctxt = (loc, peek (reLocA (L loc hole)) ctxt)
+    repl ctxt = (loc, peek (L loc hole) ctxt)
       where
-        (L loc expr) = reLoc $ pos ctxt
+        (L loc expr) = pos ctxt
         hole = HsUnboundVar ext (mkRdrUnqual name)
         name = case expr of
           HsVar _ (L _ v) ->
@@ -91,8 +89,9 @@ sanctifyExpr ext = map repl . contextsOf uniplate
           where
             base = occNameString $ occName nm
             alphanum = filter isAlphaNum base
-        locToStr (UnhelpfulSpan x) = show x
-        locToStr s@(RealSrcSpan r _) =
+        locToStr = locToStr' . locA
+        locToStr' (UnhelpfulSpan x) = show x
+        locToStr' s@(RealSrcSpan r _) =
           intercalate "_" $
             map show $
               [srcSpanStartLine r, srcSpanStartCol r]
@@ -100,11 +99,11 @@ sanctifyExpr ext = map repl . contextsOf uniplate
                 ++ [srcSpanEndCol r]
 
 -- | Fill the first hole in the given holed-expression.
-fillHole :: (id ~ GhcPs, Data (HsExpr id)) => HsExpr id -> LHsExpr id -> Maybe (SrcSpan, LHsExpr id)
+fillHole :: (id ~ GhcPs, Data (HsExpr id)) => HsExpr id -> LHsExpr id -> Maybe (SrcAnn AnnListItem, LHsExpr id)
 fillHole fit = fillFirst . contextsOf uniplate
   where
     fillFirst (ctxt : ctxts) =
       case pos ctxt of
-        L loc (HsUnboundVar _ _) -> Just (locA loc, peek (L loc fit) ctxt)
+        L loc (HsUnboundVar _ _) -> Just (loc, peek (L loc fit) ctxt)
         _ -> fillFirst ctxts
     fillFirst [] = Nothing

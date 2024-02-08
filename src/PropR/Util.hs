@@ -282,10 +282,12 @@ mergeFixes f1 f2 = Map.fromList $ mf' (Map.toList f1) (Map.toList f2)
   where
     mf' = mergeFixes'
 
-mergeFixes' :: [(SrcSpan, HsExpr GhcPs)] -> [(SrcSpan, HsExpr GhcPs)] -> [(SrcSpan, HsExpr GhcPs)]
+mergeFixes' :: [(SrcAnn AnnListItem, HsExpr GhcPs)]
+            -> [(SrcAnn AnnListItem, HsExpr GhcPs)] 
+            -> [(SrcAnn AnnListItem, HsExpr GhcPs)]
 mergeFixes' [] xs = xs
 mergeFixes' xs [] = xs
-mergeFixes' (x : xs) ys = x : mergeFixes' xs (filter (not . isSubspanOf (fst x) . fst) ys)
+mergeFixes' (x : xs) ys = x : mergeFixes' xs (filter (not . isSubspanOf (locA $ fst x) . locA . fst) ys)
 
 -- | EProgs
 -- | We apply fixes by adding progAtTy and replacing with the fix.

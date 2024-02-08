@@ -242,7 +242,7 @@ type CompileRes = Either [ValsAndRefs] Dynamic
 -- message)
 getHoleFitsFromError ::
   IORef HoleFitState ->
-  [SrcSpan] ->
+  [SrcAnn AnnListItem] ->
   SourceError ->
   Ghc (Either (Either ([ValsAndRefs], [GhcMessage]) [ValsAndRefs]) b)
 getHoleFitsFromError plugRef holeSpanList err =
@@ -272,7 +272,7 @@ getHoleFitsFromError plugRef holeSpanList err =
       else return $ Left $ Right valsAndRefs
   where
     noRes = ([], [])
-    holeSpans = Set.fromList holeSpanList
+    holeSpans = Set.fromList $ map locA holeSpanList
     part (RawHoleFit _) = True
     part HoleFit {..} = hfRefLvl <= 0
     sameHole :: TypedHole -> TypedHole -> Bool
@@ -777,20 +777,18 @@ traceTarget ::
   IO (Maybe TraceRes)
 traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
 
-instance Eq a => Ord (SrcSpanAnn' a) where
-  compare = compare `on` locA
-
-toNonZeroInvokes :: Trace -> Map.Map (EExpr, SrcSpan) Integer
+toNonZeroInvokes :: Trace -> Map.Map (EExpr, SrcAnn AnnListItem) Integer
 toNonZeroInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
   where
     isOkBox (ExpBox _, _) = True
     isOkBox _ = False
-    only_max :: (SrcSpan, [(BoxLabel, Integer)]) -> Maybe ((EExpr, SrcSpan), Integer)
+    only_max :: (SrcSpan, [(BoxLabel, Integer)]) 
+                -> Maybe ((EExpr, SrcAnn AnnListItem), Integer)
     only_max (src, xs)
       | any isOkBox xs,
         ms <- maximum $ map snd xs,
         ms > 0 =
-        Just ((ex, src), ms)
+        Just ((ex, noAnnSrcSpan src), ms)
     -- TODO: What does it mean in HPC if there are multiple labels here?
     only_max (src, xs) = Nothing
 

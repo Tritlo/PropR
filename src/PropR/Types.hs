@@ -84,7 +84,7 @@ type Trace = (LHsExpr GhcPs, Tree (SrcSpan, [(BoxLabel, Integer)]))
 type TraceRes = [Trace]
 
 -- | A fix is a list of replacements and their locations
-type EFix = Map SrcSpan (HsExpr GhcPs)
+type EFix = Map (SrcAnn AnnListItem) (HsExpr GhcPs)
 
 -- From these we get equality on EFixes
 instance Eq (HsExpr GhcPs) where
@@ -127,6 +127,8 @@ instance Ord SrcSpan where
   compare (RealSrcSpan a _) (RealSrcSpan b _) = compare a b
   compare a b = compare (show a) (show b)
 
+instance Eq a => Ord (SrcSpanAnn' a) where
+  compare = compare `on` locA
 
 -- | ExprFitCands are used by the plugin to check whether an expression could fit
 -- a given hole. Since they are not supported within the HoleFit framework, we
