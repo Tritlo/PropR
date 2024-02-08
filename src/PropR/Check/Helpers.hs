@@ -1,7 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 
-module Check.Helpers
-  ( module Check.Helpers,
+module PropR.Check.Helpers
+  ( module PropR.Check.Helpers,
     module QuickCheck,
   )
 where

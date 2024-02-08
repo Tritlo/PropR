@@ -10,6 +10,7 @@ description: Program repair using GHC, HPC tracing and typed-hole synthesis.
 category: Compiler Plugin
 license: MIT
 license-file: LICENSE
+data-files: src/PropR/Check/Helpers.hs
 
 
 library
@@ -32,6 +33,7 @@ library
                    PropR.Search.Random
                    PropR.Search.Exhaustive
                    PropR.Packages
+                   PropR.Check.Helpers
   other-modules: PropR.Configuration.Configure
                  PropR.Configuration.Types
                  PropR.Configuration.Materializeable
@@ -47,6 +49,13 @@ library
                  PropR.Search.Random.Search
                  PropR.Search.Exhaustive.Configuration
                  PropR.Search.Exhaustive.Search
+                 Paths_PropR
+  reexported-modules: Test.QuickCheck,
+                      Test.QuickCheck.Random,
+                      Test.Tasty,
+                      Test.Tasty.Runners,
+                      Test.Tasty.Ingredients
+
   build-depends: base >= 4 && < 5,
                  ghc >= 9,
                  ghc-boot >= 9,
@@ -72,7 +81,10 @@ library
                  data-default >= 0.7,
                  deriving-aeson >= 0.2,
                  splitmix >= 0.1,
-                 aeson >= 2.1
+                 aeson >= 2.1,
+                 tasty >= 1.4 && < 1.5,
+                 stm >= 2.5 && < 2.6,
+                 QuickCheck
 
 executable propr
   default-language: GHC2021
@@ -93,19 +105,16 @@ executable propr
                  PropR
 
 
-test-suite test
+common testing
   default-language: GHC2021
-  type: exitcode-stdio-1.0
   hs-source-dirs: tests/
   ghc-options: -threaded -O2
-  main-is: Tests.hs
   other-modules: TestUtils
   build-depends: base >= 4 && < 5,
-                 tasty >= 1.4 && < 1.5,
+                 tasty >= 1.4,
                  tasty-hunit >= 0.10,
                  tasty-quickcheck >= 0.10,
                  tasty-expected-failure >= 0.12,
-                 -- these are all specified in the library itself
                  containers,
                  ghc,
                  hpc,
@@ -114,45 +123,18 @@ test-suite test
                  PropR,
                  -- packages used in repair:
                  QuickCheck
+
+test-suite test
+  import: testing
+  type: exitcode-stdio-1.0
+  main-is: Tests.hs
 
 test-suite slow-test
-  default-language: GHC2021
+  import: testing
   type: exitcode-stdio-1.0
-  hs-source-dirs: tests/
-  ghc-options: -threaded -O2
   main-is: SlowTests.hs
-  other-modules: TestUtils
-  build-depends: base >= 4 && < 5,
-                 tasty >= 1.4,
-                 tasty-hunit >= 0.10,
-                 tasty-quickcheck >= 0.10,
-                 tasty-expected-failure >= 0.12,
-                 containers,
-                 ghc,
-                 hpc,
-                 data-default,
-                 directory,
-                 PropR,
-                 -- packages used in repair:
-                 QuickCheck
 
 benchmark benchmark
-  default-language: GHC2021
+  import: testing
   type: exitcode-stdio-1.0
-  hs-source-dirs: tests/
-  ghc-options: -threaded -O2
   main-is: Benchmarks.hs
-  other-modules: TestUtils
-  build-depends: base >= 4 && < 5,
-                 tasty >= 1.4,
-                 tasty-hunit >= 0.10,
-                 tasty-quickcheck >= 0.10,
-                 tasty-expected-failure >= 0.12,
-                 containers,
-                 ghc,
-                 hpc,
-                 data-default,
-                 directory,
-                 PropR,
-                 -- packages used in repair:
-                 QuickCheck

@@ -97,6 +97,8 @@ import qualified GHC.Data.EnumSet as ES
 import GHC.Driver.Errors.Types
 import GHC.Types.Error (Severity(..), MessageClass(..))
 import GHC.Runtime.Context (InteractiveContext (..))
+import qualified Paths_PropR as PE
+import Data.Version (showVersion)
 
 
 -- Configuration and GHC setup
@@ -172,17 +174,9 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
                 ++ map toPkg (checkPackages ++ packages),
             extensionFlags = ES.fromList (ES.toList (extensionFlags flags) ++ map toExt extensions)
           }
-      sPlug =
-        StaticPlugin $
-          PluginWithArgs
-            { paArguments = [],
-              paPlugin = synthPlug cc use_cache local_exprs plugRef
-            }
   -- "If you are not doing linking or doing static linking, you can ignore the list of packages returned."
   liftIO $ logStr TRACE "Setting DynFlags..."
   -- We might get "congestion" if multiple GHC threads are all making .mix files
-
-
   toLink <- setSessionDynFlags flags' {importPaths = importPaths flags' ++ modBase}
   -- (hsc_dynLinker <$> getSession) >>= liftIO . (flip extendLoadedPkgs toLink)
   -- Then we import the prelude and add it to the context
@@ -191,14 +185,37 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
   ghc_session <- getSession
   let hscplgs = hsc_plugins ghc_session
       hscplgs' = hscplgs {staticPlugins = sPlug : staticPlugins hscplgs}
+      sPlug =
+        StaticPlugin $
+          PluginWithArgs
+            { paArguments = [],
+              paPlugin = synthPlug cc use_cache local_exprs plugRef
+            }
       ghc_session' = ghc_session {hsc_plugins = hscplgs'}
   setSession ghc_session'
 
   liftIO $ logStr TRACE "Parsing imports..."
   imports <- addPreludeIfNotPresent <$> mapM (fmap IIDecl . parseImportDecl) importStmts
-  let toTarget mod_path = Target (TargetFile mod_path Nothing) True (stringToUnitId mod_path) Nothing
+  let toTarget mod_path = guessTarget mod_path Nothing Nothing
   liftIO $ logStr TRACE "Adding additional targets..."
-  mapM_ (addTarget . toTarget) additionalTargets
+  mapM_ (\t -> toTarget t >>= addTarget) additionalTargets
+
+
+  -- TODO: it is not finding itself :(
+  -- Importing self!
+  getSessionDynFlags >>= (\f ->
+                            setSessionDynFlags f {
+                                    packageFlags =  
+                                        (toPkg $ "PropR-" ++ showVersion (PE.version))
+                                        : packageFlags f})
+
+ -- Adding helpers
+  helper_mod <- liftIO $ PE.getDataFileName "src/PropR/Check/Helpers.hs"
+  check_helper <- guessTarget helper_mod Nothing Nothing
+  addTarget check_helper
+
+                                       
+
   liftIO $ logStr TRACE "Loading targets.."
   _ <- load LoadAllTargets
   liftIO $ logStr TRACE "Adding imports to context..."
@@ -305,12 +322,11 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
   let tdBase = baseTempDir </> modHash </> dropExtensions mod_path
       cc@CompConf {..} = baseCC {tempDirBase = tdBase}
 
-  let tuid = stringToUnitId mod_path
-      target_id = TargetFile mod_path Nothing
-      target = Target target_id True tuid Nothing
 
   -- Feed the given Module into GHC
   runGhc' cc {importStmts = importStmts ++ checkImports, randomizeHiDir = False} $ do
+    target <- guessTarget mod_path Nothing Nothing
+    let target_id = targetId target
     dflags <- getSessionDynFlags
     liftIO $ logStr TRACE "Loading module targets..."
 
@@ -372,9 +388,8 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                       ++ [mhead]
                       ++ drop (srcSpanEndLine rsp) contents
           liftIO $ writeFile fakeMainLoc $ unlines filtered
-          let fake_tuid = stringToUnitId fakeMainLoc
-              fake_target_id = TargetFile fakeMainLoc Nothing
-              fake_target = Target fake_target_id True fake_tuid Nothing
+          fake_target <- guessTarget fakeMainLoc Nothing Nothing 
+          let fake_target_id = targetId fake_target
 
           removeTarget target_id
           fake_mname <- addTargetGetModName fake_target
@@ -841,10 +856,8 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
             libraryPaths = libraryPaths dynFlags ++ [tempDir]
           }
     now <- liftIO getCurrentTime
-    let tuid :: UnitId
-        tuid = stringToUnitId the_f 
-        tid = TargetFile the_f Nothing
-        target = Target tid True tuid Nothing
+    target <- guessTarget the_f Nothing Nothing
+    let tuid = targetUnitId target
 
     -- Adding and loading the target causes the compilation to kick
     -- off and compiles the file.

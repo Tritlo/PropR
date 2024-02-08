@@ -720,10 +720,9 @@ checkFixes'
   orig_fixes = runGhc' cc $ do
     liftIO $ logStr TRACE "Checking fixes..."
     orig_flags <- setCheckDynFlags
-    (tempDir, exeName, mname, target_name, tid) <- initCompileChecks orig_flags orig_fixes
+    (tempDir, exeName, mname, target_name, Target{targetUnitId=tuid, targetId=tid}) <- initCompileChecks orig_flags orig_fixes
     liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
-    (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo $
-            mkModule (stringToUnitId (moduleNameString target_name)) target_name))
+    (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo $ mkModule tuid target_name))
 
     (res :: Maybe [TestSuiteResult]) <-
       if succeeded sf2
@@ -769,10 +768,10 @@ checkFixes'
                         liftIO $ logStr TRACE $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
                         liftIO $ logStr TRACE $ "Reinitializing..."
                         setCheckDynFlags
-                        (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
+                        (_, n_exe, n_mname, n_target, Target{targetUnitId=n_tuid}) <- initCompileChecks orig_flags compiling_fixes
                         liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString n_target ++ " again..."
                         (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo $
-                                mkModule (stringToUnitId (moduleNameString n_target)) n_target)
+                                mkModule n_tuid n_target)
 
                         if succeeded sf2
                           then liftIO $ logStr TRACE "Recovered!"
@@ -811,11 +810,10 @@ checkFixes'
 
       doesCompile :: DynFlags -> [EProgFix] -> Ghc Bool
       doesCompile dflags fixes = do
-        (tempDir, _, mname, target_name, tid) <- initCompileChecks dflags fixes
+        (tempDir, _, mname, target_name, Target{targetId=tid, targetUnitId=tuid})
+            <- initCompileChecks dflags fixes
         liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
-        (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo $
-            -- TODO: is this the right unitid?
-            mkModule (stringToUnitId (moduleNameString target_name)) target_name))
+        (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo $ mkModule tuid target_name))
         liftIO $ mapM_ (logStr DEBUG) msgs
         -- removeTarget might not be enough for the linker, we'll probably
         -- get duplicate symbol complaints....
@@ -845,7 +843,7 @@ checkFixes'
         void $ setSessionDynFlags $ dflags'
         return dflags'
 
-      initCompileChecks :: DynFlags -> [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, TargetId)
+      initCompileChecks :: DynFlags -> [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, Target)
       initCompileChecks dynFlags fixes = do
         seed <- liftIO newSeed
         let checkHash = flip showHex "" $ abs $ hashString $ showUnsafe (tp, fixes, seed)
@@ -862,9 +860,10 @@ checkFixes'
         liftIO $ writeFile the_f modTxt
         liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
         now <- liftIO getCurrentTime
-        let tuid = stringToUnitId the_f
-            tid = TargetFile the_f Nothing
-            target = Target tid True tuid Nothing
+
+        target <- guessTarget the_f Nothing Nothing
+        let tid = targetId target
+            tuid = targetUnitId target
 
         -- Adding and loading the target causes the compilation to kick
         -- off and compiles the file.
@@ -878,7 +877,7 @@ checkFixes'
                 importPaths = importPaths dynFlags ++ modBase,
                 hpcDir = tempDir
               }
-        return (tempDir, exeName, mname, target_name, tid)
+        return (tempDir, exeName, mname, target_name, target)
 
       runCompiledFixes :: FilePath -> String -> [EProgFix] -> Ghc [TestSuiteResult]
       runCompiledFixes exeName mname working_fixes = do
