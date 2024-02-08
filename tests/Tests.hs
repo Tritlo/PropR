@@ -20,8 +20,8 @@ import PropR.Repair
 import PropR.Traversals
 import PropR.Types
 import PropR.Util
-import GHC (GhcPs, LHsExpr, noExtField, tm_parsed_module)
-import GhcPlugins (GenLocated (L), getLoc, unLoc)
+import GHC (GhcPs, LHsExpr, noExtField, tm_parsed_module, noAnn, reLoc, getLocA)
+import GHC.Plugins (GenLocated (L), getLoc, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
@@ -383,7 +383,7 @@ traceTests =
               prog_at_ty = progAtTy e_prog' e_ty
               eprog_fix = eProgToEProgFix $ applyFixToEProg e_prog mempty
           Just [(texp, res)] <- traceTarget cc tp eprog_fix failed_prop counter_example_args
-          let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr texp
+          let eMap = Map.fromList $ map (getLocA &&& showUnsafe) $ flattenExpr texp
               trc = map (\(s, r) -> (eMap Map.!? s, r, maximum $ map snd r)) $ flatten res
               isXBox (ExpBox _) = True
               isXBox _ = False
@@ -412,7 +412,7 @@ sanctifyTests =
           -- There are 7 ways to replace parts of the broken function in BrokenModule
           -- with holes:
           let [(_, _, e_prog')] = e_prog
-          length (sanctifyExpr noExtField e_prog') @?= 7,
+          length (sanctifyExpr noAnn e_prog') @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
           let cc = compileConfig tESTCONF
@@ -420,7 +420,7 @@ sanctifyTests =
               repair_target = Just "broken"
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
           let [(_, _, e_prog')] = e_prog
-              (holes, holey) = unzip $ sanctifyExpr noExtField e_prog'
+              (holes, holey) = unzip $ sanctifyExpr noAnn e_prog'
               filled = mapMaybe (fillHole undefVar) holey
           length filled @?= 7
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"

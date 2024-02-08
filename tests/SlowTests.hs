@@ -23,7 +23,6 @@ import PropR.Search.PseudoGenetic (pseudoGeneticRepair)
 import PropR.Traversals
 import PropR.Types
 import PropR.Util (logStr, traceOut, traceOutId, withLogLevel)
-import GhcPlugins (text)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit

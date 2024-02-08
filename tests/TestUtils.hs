@@ -24,7 +24,7 @@ import PropR.Search.PseudoGenetic (pseudoGeneticRepair)
 import PropR.Traversals
 import PropR.Types
 import PropR.Util
-import GHC (tm_parsed_module)
+import GHC (tm_parsed_module, reLoc)
 import System.Directory
 import System.IO
 import Test.Tasty
@@ -77,6 +77,7 @@ mkSimpleModuleTest timeout tag toFix repair_target =
                 diffs =
                   map
                     ( concatMap ppDiff
+                        . map (\(a,b) -> (reLoc a, reLoc b))
                         . snd
                         . applyFixes (tm_parsed_module mod)
                         . getFixBinds
