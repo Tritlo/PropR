@@ -40,9 +40,7 @@ tESTGENCONF = def {crossoverRate = 0.4, mutationRate = 0.1, dropRate = 0.25, ite
 tESTCONF :: Configuration
 -- We want to try all the fancy features in the tests:
 tESTCONF = def {compileConfig = def {allowFunctionFits = True,
-                                     extendDefaults = True,
-                                     ghcFlags = ["-package-db /home/tritlo/Code/PropR/dist-newstyle/packagedb/ghc-9.8.1"]
-
+                                     extendDefaults = True
                                      }}
 
 data TestConf = TestConf
