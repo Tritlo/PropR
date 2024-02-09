@@ -790,8 +790,8 @@ checkFixes'
     return res
     where
       -- TODO: Fix this on 9.8!!
-      shouldInterpret = False
-      -- shouldInterpret = useInterpreted && assumeNoLoops
+      -- shouldInterpret = False
+      shouldInterpret = useInterpreted && assumeNoLoops
       timeoutVal = length e_props * fromIntegral timeout
 
       doesCompileBin :: DynFlags -> [EProgFix] -> Ghc [Bool]
@@ -828,6 +828,7 @@ checkFixes'
               -- turn-off all warnings
               flip (foldl wopt_unset) [toEnum 0 ..] $
                 flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+                  updOptLevel (if shouldInterpret then 0 else 2) $
                   dynFlags
                     { -- ghcMode = OneShot is the default, if we want it to compile
                       -- the files. But we've already compiled them at this point,
@@ -835,10 +836,8 @@ checkFixes'
                       -- dependencies.
                       ghcMode = CompManager
                       -- TODO: Should this be LinkDynLib for MacOS?
-                      -- TODO: fix in 9.8
-                      --, ghcLink = if shouldInterpret then LinkInMemory else LinkBinary
-                      --, hscTarget = if shouldInterpret then HscInterpreted else HscAsm
-                      --, optLevel = if shouldInterpret then 0 else 2
+                      , ghcLink = if shouldInterpret then LinkInMemory else LinkBinary
+                      , backend = if shouldInterpret then interpreterBackend else ncgBackend
                     }
         void $ setSessionDynFlags $ dflags'
         return dflags'
