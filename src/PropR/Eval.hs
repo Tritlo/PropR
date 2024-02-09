@@ -97,8 +97,11 @@ import qualified GHC.Data.EnumSet as ES
 import GHC.Driver.Errors.Types
 import GHC.Types.Error (Severity(..), MessageClass(..))
 import GHC.Runtime.Context (InteractiveContext (..))
+
 import qualified Paths_PropR as PE
 import Data.Version (showVersion)
+import GHC.Unit.State
+import GHC
 
 
 -- Configuration and GHC setup
@@ -199,22 +202,6 @@ initGhcCtxt' use_cache cc@CompConf {..} local_exprs = do
   let toTarget mod_path = guessTarget mod_path Nothing Nothing
   liftIO $ logStr TRACE "Adding additional targets..."
   mapM_ (\t -> toTarget t >>= addTarget) additionalTargets
-
-
-  -- TODO: it is not finding itself :(
-  -- Importing self!
-  getSessionDynFlags >>= (\f ->
-                            setSessionDynFlags f {
-                                    packageFlags =  
-                                        (toPkg $ "PropR-" ++ showVersion (PE.version))
-                                        : packageFlags f})
-
- -- Adding helpers
-  helper_mod <- liftIO $ PE.getDataFileName "src/PropR/Check/Helpers.hs"
-  check_helper <- guessTarget helper_mod Nothing Nothing
-  addTarget check_helper
-
-                                       
 
   liftIO $ logStr TRACE "Loading targets.."
   _ <- load LoadAllTargets
@@ -388,7 +375,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                       ++ [mhead]
                       ++ drop (srcSpanEndLine rsp) contents
           liftIO $ writeFile fakeMainLoc $ unlines filtered
-          fake_target <- guessTarget fakeMainLoc Nothing Nothing 
+          fake_target <- guessTarget fakeMainLoc Nothing Nothing
           let fake_target_id = targetId fake_target
 
           removeTarget target_id
@@ -732,7 +719,11 @@ runGhcWithCleanup CompConf {..} act = do
   createDirectoryIfMissing True tdBase
 
   res <- runGhc (Just libdir) $ do
-    dflags <- getSessionDynFlags
+    pushLogHookM (\_ -> logOutLogAction)
+    df0 <- getSessionDynFlags
+    logger <- getLogger
+    (dflags,_,_) <- parseDynamicFlagsCmdLine df0 $
+                      map (mkGeneralLocated "from config") ghcFlags
     let dflags' =
           dflags
             { hpcDir =
@@ -759,8 +750,9 @@ runGhcWithCleanup CompConf {..} act = do
                       else common </> "build"
                   )
             }
-    pushLogHookM (\_ -> logOutLogAction)
-    setSessionDynFlags dflags'
+    (df2, _, _) <- parseDynamicFlags logger dflags' []
+    setSessionDynFlags df2
+
     defaultErrorHandler ((logStr GHCERR "ghc error: " >>) . logStr GHCERR) (FlushOut (return ())) act
   check <- doesDirectoryExist tdBase
   when check $ removeDirectoryRecursive tdBase

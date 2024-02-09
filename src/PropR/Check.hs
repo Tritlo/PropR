@@ -70,12 +70,12 @@ qcArgsExpr QcConfig {..}
 -- | This imports are required for the program to run.
 checkImports :: [String]
 checkImports =
-  [ "import PropR.Check.Helpers",
+  [ "import Check.Helpers",
     "import System.Environment (getArgs)"
   ]
 
 checkPackages :: [String]
-checkPackages = ["base"]
+checkPackages = ["base", "check-helpers"]
 
 -- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs

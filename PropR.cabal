@@ -10,8 +10,6 @@ description: Program repair using GHC, HPC tracing and typed-hole synthesis.
 category: Compiler Plugin
 license: MIT
 license-file: LICENSE
-data-files: src/PropR/Check/Helpers.hs
-
 
 library
   default-language: GHC2021
@@ -33,7 +31,6 @@ library
                    PropR.Search.Random
                    PropR.Search.Exhaustive
                    PropR.Packages
-                   PropR.Check.Helpers
   other-modules: PropR.Configuration.Configure
                  PropR.Configuration.Types
                  PropR.Configuration.Materializeable
@@ -49,12 +46,7 @@ library
                  PropR.Search.Random.Search
                  PropR.Search.Exhaustive.Configuration
                  PropR.Search.Exhaustive.Search
-                 Paths_PropR
-  reexported-modules: Test.QuickCheck,
-                      Test.QuickCheck.Random,
-                      Test.Tasty,
-                      Test.Tasty.Runners,
-                      Test.Tasty.Ingredients
+  reexported-modules: Check.Helpers
 
   build-depends: base >= 4 && < 5,
                  ghc >= 9,
@@ -82,9 +74,7 @@ library
                  deriving-aeson >= 0.2,
                  splitmix >= 0.1,
                  aeson >= 2.1,
-                 tasty >= 1.4 && < 1.5,
-                 stm >= 2.5 && < 2.6,
-                 QuickCheck
+                 check-helpers
 
 executable propr
   default-language: GHC2021
