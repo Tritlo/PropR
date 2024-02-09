@@ -98,12 +98,6 @@ import GHC.Driver.Errors.Types
 import GHC.Types.Error (Severity(..), MessageClass(..))
 import GHC.Runtime.Context (InteractiveContext (..))
 
-import qualified Paths_PropR as PE
-import Data.Version (showVersion)
-import GHC.Unit.State
-import GHC
-
-
 -- Configuration and GHC setup
 
 holeFlags :: [GeneralFlag]
