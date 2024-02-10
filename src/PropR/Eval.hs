@@ -333,7 +333,8 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
     -- the unnamed or Main module we're checking. Note: this creates a
     -- file that needs to be deleted later. However: only one such is created
     -- per run.
-    (fake_module, fake_import, mname) <-
+    (fake_module, fake_import, mname) <- do
+      liftIO $ logStr TRACE $ "Got module name string " ++ moduleNameString mname
       if moduleNameString mname == "Main"
         then do
           let fakeMname = intercalate "_" ["FakeMain", modHash, takeBaseName mod_path]
@@ -357,6 +358,8 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                     )
                   _ -> (Nothing, "")
 
+          liftIO $ logStr TRACE $ "hsmodName was:"
+          liftIO $ logOut TRACE $ hsmodName mod
           contents <- liftIO $ lines <$> readFile mod_path
           -- We ignore the exportStr, since we're fixing things local to the
           -- module. TODO: ignore exports on other local modules as well
@@ -368,17 +371,35 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                     take (srcSpanStartLine rsp - 1) contents
                       ++ [mhead]
                       ++ drop (srcSpanEndLine rsp) contents
+
+          liftIO $ logStr TRACE $ "Writing file to " ++ fakeMainLoc ++ "..."
+          liftIO $ mapM_ (logStr TRACE) $ filtered
           liftIO $ writeFile fakeMainLoc $ unlines filtered
+
+          liftIO $ logStr TRACE "Guessing target..."
           fake_target <- guessTarget fakeMainLoc Nothing Nothing
           let fake_target_id = targetId fake_target
+              fake_mname = mkModuleName fakeMname
 
           removeTarget target_id
-          fake_mname <- addTargetGetModName fake_target
 
           setSessionDynFlags
             dflags
               { mainModuleNameIs = fake_mname
               }
+
+          liftIO $ logStr TRACE "Adding new target..."
+          added_name <- addTargetGetModName fake_target
+
+          -- It shouldn't happen, but we make sure to check.
+          when (fake_mname /= added_name) $
+            error $    "Expected '"
+                    ++ moduleNameString fake_mname
+                    ++ "' when adding fake module, but got '"
+                    ++ moduleNameString added_name
+                    ++ "'"
+
+
           _ <- load LoadAllTargets
           return (fakeMainLoc, unwords ["import", fakeMname], fake_mname)
         else return ([], [], mname)
