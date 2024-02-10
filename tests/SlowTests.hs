@@ -32,7 +32,8 @@ tests :: TestTree
 tests =
   testGroup
     "Tests"
-    [ specialTests,
+    [ mkSimpleModuleTest 240_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
+      specialTests,
       tastyFixTests,
       randTests,
       properGenTests,

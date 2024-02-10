@@ -451,7 +451,6 @@ moduleTests =
           let [(e_target, _, _)] = e_prog
           showUnsafe e_target @?= "broken",
       mkSimpleModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken"),
-      mkSimpleModuleTest 240_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
       mkSimpleModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing,
       mkSimpleModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing,
       mkSimpleModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,
