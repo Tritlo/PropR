@@ -10,7 +10,7 @@ import Data.Default
 import Data.Functor (($>))
 import Data.List (sort)
 import qualified Data.Map as Map
-import Data.Maybe (isJust)
+import Data.Maybe (isJust, fromMaybe)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import PropR
@@ -40,8 +40,11 @@ tESTGENCONF = def {crossoverRate = 0.4, mutationRate = 0.1, dropRate = 0.25, ite
 tESTCONF :: Configuration
 -- We want to try all the fancy features in the tests:
 tESTCONF = def {compileConfig = def {allowFunctionFits = True,
-                                     extendDefaults = True
-                                     }}
+                                     extendDefaults = True,
+                                     packages = pkgs ++ ["tasty-hunit"]
+                                     }
+                                     }
+    where pkgs = packages def
 
 data TestConf = TestConf
   { mb_expected :: Maybe [String],
@@ -63,13 +66,16 @@ instance Default TestConf where
       }
 
 mkSimpleModuleTest :: Integer -> TestName -> FilePath -> Maybe String -> TestTree
-mkSimpleModuleTest timeout tag toFix repair_target =
-  localOption (mkTimeout timeout) $
+mkSimpleModuleTest = mkSimpleModuleTest' Nothing
+mkSimpleModuleTest' :: Maybe Configuration -> Integer -> TestName -> FilePath -> Maybe String -> TestTree
+mkSimpleModuleTest' mb_cc timeout tag toFix repair_target =
+  let cc = fromMaybe tESTCONF mb_cc
+  in localOption (mkTimeout timeout) $
     testCase tag $
       withLogLevel GHCERR $ do
         expected <- readExpected toFix
         setSeedGenSeed tESTSEED
-        (cc', mod, mb_prob) <- moduleToProb (compileConfig tESTCONF) toFix repair_target
+        (cc', mod, mb_prob) <- moduleToProb (compileConfig cc) toFix repair_target
         case mb_prob of
           Nothing -> [] @?= expected
           Just ExProb {..} -> error "not supported yet!"

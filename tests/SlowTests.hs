@@ -143,7 +143,13 @@ specialTests =
         60_000_000
         "Wrap fits"
         "tests/cases/Wrap.hs",
-      mkGenConfTestEx 60_000_000 "Ambiguous fits" "tests/cases/AmbiguousTypeVariables.hs",
+      mkRepairTest'
+        tESTCONF
+        runGenRepair
+        60_000_000
+        "Ambiguous fits"
+        "tests/cases/AmbiguousTypeVariables.hs"
+        def {allowMix = True},
       mkRepairTest'
         tESTCONF {compileConfig = (compileConfig tESTCONF) {excludeTargets = ["brokenPair"]}}
         runGenRepair
