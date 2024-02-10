@@ -28,6 +28,7 @@ import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import TestUtils
 import Trace.Hpc.Mix
+import Data.Char
 
 tests :: TestTree
 tests =
@@ -109,53 +110,40 @@ repairTests =
                     "    ; a_constant_string = \"hello, world!\"}",
                     "     in gcd'"
                   ]
-              -- expected =
-              --   [ "EFC {\"hello, world!\"}",
-              --     "EFC {0}",
-              --     "EFC {(gcd' 0 b)}",
-              --     "EFC {(gcd' 0)}",
-              --     "EFC {0}",
-              --     "EFC {0}",
-              --     "EFC {(b == 0)}",
-              --     "EFC {0}",
-              --     "EFC {0}",
-              --     "EFC {(if (a > b) then gcd' (a - b) b else gcd' a (b - a))}",
-              --     "EFC {(a > b)}",
-              --     "EFC {(gcd' (a - b) b)}",
-              --     "EFC {(gcd' (a - b))}",
-              --     "EFC {(a - b)}",
-              --     "EFC {(gcd' a (b - a))}",
-              --     "EFC {(gcd' a)}",
-              --     "EFC {(b - a)}"
-              --   ]
               expected =
-               ["EFC {\"hello, world!\"}",
-                "EFC {0}",
-                "EFC {(gcd'_a11J 0 b_axP)}",
-                "EFC {(gcd'_a11J 0)}",
-                "EFC {0}",
-                "EFC {0}",
-                "EFC {(b_axR == 0)}",
-                "EFC {((==) b_axR)}",
-                "EFC {0}",
-                "EFC {0}",
-                "EFC {(if (a_aYS > b_aYT) then gcd'_a11J (a_aYS - b_aYT) b_aYT else gcd'_a11J a_aYS (b_aYT - a_aYS))}",
-                "EFC {(a_aYS > b_aYT)}",
-                "EFC {((>) a_aYS)}",
-                "EFC {(gcd'_a11J (a_aYS - b_aYT) b_aYT)}",
-                "EFC {(gcd'_a11J (a_aYS - b_aYT))}",
-                "EFC {(a_aYS - b_aYT)}",
-                "EFC {((-) a_aYS)}",
-                "EFC {(gcd'_a11J a_aYS (b_aYT - a_aYS))}",
-                "EFC {(gcd'_a11J a_aYS)}",
-                "EFC {(b_aYT - a_aYS)}",
-                "EFC {((-) b_aYT)}"]
+                ["EFC {\"hello, world!\"}",
+                 "EFC {0}",
+                 "EFC {(gcd' 0 b)}",
+                 "EFC {(gcd' 0)}",
+                 "EFC {0}",
+                 "EFC {0}",
+                 "EFC {(b == 0)}",
+                 "EFC {((==) b)}",
+                 "EFC {0}",
+                 "EFC {0}",
+                 "EFC {(if (a > b) then gcd' (a - b) b else gcd' a (b - a))}",
+                 "EFC {(a > b)}",
+                 "EFC {((>) a)}",
+                 "EFC {(gcd' (a - b) b)}",
+                 "EFC {(gcd' (a - b))}",
+                 "EFC {(a - b)}",
+                 "EFC {((-) a)}",
+                 "EFC {(gcd' a (b - a))}",
+                 "EFC {(gcd' a)}",
+                 "EFC {(b - a)}",
+                 "EFC {((-) b)}"]
 
               no_ff = (compileConfig tESTCONF) {allowFunctionFits = False}
+              -- TODO 9.8: these identifiers shouldn't really be there.
               remove_extra_space = unwords . words . unlines . lines
+              remove_ids [] = []
+              remove_ids s | (b,_:e) <- span (/= '_') s,
+                             e' <- dropWhile isAlphaNum e
+                             = (b ++ remove_ids e')
+              remove_ids s = s
           expr_cands <- runJustParseExpr (no_ff) wrong_prog
                           >>= (runGhc' (no_ff) . getExprFitCands . Left)
-          map (remove_extra_space . showUnsafe) expr_cands @?= expected,
+          map (remove_ids . remove_extra_space . showUnsafe) expr_cands @?= expected,
       localOption (mkTimeout 60_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let props =
