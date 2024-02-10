@@ -270,7 +270,7 @@ getHoleFitsFromError plugRef holeSpanList err =
       else return $ Left $ Right valsAndRefs
   where
     noRes = ([], [])
-    holeSpans = Set.fromList $ map locA holeSpanList
+    holeSpans = Set.fromList $ map (removeBufSpan . locA) holeSpanList
     part (RawHoleFit _) = True
     part HoleFit {..} = hfRefLvl <= 0
     sameHole :: TypedHole -> TypedHole -> Bool
@@ -858,7 +858,7 @@ traceTargets cc@CompConf {..} tp@EProb {..} exprs ps_w_ce =
           }
 
     liftIO $ logStr TRACE "Loading trace target..."
-    (_, errs) <- tryGHCCaptureOutput (load (LoadUpTo $ mkModule tuid target_name))
+    (_, errs) <- tryGHCCaptureOutput (load LoadAllTargets)
     if not (null errs)
       then do
         liftIO $ logStr TRACE "Got an error while loading trace target!"

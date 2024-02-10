@@ -494,18 +494,19 @@ findEvaluatedHoles
               -- `LHsExpr GhcPs` yet, and then we have issues with compiling
               -- them to get the valid hole fits, since GHC has no built-in
               -- function `compileRnStmt`. So we'll make do for now.
-              case L.elemIndex iv_loc sf_locs of
+              case L.elemIndex (locA iv_loc) (sf_locs) of
                 Just iv_ind
-                  | Just e@(e_loc, _) <- sfe V.!? iv_ind,
+                  | Just e@(e_loc, _) <- sfe V.!? (iv_ind),
                     isGoodSrcSpan (locA e_loc) ->
                     Just e
                 _ -> Nothing
               where
-                sf_locs = map getLoc $ flattenExpr iv_expr
+                sf_locs = map (removeBufSpan . getLocA) $ flattenExpr iv_expr
         non_zero_holes_failing = Set.fromList $ concatMap fk failing_traces_that_worked
         non_zero_holes_success = Set.fromList $ concatMap fk success_traces
         non_zero_hole_diff = (non_zero_holes_failing Set.\\ non_zero_holes_success)
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
+    --  TODO 9.8: is is zero!!
     liftIO $ logStr TRACE $ "Found " ++ show (Set.size non_zero_holes_failing) ++ " evaluated holes"
 
     -- Note: we could also do this for partially failing properties, if we could
@@ -722,7 +723,7 @@ checkFixes'
     orig_flags <- setCheckDynFlags
     (tempDir, exeName, mname, target_name, Target{targetUnitId=tuid, targetId=tid}) <- initCompileChecks orig_flags orig_fixes
     liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
-    (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo $ mkModule tuid target_name))
+    (sf2, msgs) <- tryGHCCaptureOutput (load LoadAllTargets)
 
     (res :: Maybe [TestSuiteResult]) <-
       if succeeded sf2
@@ -770,8 +771,7 @@ checkFixes'
                         setCheckDynFlags
                         (_, n_exe, n_mname, n_target, Target{targetUnitId=n_tuid}) <- initCompileChecks orig_flags compiling_fixes
                         liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString n_target ++ " again..."
-                        (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo $
-                                mkModule n_tuid n_target)
+                        (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadAllTargets)
 
                         if succeeded sf2
                           then liftIO $ logStr TRACE "Recovered!"
@@ -789,8 +789,6 @@ checkFixes'
     cleanupAfterLoads tempDir mname dflags
     return res
     where
-      -- TODO: Fix this on 9.8!!
-      -- shouldInterpret = False
       shouldInterpret = useInterpreted && assumeNoLoops
       timeoutVal = length e_props * fromIntegral timeout
 
@@ -813,7 +811,7 @@ checkFixes'
         (tempDir, _, mname, target_name, Target{targetId=tid, targetUnitId=tuid})
             <- initCompileChecks dflags fixes
         liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
-        (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo $ mkModule tuid target_name))
+        (sf2, msgs) <- tryGHCCaptureOutput (load LoadAllTargets)
         liftIO $ mapM_ (logStr DEBUG) msgs
         -- removeTarget might not be enough for the linker, we'll probably
         -- get duplicate symbol complaints....

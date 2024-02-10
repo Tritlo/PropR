@@ -59,8 +59,9 @@ wrapExpr :: (id ~ GhcPs, Data (HsExpr id))
          => SrcAnn AnnListItem -> (HsExpr id -> HsExpr id) -> LHsExpr id -> LHsExpr id
 wrapExpr repl_loc trans =
   transformOf uniplate $ \case
-    L loc x | loc == repl_loc -> L loc (trans x)
+    L loc x | (rbf loc) == (rbf repl_loc) -> L loc (trans x)
     e -> e
+  where rbf = removeBufSpan . locA
 
 -- | All possible replacement of one variable with a hole, i.e. we are making
 -- the expression "holey". Which is pronounced holy.

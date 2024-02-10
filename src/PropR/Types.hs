@@ -35,6 +35,7 @@ import GHC
 import GHC.Generics
 import GHC.Utils.Outputable (Outputable (ppr), showSDocUnsafe, text, (<+>))
 import GHC.Tc.Types.Constraint (CtEvidence, Cts)
+import GHC.Types.SrcLoc
 import qualified GHC.Utils.Outputable as O
 import Trace.Hpc.Mix (BoxLabel)
 
@@ -128,7 +129,7 @@ instance Ord SrcSpan where
   compare a b = compare (show a) (show b)
 
 instance Eq a => Ord (SrcSpanAnn' a) where
-  compare = compare `on` locA
+  compare = compare `on` (removeBufSpan . locA)
 
 -- | ExprFitCands are used by the plugin to check whether an expression could fit
 -- a given hole. Since they are not supported within the HoleFit framework, we
