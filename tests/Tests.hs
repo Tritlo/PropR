@@ -109,27 +109,53 @@ repairTests =
                     "    ; a_constant_string = \"hello, world!\"}",
                     "     in gcd'"
                   ]
+              -- expected =
+              --   [ "EFC {\"hello, world!\"}",
+              --     "EFC {0}",
+              --     "EFC {(gcd' 0 b)}",
+              --     "EFC {(gcd' 0)}",
+              --     "EFC {0}",
+              --     "EFC {0}",
+              --     "EFC {(b == 0)}",
+              --     "EFC {0}",
+              --     "EFC {0}",
+              --     "EFC {(if (a > b) then gcd' (a - b) b else gcd' a (b - a))}",
+              --     "EFC {(a > b)}",
+              --     "EFC {(gcd' (a - b) b)}",
+              --     "EFC {(gcd' (a - b))}",
+              --     "EFC {(a - b)}",
+              --     "EFC {(gcd' a (b - a))}",
+              --     "EFC {(gcd' a)}",
+              --     "EFC {(b - a)}"
+              --   ]
               expected =
-                [ "EFC {\"hello, world!\"}",
-                  "EFC {0}",
-                  "EFC {(gcd' 0 b)}",
-                  "EFC {(gcd' 0)}",
-                  "EFC {0}",
-                  "EFC {0}",
-                  "EFC {(b == 0)}",
-                  "EFC {0}",
-                  "EFC {0}",
-                  "EFC {(if (a > b) then gcd' (a - b) b else gcd' a (b - a))}",
-                  "EFC {(a > b)}",
-                  "EFC {(gcd' (a - b) b)}",
-                  "EFC {(gcd' (a - b))}",
-                  "EFC {(a - b)}",
-                  "EFC {(gcd' a (b - a))}",
-                  "EFC {(gcd' a)}",
-                  "EFC {(b - a)}"
-                ]
-          expr_cands <- runJustParseExpr (compileConfig tESTCONF) wrong_prog >>= (runGhc' (compileConfig tESTCONF) . getExprFitCands . Left)
-          map showUnsafe expr_cands @?= expected,
+               ["EFC {\"hello, world!\"}",
+                "EFC {0}",
+                "EFC {(gcd'_a11J 0 b_axP)}",
+                "EFC {(gcd'_a11J 0)}",
+                "EFC {0}",
+                "EFC {0}",
+                "EFC {(b_axR == 0)}",
+                "EFC {((==) b_axR)}",
+                "EFC {0}",
+                "EFC {0}",
+                "EFC {(if (a_aYS > b_aYT) then gcd'_a11J (a_aYS - b_aYT) b_aYT else gcd'_a11J a_aYS (b_aYT - a_aYS))}",
+                "EFC {(a_aYS > b_aYT)}",
+                "EFC {((>) a_aYS)}",
+                "EFC {(gcd'_a11J (a_aYS - b_aYT) b_aYT)}",
+                "EFC {(gcd'_a11J (a_aYS - b_aYT))}",
+                "EFC {(a_aYS - b_aYT)}",
+                "EFC {((-) a_aYS)}",
+                "EFC {(gcd'_a11J a_aYS (b_aYT - a_aYS))}",
+                "EFC {(gcd'_a11J a_aYS)}",
+                "EFC {(b_aYT - a_aYS)}",
+                "EFC {((-) b_aYT)}"]
+
+              no_ff = (compileConfig tESTCONF) {allowFunctionFits = False}
+              remove_extra_space = unwords . words . unlines . lines
+          expr_cands <- runJustParseExpr (no_ff) wrong_prog
+                          >>= (runGhc' (no_ff) . getExprFitCands . Left)
+          map (remove_extra_space . showUnsafe) expr_cands @?= expected,
       localOption (mkTimeout 60_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let props =
