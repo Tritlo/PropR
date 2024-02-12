@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE LambdaCase #-}
 
 -- |
 -- Module      : PropR.Check
@@ -34,6 +35,9 @@ import PropR.Configuration (CompileConfig (..))
 import PropR.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
 import PropR.Util (progAtTy, propVars, propFunArgVars, rdrNamePrint, rdrNameToStr)
 
+import Control.Lens (transformOf)
+import Data.Data.Lens (uniplate)
+
 #if __GLASGOW_HASKELL__ >= 908
 import GHC.Plugins (DoPmc(..))
 #endif
@@ -43,10 +47,16 @@ alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
 -- adds the "_ =>" for wildcards.
 -- Needed due to -XPartialTypeSignatures change, see A
 -- https://gitlab.haskell.org/ghc/ghc/-/issues/24425
-alsoInferConstraints t@(L _ (HsQualTy _ _ _)) = t
-alsoInferConstraints t = noLocA $ HsQualTy noExtField ctx t
+alsoInferConstraints t = noLocA $ HsQualTy noExtField ctx (clean t)
     where ctx :: LHsContext GhcPs
           ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
+          clean :: LHsType GhcPs -> LHsType GhcPs
+          clean = transformOf uniplate $ \case
+                L l (HsQualTy x (L cl ctxt) t) ->
+                    L l (HsQualTy x (L cl $ filter (not . isWct) ctxt) t)
+                t -> t
+          isWct (L _ (HsWildCardTy _)) = True
+          isWct _ = False
 # else
 alsoInferConstraints = id
 #endif
