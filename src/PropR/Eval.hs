@@ -633,11 +633,18 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             mkPropSig :: Set RdrName -> LIdP GhcPs -> LIdP GhcPs -> [Sig GhcPs]
             mkPropSig vars nfid ofid = prop_sig
               where
+                alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
+                alsoInferConstraints = noLocA . HsQualTy noExtField ctx
+                  where ctx :: LHsContext GhcPs
+                        ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
+
                 prop_sig = case snd <$> prog_sig (unLoc ofid) of
-                  -- We don't want to wrap wildcardTys any further
+                  -- We don't want to wrap wildcardTys any further,
+                  -- but we add the constraint inference.
                   Just (TypeSig e _ wt) ->
                     [ TypeSig e [nfid] $ case wt of
-                        HsWC _ (L _ (HsSig _ _ (L _ (HsWildCardTy _)))) -> wt
+                        HsWC wx (L sl (HsSig sx sb t@(L _ (HsWildCardTy _)))) -> 
+                            HsWC wx (L sl (HsSig sx sb $ alsoInferConstraints t))
                         _ -> toWrapSig wt
                     ]
                   _ -> []
@@ -647,10 +654,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                   where
                     wtys :: [HsType GhcPs]
                     wtys = replicate (length $ filter (`Set.member` vars) targets) (HsWildCardTy NoExtField)
-                    alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
-                    alsoInferConstraints = noLocA . HsQualTy noExtField ctx
-                      where ctx :: LHsContext GhcPs
-                            ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
 
                     tyApps [] = t
                     tyApps (ty : tys) = 
