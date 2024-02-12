@@ -13,6 +13,7 @@ on:
     branches:
       - 'master'
       - '9.6'
+      - '9.8'
   pull_request:
     branches:
       - 'master'
@@ -30,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.6.3']
+        ghc: ['9.8.1']
         cabal: ['3.10.2.1']
 
     steps:
@@ -73,10 +74,10 @@ jobs:
       run: cabal build --enable-tests --enable-benchmarks all
     - name: Run tests
       run: cabal run test
-    - name: Run slow-test
-      run: cabal run slow-test
     - name: Run benchmark
       run: cabal run benchmark
+    - name: Run slow-test
+      run: cabal run slow-test
 
   deploy:
     runs-on: ubuntu-latest
