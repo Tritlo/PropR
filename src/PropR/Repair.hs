@@ -8,6 +8,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 
 -- |
 -- Module      : PropR.Repair
@@ -68,7 +69,6 @@ import GHC.Exts (unsafeCoerce#)
 import GHC.Plugins
 import Numeric (showHex)
 import GHC.Builtin.Names (mkMainModule, mkMainModule_)
-import GHC.Types.Error (pprDiagnostic)
 import PropR.Check
 import PropR.Configuration
 import PropR.Eval
@@ -89,6 +89,19 @@ import System.Process
 import qualified System.Timeout (timeout)
 import GHC.Tc.Errors.Hole.FitTypes (HoleFit (..), TypedHole (..))
 import Text.Read (readMaybe)
+
+-- Backport pprDiagnostic
+#if __GLASGOW_HASKELL__ > 908
+import GHC.Types.Error (pprDiagnostic)
+#else
+import GHC.Driver.Errors.Ppr ()
+import GHC.Driver.Errors.Types (GhcMessage)
+import GHC.Types.Error (diagnosticMessage, defaultDiagnosticOpts, DecoratedSDoc(..))
+
+pprDiagnostic :: GhcMessage -> [SDoc]
+pprDiagnostic msg = unDecorated $
+                    diagnosticMessage (defaultDiagnosticOpts @GhcMessage) msg
+#endif
 
 -- | Runs the whole compiler chain to get the fits for a hole, i.e. possible
 -- replacement-elements for the holes

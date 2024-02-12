@@ -1,6 +1,7 @@
 {-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 
 -- |
 -- Module      : PropR.Check
@@ -22,7 +23,7 @@ import qualified Data.Set as Set
 import Debug.Trace (trace, traceShow)
 import GHC.Data.FastString (fsLit)
 import GHC
-import GHC.Plugins (Outputable (ppr), occName, showSDocUnsafe, mkVarOcc, mkRdrUnqual, DoPmc(..))
+import GHC.Plugins (Outputable (ppr), occName, showSDocUnsafe, mkVarOcc, mkRdrUnqual)
 import GHC.Data.Bag (emptyBag, listToBag, unionManyBags, unitBag)
 import GHC.Types.Basic (Origin (..), PromotionFlag (..))
 import GHC.Types.SourceText (IntegralLit (..), SourceText (..))
@@ -32,6 +33,11 @@ import GHC.Tc.Types.Evidence (idHsWrapper)
 import PropR.Configuration (CompileConfig (..))
 import PropR.Types (EExpr, EProblem (..), EProg, EProgFix, EProp)
 import PropR.Util (progAtTy, propVars, propFunArgVars, rdrNamePrint, rdrNameToStr)
+
+#if __GLASGOW_HASKELL__ >= 908
+import GHC.Plugins (DoPmc(..))
+#endif
+
 
 data QcConfig = QcConfig {maxShrinks :: Maybe Int, maxSuccess :: Maybe Int, seed :: Int}
 
@@ -80,8 +86,14 @@ checkPackages = ["base", "check-helpers"]
 -- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
 baseFun nm val =
-  --                                                DoPmc or SkipPmc?
-  noLocA $ FunBind NoExtField (noLocA nm) (MG (Generated DoPmc) (noLocA [base_case]))
+  noLocA $ FunBind NoExtField (noLocA nm)
+    (MG
+#if __GLASGOW_HASKELL__ >= 908
+      (Generated DoPmc)
+#else
+      (Generated)
+#endif
+      (noLocA [base_case]))
   where
     base_case =
       noLocA $
