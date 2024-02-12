@@ -643,10 +643,15 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                   _ -> []
                 toWrapSig :: LHsSigWcType GhcPs -> LHsSigWcType GhcPs
                 toWrapSig (HsWC e (L hsl (HsSig hsx hsib t)))
-                    = HsWC e (L hsl $ HsSig hsx hsib $ tyApps wtys)
+                    = HsWC e (L hsl $ HsSig hsx hsib $ alsoInferConstraints $ tyApps wtys)
                   where
                     wtys :: [HsType GhcPs]
                     wtys = replicate (length $ filter (`Set.member` vars) targets) (HsWildCardTy NoExtField)
+                    alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
+                    alsoInferConstraints = noLocA . HsQualTy noExtField ctx
+                      where ctx :: LHsContext GhcPs
+                            ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
+
                     tyApps [] = t
                     tyApps (ty : tys) = 
                         noLocA $ HsFunTy noAnn arr (noLocA ty) (tyApps tys)

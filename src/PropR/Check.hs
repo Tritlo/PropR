@@ -286,6 +286,8 @@ sigForProp e_prop_sigs trans e_prop@(L _ FunBind {..}) =
     -- We add a within to the alternatives, so the type changes from Bool
     -- We make sure that we don't replace wildcard types.
     replLast :: LHsType GhcPs -> LHsType GhcPs
+    replLast (L l (HsQualTy hqtx hqctxt r )) =
+      L l $ HsQualTy hqtx hqctxt $ replLast r
     replLast (L l (HsFunTy noAnn arr k r)) =
       L l $ HsFunTy noAnn arr k $ replLast r
     replLast t@(L _ (HsWildCardTy _)) = t
