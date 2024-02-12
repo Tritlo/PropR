@@ -435,7 +435,7 @@ sanctifyTests =
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
           let [(_, _, e_prog')] = e_prog
               (holes, holey) = unzip $ sanctifyExpr noAnn e_prog'
-              filled = mapMaybe (fillHole undefVar) holey
+              filled = mapMaybe (fillHole Nothing undefVar) holey
           length filled @?= 7
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]

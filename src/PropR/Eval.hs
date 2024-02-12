@@ -242,16 +242,19 @@ getHoleFitsFromError ::
   IORef HoleFitState ->
   [SrcAnn AnnListItem] ->
   SourceError ->
-  Ghc (Either (Either ([ValsAndRefs], [GhcMessage]) [ValsAndRefs]) b)
+  Ghc (Either (Either ([(TypedHole, ValsAndRefs)], [GhcMessage])
+                      [(TypedHole, ValsAndRefs)]) b)
 getHoleFitsFromError plugRef holeSpanList err =
   do
     liftIO $ logStr DEBUG $ show $ mkSrcErr $ srcErrorMessages err
     res <- liftIO $ snd <$> readIORef plugRef
     when (null res) (printException err)
     let gs = groupBy (sameHole `on` fst) res
+        allFitsOfHole :: [(TypedHole, [HoleFit])] -> (TypedHole, [HoleFit])
         allFitsOfHole ((th, f) : rest) = (th, concat $ f : map snd rest)
         allFitsOfHole [] = error "no-holes!"
-        valsAndRefs = map ((partition part . snd) . allFitsOfHole) gs
+        valsAndRefs :: [(TypedHole, ValsAndRefs)]
+        valsAndRefs = map ((\(th,fs) -> (th, partition part fs)) . allFitsOfHole) gs
     let msgs = getMessages $ srcErrorMessages err
         errSpans =
           Set.fromList $

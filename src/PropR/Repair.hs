@@ -112,7 +112,7 @@ getHoleFits ::
   -- | A list of existing and reachable candidate-expression
   [([SrcAnn AnnListItem], LHsExpr GhcPs)] ->
   -- | The existing Expressions including holes
-  Ghc [[[HsExpr GhcPs]]]
+  Ghc [[(TypedHole,[HsExpr GhcPs])]]
 getHoleFits cc local_exprs exprs = initGhcCtxt' True cc local_exprs >>= flip (getHoleFits' cc) exprs
 
 -- Gets the holes without any initialization, provided a given plugin
@@ -120,18 +120,18 @@ getHoleFits' ::
   CompileConfig ->
   IORef HoleFitState ->
   [([SrcAnn AnnListItem], LHsExpr GhcPs)] ->
-  Ghc [[[HsExpr GhcPs]]]
+  Ghc [[(TypedHole, [HsExpr GhcPs])]]
 getHoleFits' _ _ [] = return []
 getHoleFits' cc@CompConf {..} plugRef exprs = do
   -- Then we can actually run the program!
   res <- getHoleFits' plugRef (if holeLvl == 0 then 0 else holeDepth) exprs
-  return $ map (map (map snd . snd) . snd) res
+  return $ map (map (second (map snd) . snd) . snd) res
   where
     exprFits ::
       IORef HoleFitState ->
       [SrcAnn AnnListItem] ->
       LHsExpr GhcPs ->
-      Ghc (Either [ValsAndRefs] HValue)
+      Ghc (Either [(TypedHole, ValsAndRefs)] HValue)
     exprFits plugRef l expr = do
       let act =
             liftIO (modifyIORef' plugRef resetHoleFitList)
@@ -162,10 +162,13 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
                   then [extraDefaults] -- default to ints and floats
                   else []
 
-              joinFits :: [ValsAndRefs] -> ValsAndRefs
-              joinFits =
-                (nubBy nf *** nubBy nf)
-                  . foldr (\(vs, rfs) (vss, rfss) -> (vs ++ vss, rfs ++ rfss)) ([], [])
+              joinFits :: [(TypedHole, ValsAndRefs)] -> (TypedHole, ValsAndRefs)
+              joinFits [] = error "no holes!"
+              joinFits r@((th,_):_) =
+                    (th,)
+                  $ (nubBy nf *** nubBy nf)
+                  $ foldr (\(vs, rfs) (vss, rfss) -> (vs ++ vss, rfs ++ rfss)) ([], [])
+                  $ map snd r
               nf hfa@HoleFit {} hfb@HoleFit {} = hfId hfa == hfId hfb
               nf (RawHoleFit a) (RawHoleFit b) = showUnsafe a == showUnsafe b
               nf _ _ = False
@@ -179,7 +182,7 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
       IORef HoleFitState ->
       Int ->
       [([SrcAnn AnnListItem], LHsExpr GhcPs)] ->
-      Ghc [(LHsExpr GhcPs, [(SrcAnn AnnListItem, [(Int, HsExpr GhcPs)])])]
+      Ghc [(LHsExpr GhcPs, [(SrcAnn AnnListItem, (TypedHole, [(Int, HsExpr GhcPs)]))])]
     getHoleFits' plugRef n exprs | n <= 0 = do
       -- We don't want any more additional hole fits, so we just grab the
       -- identifier ones.
@@ -187,32 +190,61 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
       -- so we ignore them:
       dflags <- getSessionDynFlags
       setSessionDynFlags dflags {refLevelHoleFits = Just 0}
-      res <-
-        mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
-          >>= processFits . map (second (map (second fst))) . lefts
+      to_proc <- mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
+      liftIO $ logStr TRACE "Processing fits..."
+      liftIO $ mapM_ (logOut DEBUG) (lefts to_proc)
+      liftIO $ mapM_ (logStr DEBUG . show) (rights to_proc)
+      res <- (processFits . map (second (map (second $ second fst))) . lefts) to_proc
+      liftIO $ logStr TRACE "Processed! Results: {"
+      liftIO $ mapM_ (logOut DEBUG) (res)
+
+      liftIO $ logStr TRACE "} That's all!"
       dflags <- getSessionDynFlags
       setSessionDynFlags dflags {refLevelHoleFits = Just 0}
       return res
+
     getHoleFits' plugRef n exprs = do
       fits <- lefts <$> mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
-      procs <- processFits $ map (second $ map (second (uncurry (++)))) fits
-      let f :: LHsExpr GhcPs -> SrcAnn AnnListItem
-            -> [(Int, HsExpr GhcPs)] -> Ghc (SrcAnn AnnListItem, [(Int, HsExpr GhcPs)])
-          f expr loc fits = do
+      liftIO $ logStr TRACE "Processing fits..."
+      liftIO $ mapM_ (logOut DEBUG) fits
+      liftIO $ logStr TRACE "Processed!"
+
+      procs <- processFits $ map (second $ map (second $ second (uncurry (++)))) fits
+      let f :: LHsExpr GhcPs ->
+              (SrcAnn AnnListItem, (TypedHole, [(Int, HsExpr GhcPs)])) ->
+              Ghc (SrcAnn AnnListItem, (TypedHole, [(Int, HsExpr GhcPs)]))
+          f expr (loc, (th, fits)) = do
+            liftIO $ logStr DEBUG "Filling..."
+            liftIO $ logOut DEBUG (expr, loc)
+            liftIO $ logStr DEBUG "with..."
+            liftIO $ logOut DEBUG fits
             let (hasHoles, done) = partition ((> 0) . fst) fits
                 filled =
                   mapMaybe
                     ( \(lvl, fit) ->
-                        (fmap ((fit,) . first (replicate lvl)) . (`fillHole` expr)) fit
+                        (fmap ((fit,)
+                          . first (replicate lvl))
+                          . (\x -> fillHole (Just th) x expr)) fit
                     )
                     hasHoles
 
+            liftIO $ logStr DEBUG "Results:{"
+            liftIO $ logOut DEBUG filled
+            liftIO $ logStr DEBUG "}"
             recur <- zip (map (L loc . fst) filled) . map snd <$> getHoleFits' plugRef (n - 1) (map snd filled)
-            let repls = map (second (reverse . map (map snd . snd))) recur >>= uncurry replacements
+            liftIO $ logStr DEBUG "Recurs:{"
+            liftIO $ logOut DEBUG recur
+            liftIO $ logStr DEBUG "}"
+            -- This for some reason the hole fits were being REVERSED
+            -- on 8.10. Maybe something changed in the way the plugin is
+            -- invoked? Weird. We check for the correct hole now,
+            -- so should work.
+            let repls = map (second (map (second (map snd) . snd))) recur
+                       >>= uncurry replacements
                 procced :: [(Int, HsExpr GhcPs)]
                 procced = map ((0,) . unLoc . snd) repls
-            return (loc, done ++ procced)
-      mapM (\(e, xs) -> (e,) <$> mapM (uncurry (f e)) xs) procs
+            return (loc, (th, done ++ procced))
+      mapM (\(e, xs) -> (e,) <$> mapM (f e) xs) procs
 
     mapLeft :: (a -> c) -> Either a b -> Either c b
     mapLeft f (Left a) = Left (f a)
@@ -226,8 +258,8 @@ extraDefaults = Just [unitTy, listTy, intTy, floatTy] -- default to ints and flo
 -- | Takes a list of list of list of hole fits and processes each fit so that
 -- it becomes a proper HsExpr
 processFits ::
-  [(LHsExpr GhcPs, [(SrcAnn AnnListItem, [HoleFit])])] ->
-  Ghc [(LHsExpr GhcPs, [(SrcAnn AnnListItem, [(Int, HsExpr GhcPs)])])]
+  [(LHsExpr GhcPs, [(SrcAnn AnnListItem, (TypedHole, [HoleFit]))])] ->
+  Ghc [(LHsExpr GhcPs, [(SrcAnn AnnListItem, (TypedHole,[(Int, HsExpr GhcPs)]))])]
 processFits fits = do
   -- We process the fits ourselves, since we might have some expression fits
   let processFit :: SrcAnn AnnListItem -> HoleFit -> Ghc (Int, HsExpr GhcPs)
@@ -259,7 +291,8 @@ processFits fits = do
       nukeExact n
         | isExternalName n = Orig (nameModule n) (nameOccName n)
         | otherwise = Unqual (nameOccName n)
-  mapM (\(e, xs) -> (e,) <$> mapM (\(l, ffh) -> (l,) <$> mapM (processFit l) ffh) xs) fits
+  mapM (\(e, xs) -> (e,) <$> mapM (\(l, (th, ffh)) -> (l,) . (th,) <$>
+                mapM (processFit l) ffh) xs) fits
 
 -- |  Takes an expression with one or more holes and a list of expressions that
 -- fit each holes and returns a list of expressions where each hole has been
@@ -268,10 +301,10 @@ replacements ::
   -- | The original expression with one or more holes
   LHsExpr GhcPs ->
   -- | A list of expressions that fits the holes
-  [[HsExpr GhcPs]] ->
+  [(TypedHole,[HsExpr GhcPs])] ->
   [([(SrcAnn AnnListItem, HsExpr GhcPs)], LHsExpr GhcPs)]
 replacements e [] = [([], e)]
-replacements e (first_hole_fit : rest) = concat rest_fit_res
+replacements e ((th,first_hole_fits) : rest) = concat rest_fit_res
   where
     -- mapMaybe', but keep the result
     mapMaybe' :: (a -> Maybe b) -> [a] -> [(a, b)]
@@ -279,7 +312,7 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
     mapMaybe' f (a : as) = (case f a of Just b -> ((a, b) :); _ -> id) $ mapMaybe' f as
     res =
       map (\(e', (l, r)) -> ([(l, e')], r)) $
-        mapMaybe' (`fillHole` e) first_hole_fit
+        mapMaybe' (\x -> fillHole (Just th) x e) first_hole_fits
     (first_fit_locs_and_e, first_fit_res) = unzip res
     rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
     -- addL = Add Left, adds the gien expression at any lefthand side of the expressions existing
@@ -565,7 +598,7 @@ generateFixCandidates
     let nzh = non_zero_holes
         inContext = noLocA . HsLet noAnn noHsTok e_ctxt noHsTok
         addContext :: SrcAnn AnnListItem -> LHsExpr GhcPs -> LHsExpr GhcPs
-        addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
+        addContext l = snd . fromJust . flip (fillHole Nothing) (inContext $ L l hole) . unLoc
         holed_exprs = map (\(l, he) -> ([l], addContext l he)) nzh
         wrapInHole loc hsexpr = HsPar noAnn noHsTok
                                  (noLocA $ HsApp noAnn (L loc hole) (noLocA hsexpr))
@@ -576,15 +609,27 @@ generateFixCandidates
             then map ((\l -> ([l], wrapExpr l (wrapInHole l) $ progAtTy one_prog one_ty)) . fst) nzh
             else []
     plugRef <- initGhcCtxt' True cc efcs
+    liftIO $ logStr TRACE "Getting hole fits... {"
     hole_fits <- collectStats $ getHoleFits' cc plugRef holed_exprs
+    liftIO $ logStr TRACE "} Done!"
+    liftIO $ logStr TRACE "Hole fits were: {"
+    liftIO $ mapM_ (logOut DEBUG) hole_fits
+    liftIO $ logStr TRACE "}"
+
+    liftIO $ logStr TRACE "Getting raw hole fits...{"
     raw_wrapped_fits <- collectStats $ getHoleFits' cc plugRef wrapped_in_holes
+    liftIO $ logStr TRACE "} Done!"
+    liftIO $ logStr TRACE "Raw fits were: {"
+    liftIO $ mapM_ (logOut DEBUG) raw_wrapped_fits
+    liftIO $ logStr TRACE "}"
+
     let subexprs = Map.fromList (map (\(L l k) -> (l, k)) $ flattenExpr one_prog)
-        with_wrappee :: [[[HsExpr GhcPs]]]
+        with_wrappee :: [[(TypedHole, [HsExpr GhcPs])]]
         with_wrappee =
           zipWith
             ( \wrp fits ->
                 map
-                  ( map
+                  (second $ map
                       ( \fit ->
                           HsPar noAnn noHsTok 
                             (noLocA $
@@ -598,11 +643,14 @@ generateFixCandidates
             (map ((subexprs Map.!) . fst)  nzh)
             raw_wrapped_fits
         wrapped_holes = map (first head) wrapped_in_holes
+    liftIO $ logStr TRACE "Hole fits were:"
+    liftIO $ mapM_ (logOut DEBUG) hole_fits
+
 
     let fix_cands' :: [EFix]
         fix_cands' = concatMap toCands $ zip (nzh ++ wrapped_holes) (hole_fits ++ with_wrappee)
           where
-            toCands ((loc, hole_expr), [fits])
+            toCands ((loc, hole_expr), [(_,fits)])
               | isGoodSrcSpan (locA loc) =
                 map (Map.singleton loc) $ nubSort fits
             -- We ignore the spans than are bad or unhelpful.

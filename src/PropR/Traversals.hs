@@ -35,6 +35,9 @@ import GHC
 import GHC.Plugins
 import PropR.Types ()
 
+import GHC.Tc.Errors.Hole.FitTypes (TypedHole (..))
+import GHC.Tc.Types.Constraint (Hole(..))
+
 -- TODO: This doesn't recurse into (L _ (HsWrap _ _ v)), because there's no located expressions in v!
 
 -- | Get this expression and all subexpressions
@@ -100,11 +103,22 @@ sanctifyExpr ext = map repl . contextsOf uniplate
                 ++ [srcSpanEndCol r]
 
 -- | Fill the first hole in the given holed-expression.
-fillHole :: (id ~ GhcPs, Data (HsExpr id)) => HsExpr id -> LHsExpr id -> Maybe (SrcAnn AnnListItem, LHsExpr id)
-fillHole fit = fillFirst . contextsOf uniplate
+fillHole :: (id ~ GhcPs, Data (HsExpr id)) =>
+        Maybe TypedHole -> -- The hole to be filled, if provided.
+                           -- Otherwise we just fill the first hole.
+        HsExpr id -> LHsExpr id -> Maybe (SrcAnn AnnListItem, LHsExpr id)
+fillHole mb_th fit = fill . contextsOf uniplate
   where
-    fillFirst (ctxt : ctxts) =
+    fill (ctxt : ctxts) =
       case pos ctxt of
-        L loc (HsUnboundVar _ _) -> Just (loc, peek (L loc fit) ctxt)
-        _ -> fillFirst ctxts
-    fillFirst [] = Nothing
+        L loc (HsUnboundVar _ occ) | matchesHole occ mb_th ->
+            Just (loc, peek (L loc fit) ctxt)
+        _ -> fill ctxts
+      where
+        matchesHole _ Nothing = True
+        matchesHole occ
+            (Just TypedHole{th_hole=Just Hole{hole_occ = h1}}) = h1 == occ
+        matchesHole occ _ = False
+
+    fill [] | Nothing <- mb_th = Nothing
+    fill [] = error "fillHole: hole not present in expression!"
