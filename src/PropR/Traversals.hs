@@ -120,5 +120,4 @@ fillHole mb_th fit = fill . contextsOf uniplate
             (Just TypedHole{th_hole=Just Hole{hole_occ = h1}}) = h1 == occ
         matchesHole occ _ = False
 
-    fill [] | Nothing <- mb_th = Nothing
-    fill [] = error "fillHole: hole not present in expression!"
+    fill [] = Nothing

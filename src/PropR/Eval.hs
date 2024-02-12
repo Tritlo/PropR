@@ -596,12 +596,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                 nvpats = map nvpat $ filter (`Set.member` vars) targets
             nmatches _ _ mg = mg
 
-            -- adds the "_ =>" for wildcards.
-            alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
-            alsoInferConstraints t = noLocA $ HsQualTy noExtField ctx t
-                where ctx :: LHsContext GhcPs
-                      ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
-
             wrapProp :: LHsBind GhcPs -> [(LHsBind GhcPs, [Sig GhcPs])]
             wrapProp prop@(L l fb@FunBind {..})
               | Just num_cases <- unfoldedTasty Map.!? rdr_occ =

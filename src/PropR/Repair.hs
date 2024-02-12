@@ -312,7 +312,8 @@ replacements e ((th,first_hole_fits) : rest) = concat rest_fit_res
     mapMaybe' f (a : as) = (case f a of Just b -> ((a, b) :); _ -> id) $ mapMaybe' f as
     res =
       map (\(e', (l, r)) -> ([(l, e')], r)) $
-        mapMaybe' (\x -> fillHole (Just th) x e) first_hole_fits
+        -- TODO: why doesn't fillHole (Just th) work here for refinement test?
+        mapMaybe' (\x -> fillHole Nothing x e) first_hole_fits
     (first_fit_locs_and_e, first_fit_res) = unzip res
     rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
     -- addL = Add Left, adds the gien expression at any lefthand side of the expressions existing

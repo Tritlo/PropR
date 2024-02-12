@@ -38,6 +38,18 @@ import PropR.Util (progAtTy, propVars, propFunArgVars, rdrNamePrint, rdrNameToSt
 import GHC.Plugins (DoPmc(..))
 #endif
 
+alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
+#if __GLASGOW_HASKELL__ >= 908
+-- adds the "_ =>" for wildcards.
+-- Needed due to -XPartialTypeSignatures change, see A
+-- https://gitlab.haskell.org/ghc/ghc/-/issues/24425
+alsoInferConstraints t@(L _ (HsQualTy _ _ _)) = t
+alsoInferConstraints t = noLocA $ HsQualTy noExtField ctx t
+    where ctx :: LHsContext GhcPs
+          ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
+# else
+alsoInferConstraints = id
+#endif
 
 data QcConfig = QcConfig {maxShrinks :: Maybe Int, maxSuccess :: Maybe Int, seed :: Int}
 
