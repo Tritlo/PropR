@@ -287,6 +287,7 @@ addTargetGetModName target = do
   mnames_after <- Set.fromList . map ms_mod_name . mgModSummaries <$> depanal [] False
   return $ Set.findMin $ mnames_after `Set.difference` mnames_before
 
+
 -- |
 --  This method tries attempts to parse a given Module into a repair problem.
 moduleToProb ::
@@ -592,6 +593,12 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                 nvpats = map nvpat $ filter (`Set.member` vars) targets
             nmatches _ _ mg = mg
 
+            -- adds the "_ =>" for wildcards.
+            alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
+            alsoInferConstraints t = noLocA $ HsQualTy noExtField ctx t
+                where ctx :: LHsContext GhcPs
+                      ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
+
             wrapProp :: LHsBind GhcPs -> [(LHsBind GhcPs, [Sig GhcPs])]
             wrapProp prop@(L l fb@FunBind {..})
               | Just num_cases <- unfoldedTasty Map.!? rdr_occ =
@@ -633,11 +640,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
             mkPropSig :: Set RdrName -> LIdP GhcPs -> LIdP GhcPs -> [Sig GhcPs]
             mkPropSig vars nfid ofid = prop_sig
               where
-                alsoInferConstraints :: LHsType GhcPs -> LHsType GhcPs
-                alsoInferConstraints = noLocA . HsQualTy noExtField ctx
-                  where ctx :: LHsContext GhcPs
-                        ctx = noLocA $ [noLocA $ HsWildCardTy noExtField]
-
                 prop_sig = case snd <$> prog_sig (unLoc ofid) of
                   -- We don't want to wrap wildcardTys any further,
                   -- but we add the constraint inference.
@@ -687,6 +689,7 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                     TypeSig noAnn [noLocA t_name] $
                       HsWC NoExtField $
                         noLocA $ HsSig NoExtField (HsOuterImplicit NoExtField) $
+                          alsoInferConstraints $
                           noLocA $ HsWildCardTy NoExtField
                   )
 
