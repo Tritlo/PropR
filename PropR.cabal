@@ -46,7 +46,6 @@ library
                  PropR.Search.Random.Search
                  PropR.Search.Exhaustive.Configuration
                  PropR.Search.Exhaustive.Search
-  reexported-modules: Check.Helpers
 
   build-depends: base >= 4 && < 5,
                  ghc >= 9,
@@ -73,8 +72,7 @@ library
                  data-default >= 0.7,
                  deriving-aeson >= 0.2,
                  splitmix >= 0.1,
-                 aeson >= 2.1,
-                 check-helpers
+                 aeson >= 2.1
 
 executable propr
   default-language: GHC2021
