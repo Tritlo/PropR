@@ -35,7 +35,7 @@ These are the versions we currently use - older versions might work too, please 
 
 ## Usage
 -----
-This program requires version `3.4` or higher of `cabal`, and version `8.10`  of `ghc`.
+This program requires version `3.4` or higher of `cabal`, and version `9.6` or  `9.8`  of `ghc`.
 A complete environment required to run (minus the `QuickCheck`)
 is defined in `shell.nix`, and can be activated using `nix-shell`, if installed.
 
