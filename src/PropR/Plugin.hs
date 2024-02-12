@@ -94,7 +94,8 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                       gbl_env <- getGlobalRdrEnv
                       let lcl_env =
                             case th_hole h of
-                              Just (Hole{..}) -> ctl_rdr $ ctLocEnv hole_loc
+                              -- Note: ctl_rdr in 9.8
+                              Just (Hole{..}) -> tcl_rdr $ ctLocEnv hole_loc
                               _ -> emptyLocalRdrEnv
                           -- A name is in scope if it's in the local or global environment
                           inScope e_id
@@ -106,8 +107,8 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                                     inLocalRdrEnvScope e_name lcl_env
                                   else -- A global variable is in scope if it's not shadowed by a local:
                                   -- or if it's wired in.
-
-                                    not (null (lookupGRE gbl_env (LookupOccName e_occ SameNameSpace)))
+                                    -- Note: lookupGRE gbl_env (LookupOccName e_occ SameNameSpace) in 9.8
+                                    not (null (lookupGlobalRdrEnv gbl_env  e_occ))
                                       && isNothing (lookupLocalRdrOcc lcl_env e_occ)
                       case holeHash defaults h >>= (cache Map.!?) . (num_calls,) of
                         Just cached | useCache -> liftIO $ do
@@ -138,13 +139,13 @@ synthPlug CompConf {..} useCache local_exprs plugRef =
                               isOk HoleFit {..}
                                 | GreHFCand elt <- hfCand,
                                   occ <- greOccName elt,
-                                  [_] <- lookupGRE gbl_env (LookupOccName occ SameNameSpace),
+                                  [_] <- lookupGlobalRdrEnv gbl_env occ,
                                   Nothing <- lookupLocalRdrOcc lcl_env occ =
                                   True
                               isOk HoleFit {..}
                                 | GreHFCand elt <- hfCand,
                                   occ <- greOccName elt,
-                                  [g@GRE {..}] <- lookupGRE gbl_env (LookupOccName occ SameNameSpace),
+                                  [g@GRE {..}] <- lookupGlobalRdrEnv gbl_env occ,
                                   Just n <- lookupLocalRdrOcc lcl_env occ =
                                   nameSrcSpan n == greSrcSpan g
                               isOk HoleFit {..} | inScope hfId = True

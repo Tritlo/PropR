@@ -12,6 +12,7 @@ on:
       - '.github/workflows/*.yml'
     branches:
       - 'master'
+      - '9.6'
   pull_request:
     branches:
       - 'master'
@@ -29,8 +30,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['8.10.7']
-        cabal: ['3.4.0.0']
+        ghc: ['9.6.3']
+        cabal: ['3.10.2.1']
 
     steps:
     - uses: actions/checkout@v2
@@ -120,7 +121,7 @@ jobs:
         with:
           context: .
           build-args: |
-            "HASKELL_VERSION=8.10.7"
+            "HASKELL_VERSION=9.6.4"
             "PROPR_VERSION=1.0.0"
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
