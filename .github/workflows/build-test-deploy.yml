@@ -12,8 +12,7 @@ on:
       - '.github/workflows/*.yml'
     branches:
       - 'master'
-      - '9.6'
-      - '9.8'
+      - '9.6+'
   pull_request:
     branches:
       - 'master'
@@ -31,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ghc: ['9.8']
+        ghc: ['9.8', '9.6']
         cabal: ['3.10.2.1']
 
     steps:
