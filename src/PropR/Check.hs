@@ -22,7 +22,7 @@ import qualified Data.Set as Set
 import Debug.Trace (trace, traceShow)
 import GHC.Data.FastString (fsLit)
 import GHC
-import GHC.Plugins (Outputable (ppr), occName, showSDocUnsafe, mkVarOcc, mkRdrUnqual)
+import GHC.Plugins (Outputable (ppr), occName, showSDocUnsafe, mkVarOcc, mkRdrUnqual, DoPmc(..))
 import GHC.Data.Bag (emptyBag, listToBag, unionManyBags, unitBag)
 import GHC.Types.Basic (Origin (..), PromotionFlag (..))
 import GHC.Types.SourceText (IntegralLit (..), SourceText (..))
@@ -80,8 +80,8 @@ checkPackages = ["base", "check-helpers"]
 -- | Looks up the given Name in a LHsExpr
 baseFun :: RdrName -> LHsExpr GhcPs -> LHsBind GhcPs
 baseFun nm val =
-  -- Note: Generated DoPmc in 9.8
-  noLocA $ FunBind NoExtField (noLocA nm) (MG (Generated) (noLocA [base_case]))
+  --                                                DoPmc or SkipPmc?
+  noLocA $ FunBind NoExtField (noLocA nm) (MG (Generated DoPmc) (noLocA [base_case]))
   where
     base_case =
       noLocA $

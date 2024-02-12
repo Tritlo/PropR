@@ -68,6 +68,7 @@ import GHC.Exts (unsafeCoerce#)
 import GHC.Plugins
 import Numeric (showHex)
 import GHC.Builtin.Names (mkMainModule, mkMainModule_)
+import GHC.Types.Error (pprDiagnostic)
 import PropR.Check
 import PropR.Configuration
 import PropR.Eval
@@ -88,10 +89,6 @@ import System.Process
 import qualified System.Timeout (timeout)
 import GHC.Tc.Errors.Hole.FitTypes (HoleFit (..), TypedHole (..))
 import Text.Read (readMaybe)
--- PPrDiagnostic
-import GHC.Driver.Errors.Ppr ()
-import GHC.Driver.Errors.Types (GhcMessage)
-import GHC.Types.Error (diagnosticMessage, defaultDiagnosticOpts, DecoratedSDoc(..))
 
 -- | Runs the whole compiler chain to get the fits for a hole, i.e. possible
 -- replacement-elements for the holes
@@ -144,10 +141,6 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
           liftIO $ logOut ll ovnd
           liftIO $ logStr ll "The errors were:"
           let toB msg = listToBag [msg]
-              -- Not needed in 9.8:
-              pprDiagnostic :: GhcMessage -> [SDoc]
-              pprDiagnostic msg = unDecorated $
-                                    diagnosticMessage (defaultDiagnosticOpts @GhcMessage) msg
           liftIO $ mapM_ (logOut ll . pprDiagnostic) oerrs
           -- We try the default defaults and some other defaults
           let different_defaults =
