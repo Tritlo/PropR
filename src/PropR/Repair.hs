@@ -8,6 +8,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE CPP #-}
 
 -- |
 -- Module      : PropR.Repair
@@ -22,15 +23,16 @@
 --    nzh=non-zero-holes - Holes that are touched by properties
 --    id_prog=identity-Program - The unchanged Program (initial input to repair)
 --
--- Note on (SrcSpan, LHsExpr GhcPs):
+-- Note on (SrcAnn AnnListItem, LHsExpr GhcPs):
 -- We thought about Synomising this, but it resembles multiple things;
 --   1. An expression and it's (new) hole
 --   2. An expression and it's (possible) fix/patch (where fix means candidate, not
 --      definitely solved)
 module PropR.Repair where
 
-import Bag (bagToList, emptyBag, filterBag, listToBag)
-import Constraint
+import GHC.Data.Bag (Bag, bagToList, emptyBag, listToBag, filterBag)
+import GHC.Tc.Solver (captureTopConstraints)
+import GHC.Tc.Types.Constraint
 import Control.Arrow (first, second, (***))
 import Control.Concurrent (getNumCapabilities, threadDelay, threadWaitRead)
 import Control.Concurrent.Async (mapConcurrently)
@@ -59,15 +61,14 @@ import Data.Time.Clock (getCurrentTime)
 import Data.Tree (flatten)
 import qualified Data.Vector as V
 import Debug.Trace (traceShowId)
-import Desugar (deSugarExpr)
-import Exception
-import FV (fvVarSet)
+import GHC.HsToCore (deSugarExpr)
+import GHC.Utils.FV (fvVarSet)
 import GHC
 import GHC.IO.Unsafe (unsafePerformIO)
-import GHC.Prim (unsafeCoerce#)
-import GhcPlugins
+import GHC.Exts (unsafeCoerce#)
+import GHC.Plugins
 import Numeric (showHex)
-import PrelNames (mkMainModule, mkMainModule_)
+import GHC.Builtin.Names (mkMainModule, mkMainModule_)
 import PropR.Check
 import PropR.Configuration
 import PropR.Eval
@@ -75,7 +76,7 @@ import PropR.Plugin (HoleFitState, resetHoleFitCache, resetHoleFitList)
 import PropR.Traversals (fillHole, flattenExpr, replaceExpr, sanctifyExpr, wrapExpr)
 import PropR.Types
 import PropR.Util
-import StringBuffer (stringToStringBuffer)
+import GHC.Data.StringBuffer (stringToStringBuffer)
 import System.CPUTime (getCPUTime)
 import System.Directory (createDirectoryIfMissing, doesFileExist, removeDirectory, removeDirectoryRecursive, removeFile)
 import System.Exit (exitFailure)
@@ -86,9 +87,21 @@ import System.Posix.Process
 import System.Posix.Signals
 import System.Process
 import qualified System.Timeout (timeout)
-import TcHoleErrors (HoleFit (..))
-import TcSimplify (captureTopConstraints)
+import GHC.Tc.Errors.Hole.FitTypes (HoleFit (..), TypedHole (..))
 import Text.Read (readMaybe)
+
+-- Backport pprDiagnostic
+#if __GLASGOW_HASKELL__ > 908
+import GHC.Types.Error (pprDiagnostic)
+#else
+import GHC.Driver.Errors.Ppr ()
+import GHC.Driver.Errors.Types (GhcMessage)
+import GHC.Types.Error (diagnosticMessage, defaultDiagnosticOpts, DecoratedSDoc(..))
+
+pprDiagnostic :: GhcMessage -> [SDoc]
+pprDiagnostic msg = unDecorated $
+                    diagnosticMessage (defaultDiagnosticOpts @GhcMessage) msg
+#endif
 
 -- | Runs the whole compiler chain to get the fits for a hole, i.e. possible
 -- replacement-elements for the holes
@@ -97,28 +110,28 @@ getHoleFits ::
   -- |  A given Compiler Config
   [ExprFitCand] ->
   -- | A list of existing and reachable candidate-expression
-  [([SrcSpan], LHsExpr GhcPs)] ->
+  [([SrcAnn AnnListItem], LHsExpr GhcPs)] ->
   -- | The existing Expressions including holes
-  Ghc [[[HsExpr GhcPs]]]
+  Ghc [[(TypedHole,[HsExpr GhcPs])]]
 getHoleFits cc local_exprs exprs = initGhcCtxt' True cc local_exprs >>= flip (getHoleFits' cc) exprs
 
 -- Gets the holes without any initialization, provided a given plugin
 getHoleFits' ::
   CompileConfig ->
   IORef HoleFitState ->
-  [([SrcSpan], LHsExpr GhcPs)] ->
-  Ghc [[[HsExpr GhcPs]]]
+  [([SrcAnn AnnListItem], LHsExpr GhcPs)] ->
+  Ghc [[(TypedHole, [HsExpr GhcPs])]]
 getHoleFits' _ _ [] = return []
 getHoleFits' cc@CompConf {..} plugRef exprs = do
   -- Then we can actually run the program!
   res <- getHoleFits' plugRef (if holeLvl == 0 then 0 else holeDepth) exprs
-  return $ map (map (map snd . snd) . snd) res
+  return $ map (map (second (map snd) . snd) . snd) res
   where
     exprFits ::
       IORef HoleFitState ->
-      [SrcSpan] ->
+      [SrcAnn AnnListItem] ->
       LHsExpr GhcPs ->
-      Ghc (Either [ValsAndRefs] HValue)
+      Ghc (Either [(TypedHole, ValsAndRefs)] HValue)
     exprFits plugRef l expr = do
       let act =
             liftIO (modifyIORef' plugRef resetHoleFitList)
@@ -140,7 +153,8 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
           liftIO $ logStr ll "Got result with errors:"
           liftIO $ logOut ll ovnd
           liftIO $ logStr ll "The errors were:"
-          liftIO $ mapM_ (logStr ll . show) oerrs
+          let toB msg = listToBag [msg]
+          liftIO $ mapM_ (logOut ll . pprDiagnostic) oerrs
           -- We try the default defaults and some other defaults
           let different_defaults =
                 Nothing : -- The default, defaults to integerTy and doubleTy
@@ -148,10 +162,13 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
                   then [extraDefaults] -- default to ints and floats
                   else []
 
-              joinFits :: [ValsAndRefs] -> ValsAndRefs
-              joinFits =
-                (nubBy nf *** nubBy nf)
-                  . foldr (\(vs, rfs) (vss, rfss) -> (vs ++ vss, rfs ++ rfss)) ([], [])
+              joinFits :: [(TypedHole, ValsAndRefs)] -> (TypedHole, ValsAndRefs)
+              joinFits [] = error "no holes!"
+              joinFits r@((th,_):_) =
+                    (th,)
+                  $ (nubBy nf *** nubBy nf)
+                  $ foldr (\(vs, rfs) (vss, rfss) -> (vs ++ vss, rfs ++ rfss)) ([], [])
+                  $ map snd r
               nf hfa@HoleFit {} hfb@HoleFit {} = hfId hfa == hfId hfb
               nf (RawHoleFit a) (RawHoleFit b) = showUnsafe a == showUnsafe b
               nf _ _ = False
@@ -164,8 +181,8 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
     getHoleFits' ::
       IORef HoleFitState ->
       Int ->
-      [([SrcSpan], LHsExpr GhcPs)] ->
-      Ghc [(LHsExpr GhcPs, [(SrcSpan, [(Int, HsExpr GhcPs)])])]
+      [([SrcAnn AnnListItem], LHsExpr GhcPs)] ->
+      Ghc [(LHsExpr GhcPs, [(SrcAnn AnnListItem, (TypedHole, [(Int, HsExpr GhcPs)]))])]
     getHoleFits' plugRef n exprs | n <= 0 = do
       -- We don't want any more additional hole fits, so we just grab the
       -- identifier ones.
@@ -173,31 +190,61 @@ getHoleFits' cc@CompConf {..} plugRef exprs = do
       -- so we ignore them:
       dflags <- getSessionDynFlags
       setSessionDynFlags dflags {refLevelHoleFits = Just 0}
-      res <-
-        mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
-          >>= processFits . map (second (map (second fst))) . lefts
+      to_proc <- mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
+      liftIO $ logStr TRACE "Processing fits..."
+      liftIO $ mapM_ (logOut DEBUG) (lefts to_proc)
+      liftIO $ mapM_ (logStr DEBUG . show) (rights to_proc)
+      res <- (processFits . map (second (map (second $ second fst))) . lefts) to_proc
+      liftIO $ logStr TRACE "Processed! Results: {"
+      liftIO $ mapM_ (logOut DEBUG) (res)
+
+      liftIO $ logStr TRACE "} That's all!"
       dflags <- getSessionDynFlags
       setSessionDynFlags dflags {refLevelHoleFits = Just 0}
       return res
+
     getHoleFits' plugRef n exprs = do
       fits <- lefts <$> mapM (\(l, e) -> mapLeft ((e,) . zip l) <$> exprFits plugRef l e) exprs
-      procs <- processFits $ map (second $ map (second (uncurry (++)))) fits
-      let f :: LHsExpr GhcPs -> SrcSpan -> [(Int, HsExpr GhcPs)] -> Ghc (SrcSpan, [(Int, HsExpr GhcPs)])
-          f expr loc fits = do
+      liftIO $ logStr TRACE "Processing fits..."
+      liftIO $ mapM_ (logOut DEBUG) fits
+      liftIO $ logStr TRACE "Processed!"
+
+      procs <- processFits $ map (second $ map (second $ second (uncurry (++)))) fits
+      let f :: LHsExpr GhcPs ->
+              (SrcAnn AnnListItem, (TypedHole, [(Int, HsExpr GhcPs)])) ->
+              Ghc (SrcAnn AnnListItem, (TypedHole, [(Int, HsExpr GhcPs)]))
+          f expr (loc, (th, fits)) = do
+            liftIO $ logStr DEBUG "Filling..."
+            liftIO $ logOut DEBUG (expr, loc)
+            liftIO $ logStr DEBUG "with..."
+            liftIO $ logOut DEBUG fits
             let (hasHoles, done) = partition ((> 0) . fst) fits
                 filled =
                   mapMaybe
                     ( \(lvl, fit) ->
-                        (fmap ((fit,) . first (replicate lvl)) . (`fillHole` expr)) fit
+                        (fmap ((fit,)
+                          . first (replicate lvl))
+                          . (\x -> fillHole (Just th) x expr)) fit
                     )
                     hasHoles
 
+            liftIO $ logStr DEBUG "Results:{"
+            liftIO $ logOut DEBUG filled
+            liftIO $ logStr DEBUG "}"
             recur <- zip (map (L loc . fst) filled) . map snd <$> getHoleFits' plugRef (n - 1) (map snd filled)
-            let repls = map (second (reverse . map (map snd . snd))) recur >>= uncurry replacements
+            liftIO $ logStr DEBUG "Recurs:{"
+            liftIO $ logOut DEBUG recur
+            liftIO $ logStr DEBUG "}"
+            -- This for some reason the hole fits were being REVERSED
+            -- on 8.10. Maybe something changed in the way the plugin is
+            -- invoked? Weird. We check for the correct hole now,
+            -- so should work.
+            let repls = map (second (map (second (map snd) . snd))) recur
+                       >>= uncurry replacements
                 procced :: [(Int, HsExpr GhcPs)]
                 procced = map ((0,) . unLoc . snd) repls
-            return (loc, done ++ procced)
-      mapM (\(e, xs) -> (e,) <$> mapM (uncurry (f e)) xs) procs
+            return (loc, (th, done ++ procced))
+      mapM (\(e, xs) -> (e,) <$> mapM (f e) xs) procs
 
     mapLeft :: (a -> c) -> Either a b -> Either c b
     mapLeft f (Left a) = Left (f a)
@@ -211,25 +258,26 @@ extraDefaults = Just [unitTy, listTy, intTy, floatTy] -- default to ints and flo
 -- | Takes a list of list of list of hole fits and processes each fit so that
 -- it becomes a proper HsExpr
 processFits ::
-  [(LHsExpr GhcPs, [(SrcSpan, [HoleFit])])] ->
-  Ghc [(LHsExpr GhcPs, [(SrcSpan, [(Int, HsExpr GhcPs)])])]
+  [(LHsExpr GhcPs, [(SrcAnn AnnListItem, (TypedHole, [HoleFit]))])] ->
+  Ghc [(LHsExpr GhcPs, [(SrcAnn AnnListItem, (TypedHole,[(Int, HsExpr GhcPs)]))])]
 processFits fits = do
   -- We process the fits ourselves, since we might have some expression fits
-  let processFit :: SrcSpan -> HoleFit -> Ghc (Int, HsExpr GhcPs)
+  let processFit :: SrcAnn AnnListItem -> HoleFit -> Ghc (Int, HsExpr GhcPs)
       processFit loc HoleFit {..} = return (hfRefLvl, addPar $ app hfRefLvl)
         where
           addPar
-            | hfRefLvl > 0 = HsPar NoExtField . L loc
+            | hfRefLvl > 0 = \e -> HsPar noAnn noHsTok (L loc e) noHsTok
             | otherwise = id
           app :: Int -> HsExpr GhcPs
           app 0 =
-            HsVar noExtField $ noLoc (nukeExact $ getName hfId)
-          app n = HsApp NoExtField (noLoc $ app (n - 1)) $ noLoc hv
+            HsVar noExtField $ noLocA (nukeExact $ getName hfId)
+          app n = HsApp noAnn (noLocA $ app (n - 1)) $ noLocA hv
             where
               hn = show n
-              hv = HsUnboundVar NoExtField (TrueExprHole $ mkVarOcc $ "_" ++ locToStr loc ++ "_" ++ hn)
-              locToStr (UnhelpfulSpan x) = unpackFS x
-              locToStr s@(RealSrcSpan r) =
+              hv = HsUnboundVar noAnn (mkRdrUnqual $
+                                        mkVarOcc $ "_" ++ locToStr (locA loc) ++ "_" ++ hn)
+              locToStr (UnhelpfulSpan x) = unpackFS $ unhelpfulSpanFS x
+              locToStr s@(RealSrcSpan r _) =
                 intercalate "_" $
                   map show $
                     [srcSpanStartLine r, srcSpanStartCol r]
@@ -243,7 +291,8 @@ processFits fits = do
       nukeExact n
         | isExternalName n = Orig (nameModule n) (nameOccName n)
         | otherwise = Unqual (nameOccName n)
-  mapM (\(e, xs) -> (e,) <$> mapM (\(l, ffh) -> (l,) <$> mapM (processFit l) ffh) xs) fits
+  mapM (\(e, xs) -> (e,) <$> mapM (\(l, (th, ffh)) -> (l,) . (th,) <$>
+                mapM (processFit l) ffh) xs) fits
 
 -- |  Takes an expression with one or more holes and a list of expressions that
 -- fit each holes and returns a list of expressions where each hole has been
@@ -252,10 +301,10 @@ replacements ::
   -- | The original expression with one or more holes
   LHsExpr GhcPs ->
   -- | A list of expressions that fits the holes
-  [[HsExpr GhcPs]] ->
-  [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
+  [(TypedHole,[HsExpr GhcPs])] ->
+  [([(SrcAnn AnnListItem, HsExpr GhcPs)], LHsExpr GhcPs)]
 replacements e [] = [([], e)]
-replacements e (first_hole_fit : rest) = concat rest_fit_res
+replacements e ((th,first_hole_fits) : rest) = concat rest_fit_res
   where
     -- mapMaybe', but keep the result
     mapMaybe' :: (a -> Maybe b) -> [a] -> [(a, b)]
@@ -263,14 +312,15 @@ replacements e (first_hole_fit : rest) = concat rest_fit_res
     mapMaybe' f (a : as) = (case f a of Just b -> ((a, b) :); _ -> id) $ mapMaybe' f as
     res =
       map (\(e', (l, r)) -> ([(l, e')], r)) $
-        mapMaybe' (`fillHole` e) first_hole_fit
+        -- TODO: why doesn't fillHole (Just th) work here for refinement test?
+        mapMaybe' (\x -> fillHole Nothing x e) first_hole_fits
     (first_fit_locs_and_e, first_fit_res) = unzip res
     rest_fit_res = zipWith addL first_fit_locs_and_e $ map (`replacements` rest) first_fit_res
     -- addL = Add Left, adds the gien expression at any lefthand side of the expressions existing
     addL ::
-      [(SrcSpan, HsExpr GhcPs)] ->
-      [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)] ->
-      [([(SrcSpan, HsExpr GhcPs)], LHsExpr GhcPs)]
+      [(SrcAnn AnnListItem, HsExpr GhcPs)] ->
+      [([(SrcAnn AnnListItem, HsExpr GhcPs)], LHsExpr GhcPs)] ->
+      [([(SrcAnn AnnListItem, HsExpr GhcPs)], LHsExpr GhcPs)]
     addL srcs reses = map (first (srcs ++)) reses
 
 -- | Translate from the old String based version to the new LHsExpr version.
@@ -279,9 +329,9 @@ translate cc RProb {..} = runGhc' cc $ do
   e_prog' <- parseExprNoInit r_prog
   ~(L _ (ExprWithTySig _ _ e_ty)) <- parseExprNoInit ("undefined :: " ++ r_ty)
   let clt = "let {" ++ (intercalate "; " . concatMap lines $ r_ctxt) ++ "} in undefined"
-  ~(L _ (HsLet _ e_ctxt _)) <- parseExprNoInit clt
+  ~(L _ (HsLet _ _ e_ctxt _ _)) <- parseExprNoInit clt
   let plt = "let {" ++ (intercalate "; " . concatMap lines $ r_props) ++ "} in undefined"
-  ~(L _ (HsLet _ (L _ (HsValBinds _ (ValBinds _ lbs _))) _)) <- parseExprNoInit plt
+  ~(L _ (HsLet _ _ (HsValBinds _ (ValBinds _ lbs _)) _ _)) <- parseExprNoInit plt
   let e_props = bagToList lbs
       e_target = mkVarUnqual $ fsLit r_target
       e_prog = [(e_target, e_ty, e_prog')]
@@ -296,7 +346,7 @@ detranslate EProb {..} =
       r_ty = showUnsafe e_ty
       r_props = map showUnsafe e_props
       r_target = showUnsafe e_target
-      (L _ (HsValBinds _ (ValBinds _ bs sigs))) = e_ctxt
+      HsValBinds _ (ValBinds _ bs sigs) = e_ctxt
       r_ctxt = map showUnsafe sigs ++ map showUnsafe (bagToList bs)
    in RProb {..}
 detranslate _ = error "Cannot detranlsate external problem!"
@@ -366,7 +416,7 @@ fakeDesc efcs cc prob =
 -- a (translated) repair problem and returns a list of potential fixes.
 repair :: CompileConfig -> EProblem -> IO [EFix]
 repair cc prob@EProb {..} = do
-  ecfs <- runGhc' cc $ getExprFitCands $ Left $ noLoc $ HsLet NoExtField e_ctxt $ noLoc undefVar
+  ecfs <- runGhc' cc $ getExprFitCands $ Left $ noLocA $ HsLet noAnn noHsTok e_ctxt noHsTok $ noLocA undefVar
   let desc@ProbDesc {..} = fakeDesc ecfs cc prob
   map fst . filter (isFixed . snd) <$> repairAttempt desc
 repair _ _ = error "Cannot repair external problems yet!"
@@ -375,7 +425,7 @@ repair _ _ = error "Cannot repair external problems yet!"
 -- and returns those as programs with holes at that location.
 findEvaluatedHoles ::
   ProblemDescription ->
-  IO [(SrcSpan, LHsExpr GhcPs)]
+  IO [(SrcAnn AnnListItem, LHsExpr GhcPs)]
 findEvaluatedHoles
   desc@ProbDesc
     { compConf = cc@CompConf {..},
@@ -438,7 +488,7 @@ findEvaluatedHoles
                 comb [] = error "expr with no traces!"
             resolve :: [(Int, [(Int, Trace)])] -> [(EExpr, [(EProp, Trace)])]
             resolve = map $ (expr_map IntMap.!) *** map (first (eprop_map IntMap.!))
-        execTraces :: [(EProp, [RExpr])] -> Ghc [(EExpr, Map (EExpr, SrcSpan) Integer)]
+        execTraces :: [(EProp, [RExpr])] -> Ghc [(EExpr, Map (EExpr, SrcAnn AnnListItem) Integer)]
         execTraces props_w_ce =
           liftIO $
             -- If we want the full count, we need Map.unionsWith (+) here..., but
@@ -475,11 +525,12 @@ findEvaluatedHoles
     -- We then remove suggested holes that are unlikely to help (naively for now
     -- in the sense that we remove only holes which did not get evaluated at all,
     -- so they are definitely not going to matter).
-    let fk :: (EExpr, Map (EExpr, SrcSpan) Integer) -> [(SrcSpan, LHsExpr GhcPs)]
+    let fk :: (EExpr, Map (EExpr, SrcAnn AnnListItem) Integer)
+           -> [(SrcAnn AnnListItem, LHsExpr GhcPs)]
         fk (expr, invokes) | Map.null invokes = []
         fk (expr, invokes) = mapMaybe toExprHole $ Map.keys invokes
           where
-            sfe = V.fromList (sanctifyExpr noExtField expr)
+            sfe = V.fromList (sanctifyExpr noAnn expr)
             toExprHole (iv_expr, iv_loc) =
               -- We can get a Nothing here if e.g. the evaluated part is with
               -- an operator with precedence, e.g. a ++ b ++ c, because GHC
@@ -490,18 +541,19 @@ findEvaluatedHoles
               -- `LHsExpr GhcPs` yet, and then we have issues with compiling
               -- them to get the valid hole fits, since GHC has no built-in
               -- function `compileRnStmt`. So we'll make do for now.
-              case L.elemIndex iv_loc sf_locs of
+              case L.elemIndex (locA iv_loc) (sf_locs) of
                 Just iv_ind
-                  | Just e@(e_loc, _) <- sfe V.!? iv_ind,
-                    isGoodSrcSpan e_loc ->
+                  | Just e@(e_loc, _) <- sfe V.!? (iv_ind),
+                    isGoodSrcSpan (locA e_loc) ->
                     Just e
                 _ -> Nothing
               where
-                sf_locs = map getLoc $ flattenExpr iv_expr
+                sf_locs = map (removeBufSpan . getLocA) $ flattenExpr iv_expr
         non_zero_holes_failing = Set.fromList $ concatMap fk failing_traces_that_worked
         non_zero_holes_success = Set.fromList $ concatMap fk success_traces
         non_zero_hole_diff = (non_zero_holes_failing Set.\\ non_zero_holes_success)
     -- nubOrd deduplicates collections of sortable items. it's faster than other dedups.
+    --  TODO 9.8: is is zero!!
     liftIO $ logStr TRACE $ "Found " ++ show (Set.size non_zero_holes_failing) ++ " evaluated holes"
 
     -- Note: we could also do this for partially failing properties, if we could
@@ -533,7 +585,7 @@ repairAttempt desc@ProbDesc {compConf = cc, ..} = do
 -- | Retrieves the candidates for the holes given in non-zero holes
 generateFixCandidates ::
   ProblemDescription ->
-  [(SrcSpan, LHsExpr GhcPs)] ->
+  [(SrcAnn AnnListItem, LHsExpr GhcPs)] ->
   IO [(EFix, EProgFix)]
 generateFixCandidates _ [] = return []
 generateFixCandidates
@@ -545,45 +597,62 @@ generateFixCandidates
   non_zero_holes = runGhcWithCleanup cc $ do
     -- We add the context by replacing a hole in a let.
     let nzh = non_zero_holes
-        inContext = noLoc . HsLet NoExtField e_ctxt
-        addContext :: SrcSpan -> LHsExpr GhcPs -> LHsExpr GhcPs
-        addContext l = snd . fromJust . flip fillHole (inContext $ L l hole) . unLoc
+        inContext = noLocA . HsLet noAnn noHsTok e_ctxt noHsTok
+        addContext :: SrcAnn AnnListItem -> LHsExpr GhcPs -> LHsExpr GhcPs
+        addContext l = snd . fromJust . flip (fillHole Nothing) (inContext $ L l hole) . unLoc
         holed_exprs = map (\(l, he) -> ([l], addContext l he)) nzh
-        wrapInHole loc hsexpr = HsPar NoExtField (noLoc $ HsApp NoExtField (L loc hole) (noLoc hsexpr))
+        wrapInHole loc hsexpr = HsPar noAnn noHsTok
+                                 (noLocA $ HsApp noAnn (L loc hole) (noLocA hsexpr))
+                                 noHsTok
         ((_, one_ty, one_prog) : _) = e_prog
         wrapped_in_holes =
           if allowFunctionFits cc
             then map ((\l -> ([l], wrapExpr l (wrapInHole l) $ progAtTy one_prog one_ty)) . fst) nzh
             else []
     plugRef <- initGhcCtxt' True cc efcs
+    liftIO $ logStr TRACE "Getting hole fits... {"
     hole_fits <- collectStats $ getHoleFits' cc plugRef holed_exprs
+    liftIO $ logStr TRACE "} Done!"
+    liftIO $ logStr TRACE "Hole fits were: {"
+    liftIO $ mapM_ (logOut DEBUG) hole_fits
+    liftIO $ logStr TRACE "}"
+
+    liftIO $ logStr TRACE "Getting raw hole fits...{"
     raw_wrapped_fits <- collectStats $ getHoleFits' cc plugRef wrapped_in_holes
+    liftIO $ logStr TRACE "} Done!"
+    liftIO $ logStr TRACE "Raw fits were: {"
+    liftIO $ mapM_ (logOut DEBUG) raw_wrapped_fits
+    liftIO $ logStr TRACE "}"
+
     let subexprs = Map.fromList (map (\(L l k) -> (l, k)) $ flattenExpr one_prog)
-        with_wrappee :: [[[HsExpr GhcPs]]]
+        with_wrappee :: [[(TypedHole, [HsExpr GhcPs])]]
         with_wrappee =
           zipWith
             ( \wrp fits ->
                 map
-                  ( map
+                  (second $ map
                       ( \fit ->
-                          HsPar NoExtField $
-                            noLoc $
-                              HsApp NoExtField (noLoc fit) $
-                                noLoc $
-                                  HsPar NoExtField $ noLoc wrp
-                      )
+                          HsPar noAnn noHsTok 
+                            (noLocA $
+                              HsApp noAnn (noLocA fit) $
+                                noLocA $
+                                  HsPar noAnn noHsTok (noLocA wrp) noHsTok)
+                            noHsTok)
                   )
                   fits
             )
-            (map ((subexprs Map.!) . fst) nzh)
+            (map ((subexprs Map.!) . fst)  nzh)
             raw_wrapped_fits
         wrapped_holes = map (first head) wrapped_in_holes
+    liftIO $ logStr TRACE "Hole fits were:"
+    liftIO $ mapM_ (logOut DEBUG) hole_fits
+
 
     let fix_cands' :: [EFix]
         fix_cands' = concatMap toCands $ zip (nzh ++ wrapped_holes) (hole_fits ++ with_wrappee)
           where
-            toCands ((loc, hole_expr), [fits])
-              | isGoodSrcSpan loc =
+            toCands ((loc, hole_expr), [(_,fits)])
+              | isGoodSrcSpan (locA loc) =
                 map (Map.singleton loc) $ nubSort fits
             -- We ignore the spans than are bad or unhelpful.
             toCands ((loc, _), [_]) = []
@@ -649,18 +718,18 @@ closeEProb prob@EProb {..} = prob {e_prog = n_prog, e_props = n_props, e_prop_si
     fixPNSig :: EProp -> LSig GhcPs -> Maybe (EProp, LSig GhcPs)
     fixPNSig
       (L pl fb@FunBind {fun_matches = fm@MG {mg_alts = alts@(L la matches)}})
-      (L ps (TypeSig xts nms (HsWC e (HsIB ix ty)))) =
+      (L ps (TypeSig xts nms (HsWC e (L sl (HsSig xs hib ty))))) =
         if drpd == num_dropped
           then
             Just
               ( L pl fb {fun_matches = fm {mg_alts = L la matches'}},
-                L ps (TypeSig xts nms (HsWC e (HsIB ix nty)))
+                L ps (TypeSig xts nms (HsWC e (L sl (HsSig xs hib nty))))
               )
           else Nothing
         where
           dropWildCards :: Int -> LHsType GhcPs -> (Int, LHsType GhcPs)
           dropWildCards 0 t = (0, t)
-          dropWildCards n (L _ (HsFunTy NoExtField (L _ (HsWildCardTy NoExtField)) rty)) = dropWildCards (n - 1) rty
+          dropWildCards n (L _ (HsFunTy _ _ (L _ (HsWildCardTy _)) rty)) = dropWildCards (n - 1) rty
           dropWildCards n t = (n, t)
           (drpd, nty) = dropWildCards num_dropped ty
           num_dropped = maximum $ map length dropped
@@ -669,12 +738,12 @@ closeEProb prob@EProb {..} = prob {e_prog = n_prog, e_props = n_props, e_prop_si
             (dropped, L lm m {m_pats = pats'})
             where
               (pats', dropped) = partition keepPat m_pats
-              keepPat (L _ (ParPat _ (L _ (VarPat _ (L _ vn))))) = vn `Set.member` names
+              keepPat (L _ (ParPat _ _ (L _ (VarPat _ (L _ vn))) _ )) = vn `Set.member` names
               keepPat _ = True
     fixPNSig p s = Just (p, s)
     fixExpr :: EExpr -> EExpr
-    fixExpr (L l (HsLet lx (L l' (HsValBinds hvbx (ValBinds vbx pb sigs))) le)) =
-      L l (HsLet lx (L l' (HsValBinds hvbx (ValBinds vbx pb' sigs'))) le)
+    fixExpr (L l (HsLet lx lt1 (HsValBinds hvbx (ValBinds vbx pb sigs)) lt2 le)) =
+      L l (HsLet lx lt1 (HsValBinds hvbx (ValBinds vbx pb' sigs')) lt2 le)
       where
         sigs' = filter sig_in_names sigs
         pb' = filterBag bind_in_names pb
@@ -714,9 +783,10 @@ checkFixes'
   orig_fixes = runGhc' cc $ do
     liftIO $ logStr TRACE "Checking fixes..."
     orig_flags <- setCheckDynFlags
-    (tempDir, exeName, mname, target_name, tid) <- initCompileChecks orig_flags orig_fixes
+    (tempDir, exeName, mname, target_name, Target{targetUnitId=tuid, targetId=tid}) <- initCompileChecks orig_flags orig_fixes
     liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
-    (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
+    (sf2, msgs) <- tryGHCCaptureOutput (load LoadAllTargets)
+
     (res :: Maybe [TestSuiteResult]) <-
       if succeeded sf2
         then
@@ -761,9 +831,10 @@ checkFixes'
                         liftIO $ logStr TRACE $ show (length compiling_fixes) ++ " of " ++ show (length orig_fixes) ++ " were recovered..."
                         liftIO $ logStr TRACE $ "Reinitializing..."
                         setCheckDynFlags
-                        (_, n_exe, n_mname, n_target, _) <- initCompileChecks orig_flags compiling_fixes
+                        (_, n_exe, n_mname, n_target, Target{targetUnitId=n_tuid}) <- initCompileChecks orig_flags compiling_fixes
                         liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString n_target ++ " again..."
-                        (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadUpTo n_target)
+                        (sf2, msgs) <- tryGHCCaptureOutput (load $ LoadAllTargets)
+
                         if succeeded sf2
                           then liftIO $ logStr TRACE "Recovered!"
                           else do
@@ -799,9 +870,10 @@ checkFixes'
 
       doesCompile :: DynFlags -> [EProgFix] -> Ghc Bool
       doesCompile dflags fixes = do
-        (tempDir, _, mname, target_name, tid) <- initCompileChecks dflags fixes
+        (tempDir, _, mname, target_name, Target{targetId=tid, targetUnitId=tuid})
+            <- initCompileChecks dflags fixes
         liftIO $ logStr TRACE $ "Loading up to " ++ moduleNameString target_name
-        (sf2, msgs) <- tryGHCCaptureOutput (load (LoadUpTo target_name))
+        (sf2, msgs) <- tryGHCCaptureOutput (load LoadAllTargets)
         liftIO $ mapM_ (logStr DEBUG) msgs
         -- removeTarget might not be enough for the linker, we'll probably
         -- get duplicate symbol complaints....
@@ -816,21 +888,21 @@ checkFixes'
               -- turn-off all warnings
               flip (foldl wopt_unset) [toEnum 0 ..] $
                 flip (foldl gopt_unset) setFlags $ -- Remove the HPC
+                  updOptLevel (if shouldInterpret then 0 else 2) $
                   dynFlags
                     { -- ghcMode = OneShot is the default, if we want it to compile
                       -- the files. But we've already compiled them at this point,
                       -- so we want it to use the CompManager to pick up the
                       -- dependencies.
-                      ghcMode = CompManager,
+                      ghcMode = CompManager
                       -- TODO: Should this be LinkDynLib for MacOS?
-                      ghcLink = if shouldInterpret then LinkInMemory else LinkBinary,
-                      hscTarget = if shouldInterpret then HscInterpreted else HscAsm,
-                      optLevel = if shouldInterpret then 0 else 2
+                      , ghcLink = if shouldInterpret then LinkInMemory else LinkBinary
+                      , backend = if shouldInterpret then interpreterBackend else ncgBackend
                     }
         void $ setSessionDynFlags $ dflags'
         return dflags'
 
-      initCompileChecks :: DynFlags -> [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, TargetId)
+      initCompileChecks :: DynFlags -> [EProgFix] -> Ghc (FilePath, FilePath, [Char], ModuleName, Target)
       initCompileChecks dynFlags fixes = do
         seed <- liftIO newSeed
         let checkHash = flip showHex "" $ abs $ hashString $ showUnsafe (tp, fixes, seed)
@@ -847,8 +919,10 @@ checkFixes'
         liftIO $ writeFile the_f modTxt
         liftIO $ mapM_ (logStr DEBUG) $ lines modTxt
         now <- liftIO getCurrentTime
-        let tid = TargetFile the_f Nothing
-            target = Target tid True Nothing
+
+        target <- guessTarget the_f Nothing Nothing
+        let tid = targetId target
+            tuid = targetUnitId target
 
         -- Adding and loading the target causes the compilation to kick
         -- off and compiles the file.
@@ -856,12 +930,13 @@ checkFixes'
         _ <-
           setSessionDynFlags $
             dynFlags
-              { mainModIs = mkModule mainUnitId target_name,
+              { --mainModIs = mkModule mainUnitId target_name,
+                mainModuleNameIs = target_name,
                 mainFunIs = Just "main__",
                 importPaths = importPaths dynFlags ++ modBase,
                 hpcDir = tempDir
               }
-        return (tempDir, exeName, mname, target_name, tid)
+        return (tempDir, exeName, mname, target_name, target)
 
       runCompiledFixes :: FilePath -> String -> [EProgFix] -> Ghc [TestSuiteResult]
       runCompiledFixes exeName mname working_fixes = do

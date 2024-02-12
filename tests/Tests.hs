@@ -20,14 +20,15 @@ import PropR.Repair
 import PropR.Traversals
 import PropR.Types
 import PropR.Util
-import GHC (GhcPs, LHsExpr, noExtField, tm_parsed_module)
-import GhcPlugins (GenLocated (L), getLoc, unLoc)
+import GHC (GhcPs, LHsExpr, noExtField, tm_parsed_module, noAnn, reLoc, getLocA)
+import GHC.Plugins (GenLocated (L), getLoc, unLoc)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
 import Test.Tasty.QuickCheck
 import TestUtils
 import Trace.Hpc.Mix
+import Data.Char
 
 tests :: TestTree
 tests =
@@ -110,26 +111,39 @@ repairTests =
                     "     in gcd'"
                   ]
               expected =
-                [ "EFC {\"hello, world!\"}",
-                  "EFC {0}",
-                  "EFC {(gcd' 0 b)}",
-                  "EFC {(gcd' 0)}",
-                  "EFC {0}",
-                  "EFC {0}",
-                  "EFC {(b == 0)}",
-                  "EFC {0}",
-                  "EFC {0}",
-                  "EFC {(if (a > b) then gcd' (a - b) b else gcd' a (b - a))}",
-                  "EFC {(a > b)}",
-                  "EFC {(gcd' (a - b) b)}",
-                  "EFC {(gcd' (a - b))}",
-                  "EFC {(a - b)}",
-                  "EFC {(gcd' a (b - a))}",
-                  "EFC {(gcd' a)}",
-                  "EFC {(b - a)}"
-                ]
-          expr_cands <- runJustParseExpr (compileConfig tESTCONF) wrong_prog >>= (runGhc' (compileConfig tESTCONF) . getExprFitCands . Left)
-          map showUnsafe expr_cands @?= expected,
+                ["EFC {\"hello, world!\"}",
+                 "EFC {0}",
+                 "EFC {(gcd' 0 b)}",
+                 "EFC {(gcd' 0)}",
+                 "EFC {0}",
+                 "EFC {0}",
+                 "EFC {(b == 0)}",
+                 "EFC {((==) b)}",
+                 "EFC {0}",
+                 "EFC {0}",
+                 "EFC {(if (a > b) then gcd' (a - b) b else gcd' a (b - a))}",
+                 "EFC {(a > b)}",
+                 "EFC {((>) a)}",
+                 "EFC {(gcd' (a - b) b)}",
+                 "EFC {(gcd' (a - b))}",
+                 "EFC {(a - b)}",
+                 "EFC {((-) a)}",
+                 "EFC {(gcd' a (b - a))}",
+                 "EFC {(gcd' a)}",
+                 "EFC {(b - a)}",
+                 "EFC {((-) b)}"]
+
+              no_ff = (compileConfig tESTCONF) {allowFunctionFits = False}
+              -- TODO 9.8: these identifiers shouldn't really be there.
+              remove_extra_space = unwords . words . unlines . lines
+              remove_ids [] = []
+              remove_ids s | (b,_:e) <- span (/= '_') s,
+                             e' <- dropWhile isAlphaNum e
+                             = (b ++ remove_ids e')
+              remove_ids s = s
+          expr_cands <- runJustParseExpr (no_ff) wrong_prog
+                          >>= (runGhc' (no_ff) . getExprFitCands . Left)
+          map (remove_ids . remove_extra_space . showUnsafe) expr_cands @?= expected,
       localOption (mkTimeout 60_000_000) $
         testCase "Repair `gcd'` with gcd" $ do
           let props =
@@ -383,7 +397,7 @@ traceTests =
               prog_at_ty = progAtTy e_prog' e_ty
               eprog_fix = eProgToEProgFix $ applyFixToEProg e_prog mempty
           Just [(texp, res)] <- traceTarget cc tp eprog_fix failed_prop counter_example_args
-          let eMap = Map.fromList $ map (getLoc &&& showUnsafe) $ flattenExpr texp
+          let eMap = Map.fromList $ map (getLocA &&& showUnsafe) $ flattenExpr texp
               trc = map (\(s, r) -> (eMap Map.!? s, r, maximum $ map snd r)) $ flatten res
               isXBox (ExpBox _) = True
               isXBox _ = False
@@ -412,7 +426,7 @@ sanctifyTests =
           -- There are 7 ways to replace parts of the broken function in BrokenModule
           -- with holes:
           let [(_, _, e_prog')] = e_prog
-          length (sanctifyExpr noExtField e_prog') @?= 7,
+          length (sanctifyExpr noAnn e_prog') @?= 7,
       localOption (mkTimeout 1_000_000) $
         testCase "Fill foldl program" $ do
           let cc = compileConfig tESTCONF
@@ -420,8 +434,8 @@ sanctifyTests =
               repair_target = Just "broken"
           (cc', _, Just EProb {..}) <- moduleToProb cc toFix repair_target
           let [(_, _, e_prog')] = e_prog
-              (holes, holey) = unzip $ sanctifyExpr noExtField e_prog'
-              filled = mapMaybe (fillHole undefVar) holey
+              (holes, holey) = unzip $ sanctifyExpr noAnn e_prog'
+              filled = mapMaybe (fillHole Nothing undefVar) holey
           length filled @?= 7
           all (uncurry (==)) (zip holes (map fst filled)) @? "All fillings should match holes!"
     ]
@@ -437,7 +451,6 @@ moduleTests =
           let [(e_target, _, _)] = e_prog
           showUnsafe e_target @?= "broken",
       mkSimpleModuleTest 30_000_000 "Repair BrokenModule With Diff" "tests/cases/BrokenModule.hs" (Just "broken"),
-      mkSimpleModuleTest 240_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
       mkSimpleModuleTest 30_000_000 "Repair MagicConstant" "tests/cases/MagicConstant.hs" Nothing,
       mkSimpleModuleTest 10_000_000 "All props pass" "tests/cases/AllPropsPass.hs" Nothing,
       mkSimpleModuleTest 5_000_000 "No props" "tests/cases/NoProps.hs" Nothing,

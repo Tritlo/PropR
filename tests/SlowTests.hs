@@ -23,7 +23,6 @@ import PropR.Search.PseudoGenetic (pseudoGeneticRepair)
 import PropR.Traversals
 import PropR.Types
 import PropR.Util (logStr, traceOut, traceOutId, withLogLevel)
-import GhcPlugins (text)
 import Test.Tasty
 import Test.Tasty.ExpectedFailure
 import Test.Tasty.HUnit
@@ -33,7 +32,8 @@ tests :: TestTree
 tests =
   testGroup
     "Tests"
-    [ specialTests,
+    [ mkSimpleModuleTest 240_000_000 "Repair BrokenGCD" "tests/cases/BrokenGCD.hs" (Just "gcd'"),
+      specialTests,
       tastyFixTests,
       randTests,
       properGenTests,
@@ -144,7 +144,13 @@ specialTests =
         60_000_000
         "Wrap fits"
         "tests/cases/Wrap.hs",
-      mkGenConfTestEx 60_000_000 "Ambiguous fits" "tests/cases/AmbiguousTypeVariables.hs",
+      mkRepairTest'
+        tESTCONF
+        runGenRepair
+        60_000_000
+        "Ambiguous fits"
+        "tests/cases/AmbiguousTypeVariables.hs"
+        def {allowMix = True},
       mkRepairTest'
         tESTCONF {compileConfig = (compileConfig tESTCONF) {excludeTargets = ["brokenPair"]}}
         runGenRepair

@@ -238,7 +238,8 @@ instance Materializeable CompileConfig where
       umExcludeTargets :: Maybe [String],
       umExtendDefaults :: Maybe Bool,
       umFilterIncorrectFixes :: Maybe Bool,
-      umUseSpectrum :: Maybe Bool
+      umUseSpectrum :: Maybe Bool,
+      umGhcFlags :: Maybe [String]
     }
     deriving (Show, Eq, Generic)
     deriving
@@ -247,6 +248,7 @@ instance Materializeable CompileConfig where
 
   conjure =
     UmCompConf
+      Nothing
       Nothing
       Nothing
       Nothing
@@ -296,7 +298,8 @@ instance Materializeable CompileConfig where
         excludeTargets = fromMaybe excludeTargets umExcludeTargets,
         extendDefaults = fromMaybe extendDefaults umExtendDefaults,
         filterIncorrectFixes = fromMaybe filterIncorrectFixes umFilterIncorrectFixes,
-        useSpectrum = fromMaybe useSpectrum umUseSpectrum
+        useSpectrum = fromMaybe useSpectrum umUseSpectrum,
+        ghcFlags = fromMaybe ghcFlags umGhcFlags
       }
 
 -- | Configuration for the compilation itself
@@ -378,7 +381,10 @@ data CompileConfig = CompConf
     -- | Use spectrum turns on using spectral analysis to try to distinguish
     -- the good parts and bad parts by using the difference between failing
     -- and successful properties.
-    useSpectrum :: Bool
+    useSpectrum :: Bool,
+    -- | Flags passed to the internal GHC during initalization. Useful for
+    -- stuff like -package, -package-db
+    ghcFlags :: [String]
   }
   deriving (Show, Eq, Generic)
   deriving
@@ -410,7 +416,8 @@ instance Default CompileConfig where
         excludeTargets = [],
         extendDefaults = False,
         filterIncorrectFixes = True,
-        useSpectrum = False
+        useSpectrum = False,
+        ghcFlags = []
       }
 
 instance Default LogConfig where

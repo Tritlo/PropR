@@ -32,17 +32,25 @@ import Data.Data.Lens (uniplate)
 import Data.List (intercalate)
 import Data.Map (Map, member, (!))
 import GHC
-import GhcPlugins
+import GHC.Plugins
+import PropR.Types ()
+
+import GHC.Tc.Errors.Hole.FitTypes (TypedHole (..))
+import GHC.Tc.Types.Constraint (Hole(..))
 
 -- TODO: This doesn't recurse into (L _ (HsWrap _ _ v)), because there's no located expressions in v!
 
 -- | Get this expression and all subexpressions
-flattenExpr :: Data (HsExpr id) => LHsExpr id -> [LHsExpr id]
+flattenExpr :: (Data (HsExpr id), Data (XRec id (HsExpr id)))
+            => LHsExpr id -> [LHsExpr id]
 flattenExpr = universeOf uniplate
+
+
 
 -- | Replace all expressions in a given expression with those
 -- found in the given map.
-replaceExpr :: Data (HsExpr id) => Map SrcSpan (HsExpr id) -> LHsExpr id -> LHsExpr id
+replaceExpr :: (id ~ GhcPs, Data (HsExpr id))
+            => Map (SrcAnn AnnListItem) (HsExpr id) -> LHsExpr id -> LHsExpr id
 replaceExpr repls =
   transformOf uniplate $ \case
     L loc _ | loc `member` repls -> L loc (repls ! loc)
@@ -50,27 +58,29 @@ replaceExpr repls =
 
 -- | Replace all expressions in a given expression with those
 -- found in the given map.
-wrapExpr :: Data (HsExpr id) => SrcSpan -> (HsExpr id -> HsExpr id) -> LHsExpr id -> LHsExpr id
+wrapExpr :: (id ~ GhcPs, Data (HsExpr id))
+         => SrcAnn AnnListItem -> (HsExpr id -> HsExpr id) -> LHsExpr id -> LHsExpr id
 wrapExpr repl_loc trans =
   transformOf uniplate $ \case
-    L loc x | loc == repl_loc -> L loc (trans x)
+    L loc x | (rbf loc) == (rbf repl_loc) -> L loc (trans x)
     e -> e
+  where rbf = removeBufSpan . locA
 
 -- | All possible replacement of one variable with a hole, i.e. we are making
 -- the expression "holey". Which is pronounced holy.
 -- Could also be named `perforate`, `stigmatize` or
 -- `spindle`. See https://twitter.com/tritlo/status/1367202546415206400
 sanctifyExpr ::
-  (Data (HsExpr id), HasOccName (IdP id)) =>
+  (id ~ GhcPs, Data (HsExpr id), HasOccName (IdP id)) =>
   XUnboundVar id ->
   LHsExpr id ->
-  [(SrcSpan, LHsExpr id)]
+  [(SrcAnn AnnListItem, LHsExpr id)]
 sanctifyExpr ext = map repl . contextsOf uniplate
   where
     repl ctxt = (loc, peek (L loc hole) ctxt)
       where
         (L loc expr) = pos ctxt
-        hole = HsUnboundVar ext $ TrueExprHole name
+        hole = HsUnboundVar ext (mkRdrUnqual name)
         name = case expr of
           HsVar _ (L _ v) ->
             let (ns, fs) = (occNameSpace (occName v), fsLit (sanitize v))
@@ -83,8 +93,9 @@ sanctifyExpr ext = map repl . contextsOf uniplate
           where
             base = occNameString $ occName nm
             alphanum = filter isAlphaNum base
-        locToStr (UnhelpfulSpan x) = unpackFS x
-        locToStr s@(RealSrcSpan r) =
+        locToStr = locToStr' . locA
+        locToStr' (UnhelpfulSpan x) = show x
+        locToStr' s@(RealSrcSpan r _) =
           intercalate "_" $
             map show $
               [srcSpanStartLine r, srcSpanStartCol r]
@@ -92,11 +103,21 @@ sanctifyExpr ext = map repl . contextsOf uniplate
                 ++ [srcSpanEndCol r]
 
 -- | Fill the first hole in the given holed-expression.
-fillHole :: Data (HsExpr id) => HsExpr id -> LHsExpr id -> Maybe (SrcSpan, LHsExpr id)
-fillHole fit = fillFirst . contextsOf uniplate
+fillHole :: (id ~ GhcPs, Data (HsExpr id)) =>
+        Maybe TypedHole -> -- The hole to be filled, if provided.
+                           -- Otherwise we just fill the first hole.
+        HsExpr id -> LHsExpr id -> Maybe (SrcAnn AnnListItem, LHsExpr id)
+fillHole mb_th fit = fill . contextsOf uniplate
   where
-    fillFirst (ctxt : ctxts) =
+    fill (ctxt : ctxts) =
       case pos ctxt of
-        L loc (HsUnboundVar _ _) -> Just (loc, peek (L loc fit) ctxt)
-        _ -> fillFirst ctxts
-    fillFirst [] = Nothing
+        L loc (HsUnboundVar _ occ) | matchesHole occ mb_th ->
+            Just (loc, peek (L loc fit) ctxt)
+        _ -> fill ctxts
+      where
+        matchesHole _ Nothing = True
+        matchesHole occ
+            (Just TypedHole{th_hole=Just Hole{hole_occ = h1}}) = h1 == occ
+        matchesHole occ _ = False
+
+    fill [] = Nothing

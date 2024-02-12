@@ -22,7 +22,6 @@ import PropR.Search.PseudoGenetic (pseudoGeneticRepair)
 import PropR.Traversals
 import PropR.Types
 import PropR.Util (collectStats, getStats, logOut, reportStats, reportStats', resetStats, showTime, time)
-import GhcPlugins (Outputable (ppr))
 import Test.Tasty
 import TestUtils
 

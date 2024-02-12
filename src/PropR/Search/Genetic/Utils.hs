@@ -6,8 +6,9 @@
 module PropR.Search.Genetic.Utils where
 
 import Data.List (delete)
-import GhcPlugins (HasCallStack, liftIO)
 import PropR.Search.Genetic.Configuration (GeneticConfiguration (..))
+import Control.Monad.IO.Class (liftIO)
+import GHC.Stack (HasCallStack)
 import PropR.Search.Genetic.Types (GenMonad)
 import PropR.Types (LogLevel)
 import PropR.Util (logStr)

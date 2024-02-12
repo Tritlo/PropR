@@ -21,6 +21,8 @@ import Distribution.Simple.Build
 import Distribution.Simple.Configure
 import Distribution.Simple.Program
 import Distribution.Simple.Program.Db
+import Distribution.Simple.PackageDescription
+import Distribution.Utils.Path
 import Distribution.Types.GenericPackageDescription
 import Distribution.Types.LocalBuildInfo
 import Distribution.Verbosity
@@ -63,7 +65,7 @@ repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
         Just
           (testBuildInfo, addHsSourceDir testBuildInfo $ toFilePath mname <.> ".hs")
       testModName _ = Nothing
-      addHsSourceDir BuildInfo {..} = (dir </>)
+      addHsSourceDir BuildInfo {..} = ((getSymbolicPath dir) </>)
         where
           dir = case hsSourceDirs of
             [d] -> d
@@ -106,7 +108,7 @@ repairPackage conf@Conf {..} target_dir = withCurrentDirectory target_dir $ do
           test_dirs = hsSourceDirs buildInfo
           dirs = test_dirs ++ lib_dirs
           pkgs = nub $ sort $ non_lcl_pkgs ++ lib_pkgs
-      abs_dirs <- mapM makeAbsolute dirs
+      abs_dirs <- mapM (makeAbsolute . getSymbolicPath) dirs
       let conf' =
             conf
               { compileConfig =

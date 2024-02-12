@@ -13,7 +13,7 @@ import Data.Maybe
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Time.Clock
-import GhcPlugins (liftIO)
+import Control.Monad.IO.Class (liftIO)
 import PropR.Configuration (ProblemDescription (..))
 import PropR.Search.Genetic.Configuration
 import PropR.Search.Genetic.GenMonad

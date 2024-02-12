@@ -23,8 +23,6 @@ import Data.Maybe (mapMaybe)
 import Data.Ord (Down (Down))
 import Data.Set (Set)
 import qualified Data.Set as Set
-import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (Outputable (..), isSubspanOf, noLoc, pprPanic)
 import PropR.Configuration
 import PropR.Eval (getExprFitCands, runGhc')
 import PropR.Repair (checkFixes, findEvaluatedHoles, repairAttempt)

@@ -2,6 +2,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module PropR.Search.Genetic.Types where
 
@@ -9,8 +10,7 @@ import Control.DeepSeq (NFData (..))
 import qualified Control.Monad.Trans.Reader as R
 import qualified Control.Monad.Trans.State.Lazy as ST
 import qualified Data.Map as Map
-import GHC (HsExpr (HsLet), NoExtField (NoExtField))
-import GhcPlugins (Outputable (..), noLoc)
+import GHC.Plugins (Outputable (..))
 import PropR.Configuration
 import PropR.Eval (getExprFitCands, moduleToProb)
 import PropR.Search.Genetic.Configuration
@@ -18,13 +18,16 @@ import PropR.Types
 import PropR.Util (undefVar)
 import System.Random
 
+import GHC.Generics (Generic)
+import GHC (SrcAnn, AnnListItem)
+
 -- ===========                                    ==============
 -- ===                  Genetic Requirements                 ===
 -- === All Instances and Setups required for genetic search  ===
 -- ===========                                    ==============
 
 -- Eq is required to remove elements from lists while partitioning.
-class (Ord g, Outputable g, NFData g) => Chromosome g where
+class (Ord g, Outputable g) => Chromosome g where
   -- | TODO: We could also move the crossover to the configuration
   crossover ::
     (g, g) ->
