@@ -47,8 +47,7 @@ RUN chmod +x /app/propr
 RUN cabal update
 COPY ./check-helpers /app/check-helpers
 WORKDIR /app/check-helpers
-RUN cabal install --lib check-helpers
-RUN cabal install --lib random QuickCheck
+RUN cabal install --lib check-helpers random QuickCheck
 
 ENV LOG_LEVEL=INFO
 ENV REPAIR_TARGET=/input
