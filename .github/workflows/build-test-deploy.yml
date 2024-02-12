@@ -12,7 +12,7 @@ on:
       - '.github/workflows/*.yml'
     branches:
       - 'master'
-      - '9.6+'
+      - '9.8'
   pull_request:
     branches:
       - 'master'
