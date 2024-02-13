@@ -235,16 +235,22 @@ runGenMonad' conf desc gen fc action = do
       withGen = ST.runStateT withParams gen
   ST.runStateT withGen fc
 
-liftConf :: R.ReaderT GeneticConfiguration _ a -> GenMonad a
+type CacheM = ST.StateT FitnessCache IO
+type GenM = ST.StateT StdGen CacheM
+type DescM = R.ReaderT ProblemDescription GenM
+type ConfM = R.ReaderT GeneticConfiguration DescM
+
+liftConf :: ConfM a -> GenMonad a
 liftConf = id
 
-liftDesc :: R.ReaderT ProblemDescription _ a -> GenMonad a
+liftDesc :: DescM a -> GenMonad a
 liftDesc = lift
 
-liftGen :: ST.StateT StdGen _ a -> GenMonad a
+liftGen :: GenM a -> GenMonad a
 liftGen = lift . lift
 
-liftCache :: ST.StateT FitnessCache _ a -> GenMonad a
+
+liftCache :: CacheM a -> GenMonad a
 liftCache = lift . lift . lift
 
 -- Some getters and setters for the monad

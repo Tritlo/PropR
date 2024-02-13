@@ -31,7 +31,7 @@ import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Lens (Getting, to, universeOf, universeOn, universeOnOf)
 import Control.Lens.Combinators (Fold)
-import Control.Monad (forM, forM_, unless, void, when, zipWithM_, (>=>))
+import Control.Monad (forM, forM_, unless, void, when, zipWithM_, (>=>), join)
 import qualified GHC.Core.Utils as CoreUtils
 import qualified Data.Bifunctor
 import Data.Bits (complement)
@@ -40,7 +40,7 @@ import Data.Data.Lens (template, tinplate, uniplate)
 import Data.Dynamic (Dynamic, fromDynamic)
 import Data.Function (on)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
-import Data.List (groupBy, intercalate, nub, partition, stripPrefix)
+import Data.List (groupBy, intercalate, nub, partition, stripPrefix, uncons)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (catMaybes, isJust, isNothing, mapMaybe)
@@ -212,7 +212,6 @@ addPreludeIfNotPresent decls =
   where
     isPrelude (IIModule mname) = mname == pRELUDE_NAME
     isPrelude (IIDecl ImportDecl {..}) = unLoc ideclName == pRELUDE_NAME
-    isPrelude _ = False
     prelImport = IIDecl $ simpleImportDecl pRELUDE_NAME
 
 justParseExpr :: CompileConfig -> RExpr -> Ghc (LHsExpr GhcPs)
@@ -585,7 +584,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                         fh@FunRhs {mc_fun = L l''' _} ->
                           fh {mc_fun = L l''' $ unLoc nfid}
                         o -> o
-                nalt alt = alt
                 nalts = map nalt alts
                 nvpat :: IdP GhcPs -> LPat GhcPs
                 nvpat t_name =
@@ -594,7 +592,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                       (noLocA $ VarPat noExtField $ noLocA t_name)
                       noHsTok)
                 nvpats = map nvpat $ filter (`Set.member` vars) targets
-            nmatches _ _ mg = mg
 
             wrapProp :: LHsBind GhcPs -> [(LHsBind GhcPs, [Sig GhcPs])]
             wrapProp prop@(L l fb@FunBind {..})
@@ -615,15 +612,11 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                     run_i_only mg@MG {mg_alts = (L l' alts)} = mg {mg_alts = L l' $ map nalt alts}
                       where
                         nalt (L l'' m@Match {..}) = L l'' m {m_grhss = n_grhss m_grhss}
-                        nalt m = m
                         n_grhss grhss@GRHSs {..} = grhss {grhssGRHSs = map nGRHSS grhssGRHSs}
-                        n_grhss g = g
                         nGRHSS (L l3 (GRHS x guards bod)) = L l3 (GRHS x guards nbod)
                           where
                             nbod = noLocA $ HsApp noAnn nthapp (noLocA $ HsPar noAnn noHsTok bod noHsTok)
                             nthapp = noLocA $ HsPar noAnn noHsTok (noLocA $ HsApp noAnn (tf "testTreeNthTest") (il $ fromIntegral i)) noHsTok
-                        nGRHSS xg = xg
-                    run_i_only mg = mg
             wrapProp prop@(L l fb@FunBind {..}) =
               [(L l fb {fun_id = nfid, fun_matches = nmatches prop_vars nfid fun_matches}, sig)]
               where
@@ -658,7 +651,6 @@ moduleToProb baseCC@CompConf {tempDirBase = baseTempDir, ..} mod_path mb_target 
                     tyApps (ty : tys) = 
                         noLocA $ HsFunTy noAnn arr (noLocA ty) (tyApps tys)
                       where arr = HsUnrestrictedArrow noHsUniTok
-                toWrapSig e = e
             wrapped_props :: [EProp]
             prop_sigs :: [LSig GhcPs]
             (wrapped_props, prop_sigs) =
@@ -805,7 +797,7 @@ traceTarget ::
   EProp ->
   [RExpr] ->
   IO (Maybe TraceRes)
-traceTarget cc tp e fp ce = head <$> traceTargets cc tp e [(fp, ce)]
+traceTarget cc tp e fp ce = (join . fmap fst . uncons) <$> traceTargets cc tp e [(fp, ce)]
 
 toNonZeroInvokes :: Trace -> Map.Map (EExpr, SrcAnn AnnListItem) Integer
 toNonZeroInvokes (ex, res) = Map.fromList $ mapMaybe only_max $ flatten res
@@ -1195,7 +1187,7 @@ getExprFitCands expr_or_mod = do
                 let flat = flattenExpr tcd_context
                     -- We remove the ones already present and drop the first one
                     -- (since it will be the program itself)
-                    flat' = filter nonTriv $ tail flat
+                    flat' = filter nonTriv $ drop 1 flat
                  in toEsAnNames wc flat'
               _ -> []
       liftIO $ logStr TRACE "Getting the session..."

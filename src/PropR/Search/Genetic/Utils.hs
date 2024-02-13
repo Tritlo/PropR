@@ -89,9 +89,8 @@ pickRandomElements :: (RandomGen g, Eq a) => Int -> g -> [a] -> ([a], g)
 pickRandomElements 0 g _ = ([], g)
 pickRandomElements _ g [] = ([], g)
 pickRandomElements n g as =
-  let (asShuffled, g') = shuffle as g
+  let ((x:_), g') = shuffle as g
       (recursiveResults, g'') = pickRandomElements (n - 1) g' as
-      x = head asShuffled
    in (x : recursiveResults, g'')
 
 -- | Picks a random pair of a given List.

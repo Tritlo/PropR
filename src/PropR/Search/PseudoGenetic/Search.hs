@@ -31,6 +31,8 @@ import PropR.Traversals (replaceExpr)
 import PropR.Types
 import PropR.Util
 
+import qualified Data.List.NonEmpty as NE
+
 -- |
 --   An Individual consists of a "Fix", that is a change to be applied,
 --   and a list of properties they fulfill or fail, expressed as an boolean array.
@@ -165,4 +167,4 @@ deDupOn f as = map snd $ filter ((`Set.member` grouped) . fst) zas
   where
     zas = zip [(0 :: Int) ..] as
     zbs = zip [(0 :: Int) ..] $ map f as
-    grouped = Set.fromList $ map (fst . head) $ groupBy ((==) `on` snd) $ sortOn snd zbs
+    grouped = Set.fromList $ map (fst . NE.head) $ NE.groupBy ((==) `on` snd) $ sortOn snd zbs

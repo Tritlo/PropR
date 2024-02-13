@@ -336,13 +336,13 @@ geneticSearch = collectStats $ do
         sortPopByFitness shuffledIslandPop
       gen <- getGen
       let -- Select the best M species per island
-          migrators = [take (migrationSize iConf) pop | pop <- sortedIslands]
+          migrators@(m:ms) = [take (migrationSize iConf) pop | pop <- sortedIslands]
           -- Drop the worst M species per Island
           receivers = [drop (migrationSize iConf) pop | pop <- sortedIslands]
           -- Rearrange the migrating species either by moving one clockwise, or by shuffling them
           (migrators', gen') =
             if ringwiseMigration iConf
-              then (tail migrators ++ [head migrators], gen)
+              then (ms ++ [m], gen)
               else shuffle migrators gen
           islandMigrationPairs = zip receivers migrators'
           newIslands = map (uncurry (++)) islandMigrationPairs

@@ -36,7 +36,7 @@ import GHC.Tc.Types.Constraint
 import Control.Arrow (first, second, (***))
 import Control.Concurrent (getNumCapabilities, threadDelay, threadWaitRead)
 import Control.Concurrent.Async (mapConcurrently)
-import Control.Monad (forM_, void, when, (>=>), unless)
+import Control.Monad (forM_, void, when, (>=>), unless, join)
 import qualified Data.Bifunctor
 import Data.ByteString.Char8 (ByteString)
 import qualified Data.ByteString.Char8 as BSC
@@ -51,7 +51,7 @@ import qualified Data.Functor
 import Data.IORef (IORef, modifyIORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
-import Data.List (groupBy, intercalate, nub, nubBy, partition, sort, sortOn, transpose)
+import Data.List (groupBy, intercalate, nub, nubBy, partition, sort, sortOn, transpose, uncons)
 import qualified Data.List as L
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -354,7 +354,7 @@ detranslate _ = error "Cannot detranlsate external problem!"
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
 propCounterExample :: CompileConfig -> EProblem -> EProp -> IO (Maybe [RExpr])
-propCounterExample cc ep prop = head <$> propCounterExamples (fakeDesc [] cc ep) [prop]
+propCounterExample cc ep prop = (join . fmap fst . uncons) <$> propCounterExamples (fakeDesc [] cc ep) [prop]
 
 -- | Get a list of strings which represent shrunk arguments to the property that
 -- makes it fail.
@@ -643,7 +643,10 @@ generateFixCandidates
             )
             (map ((subexprs Map.!) . fst)  nzh)
             raw_wrapped_fits
-        wrapped_holes = map (first head) wrapped_in_holes
+        wrapped_holes =
+          map (first $ \case (h:_) -> h
+                             [] -> error "generateFixCandidates: No locations in hole!")
+              wrapped_in_holes
     liftIO $ logStr TRACE "Hole fits were:"
     liftIO $ mapM_ (logOut DEBUG) hole_fits
 

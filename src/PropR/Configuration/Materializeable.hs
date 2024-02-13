@@ -3,12 +3,13 @@
 module PropR.Configuration.Materializeable where
 
 import Data.Default
+import Data.Kind (Type)
 
 -- | The materializeable class defines the data we know how to materialize, i.e.
 -- bring from undefined data, and override
 -- TODO: We could definitely derive this
 class Default a => Materializeable a where
-  data Unmaterialized a :: *
+  data Unmaterialized a :: Type
   materialize :: Maybe (Unmaterialized a) -> a
   conjure :: Unmaterialized a
   override :: a -> Maybe (Unmaterialized a) -> a
