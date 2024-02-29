@@ -40,7 +40,8 @@ tests =
       counterExampleTests,
       traceTests,
       moduleTests,
-      sanctifyTests
+      sanctifyTests,
+      packageTests
     ]
 
 -- Helpers
@@ -459,5 +460,14 @@ moduleTests =
       mkSimpleModuleTest 30_000_000 "Prelude overwrite" "tests/cases/PreludeOverwrite.hs" Nothing,
       mkSimpleModuleTest 30_000_000 "Prelude overwrite imports" "tests/cases/PreludeOverwriteImports.hs" Nothing
     ]
+
+packageTests :: TestTree
+packageTests =
+  testGroup
+    "Package tests"
+    [  localOption (mkTimeout 30_000_000) $
+            testCase "Repair Simple Package" $ do
+                error "not implemented"
+        ]
 
 main = defaultMain tests
